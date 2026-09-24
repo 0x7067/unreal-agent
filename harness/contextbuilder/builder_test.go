@@ -197,7 +197,7 @@ func TestBuilderAppendsValidationErrorToolResult(t *testing.T) {
 	}
 }
 
-func TestBuilderRemovesOnlyStagedRunningResultsForUpdatedCall(t *testing.T) {
+func TestBuilderReplacesOnlyStagedRunningResultInPlace(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		name := "completed"
 		output := "done A"
@@ -226,11 +226,11 @@ func TestBuilderRemovesOnlyStagedRunningResultsForUpdatedCall(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := withPreamble(
-				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}}},
-				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "B", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}}},
+				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}, Running: true}},
+				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: output}}, Running: running}},
+				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "B", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}, Running: true}},
 				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "C", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "done C"}}}},
 				llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "continue"}},
-				llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: output}}}},
 			)
 			if !reflect.DeepEqual(result.Request.Input, want) {
 				t.Fatalf("input = %#v, want %#v", result.Request.Input, want)
@@ -239,6 +239,24 @@ func TestBuilderRemovesOnlyStagedRunningResultsForUpdatedCall(t *testing.T) {
 				t.Fatal("updating a staged result mutated a previously built request")
 			}
 		})
+	}
+}
+
+func TestBuilderPreservesCompletedResultMatchingRunningPayload(t *testing.T) {
+	current := NewBuilder()
+	current.AddToolResult("A", []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}, false)
+	current.AddToolResult("A", nil, true)
+	current.AddToolResult("A", []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "done A"}}, false)
+	result, err := current.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := withPreamble(
+		llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}}},
+		llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "done A"}}}},
+	)
+	if !reflect.DeepEqual(result.Request.Input, want) {
+		t.Fatalf("input = %#v, want %#v", result.Request.Input, want)
 	}
 }
 

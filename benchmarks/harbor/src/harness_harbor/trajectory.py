@@ -25,14 +25,14 @@ RUNNING = (
 TERMINAL = {"completed", "failed", "canceled"}
 
 
-def bash_result(data: dict[str, Any]) -> str:
+def bash_result(data: dict[str, Any]) -> tuple[str, bool]:
     status = data["Status"]
     operations = {op["ID"]: op for op in data.get("Operations", [])}
     waiting = status.get("WaitingFor") or []
     if status.get("Error"):
         if waiting or operations:
             raise ValueError("Bash call has both a validation error and operations")
-        return "Error: " + status["Error"]
+        return "Error: " + status["Error"], False
     if len(waiting) != 1:
         raise ValueError(f"Bash call has {len(waiting)} operations, want 1")
     op = operations[waiting[0]]
@@ -40,7 +40,7 @@ def bash_result(data: dict[str, Any]) -> str:
         raise ValueError(f"Unsupported operation type: {op['Type']}")
     state = op["State"]
     if op["Status"] in {"ready", "awaiting", "canceling"}:
-        return RUNNING
+        return RUNNING, True
     if op["Status"] not in TERMINAL:
         raise ValueError(f"Unsupported operation status: {op['Status']}")
 
@@ -68,12 +68,12 @@ def bash_result(data: dict[str, Any]) -> str:
             parts.append("Stderr capture: " + state["ErrPath"])
     if error:
         parts.append("Error: " + error)
-    return "\n".join(parts) if parts else "(no output)"
+    return "\n".join(parts) if parts else "(no output)", False
 
 
 def view_image_result(
     data: dict[str, Any], output_dir: Path | None
-) -> str | list[ContentPart]:
+) -> tuple[str | list[ContentPart], bool]:
     status = data["Status"]
     operations = {op["ID"]: op for op in data.get("Operations", [])}
     waiting = status.get("WaitingFor") or []
@@ -82,14 +82,14 @@ def view_image_result(
             raise ValueError(
                 "ViewImage call has both a validation error and operations"
             )
-        return "Error: " + status["Error"]
+        return "Error: " + status["Error"], False
     if len(waiting) != 1:
         raise ValueError(f"ViewImage call has {len(waiting)} operations, want 1")
     op = operations[waiting[0]]
     if op["Type"] != "view_image":
         raise ValueError(f"Unsupported operation type: {op['Type']}")
     if op["Status"] in {"ready", "awaiting", "canceling"}:
-        return RUNNING
+        return RUNNING, True
     if op["Status"] not in TERMINAL:
         raise ValueError(f"Unsupported operation status: {op['Status']}")
 
@@ -115,7 +115,7 @@ def view_image_result(
     if width > 0 and height > 0 and (failed or ratio < 1):
         details.append(f"original dimensions: {width}x{height}")
     if failed:
-        return "; ".join(details)
+        return "; ".join(details), False
     if ratio < 1:
         details.append(
             f"multiply coordinates by {1 / ratio:.2f} to approximate original"
@@ -139,7 +139,7 @@ def view_image_result(
     ]
     if details:
         content.append(ContentPart(type="text", text="; ".join(details)))
-    return content
+    return content, False
 
 
 def convert(
@@ -260,11 +260,12 @@ def convert(
         elif kind == "tool_call_status":
             step, name = calls[data["CallID"]]
             if name == "Bash":
-                content = bash_result(data)
+                content, running = bash_result(data)
             elif name == "ViewImage":
-                content = view_image_result(data, output_dir)
+                content, running = view_image_result(data, output_dir)
             elif data["Status"].get("Error") and not data.get("Operations"):
                 content = data["Status"]["Error"]
+                running = False
             else:
                 raise ValueError(f"Unsupported tool result: {name}")
             pending_observations = [
@@ -272,13 +273,13 @@ def convert(
                 for result in pending_observations
                 if not (
                     result.source_call_id == data["CallID"]
-                    and result.content == RUNNING
+                    and (result.extra or {}).get("running")
                 )
             ]
             result = ObservationResult(
                 source_call_id=data["CallID"],
                 content=content,
-                extra={**extra, "timestamp": timestamp},
+                extra={**extra, "timestamp": timestamp, "running": running},
             )
             if step.observation is None:
                 step.observation = Observation(results=[])

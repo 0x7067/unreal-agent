@@ -87,7 +87,8 @@ class ViewImageTests(unittest.TestCase):
                     EncodedMIMEType=encoded,
                     ScaleRatio=ratio,
                 )
-                parts = view_image_result(data, output_dir)
+                parts, running = view_image_result(data, output_dir)
+                self.assertIs(running, False)
                 self.assertEqual(parts[0].type, "image")
                 self.assertEqual(parts[0].source.media_type, encoded)
                 path = output_dir / parts[0].source.path
@@ -101,28 +102,33 @@ class ViewImageTests(unittest.TestCase):
                     self.assertEqual(len(parts), 2)
                     self.assertEqual(parts[1].type, "text")
                     self.assertEqual(parts[1].text, text)
-                self.assertEqual(view_image_result(data, output_dir), parts)
+                self.assertEqual(view_image_result(data, output_dir), (parts, False))
                 self.assertEqual(len(list(path.parent.iterdir())), 1)
 
     def test_running_and_errors_remain_text(self):
         for state in ("ready", "awaiting", "canceling"):
-            self.assertEqual(view_image_result(image_status(state), None), RUNNING)
+            self.assertEqual(
+                view_image_result(image_status(state), None), (RUNNING, True)
+            )
         for state in ("failed", "canceled"):
             with self.subTest(state=state):
                 data = image_status(state, Error="exceeded MaxSize by 100 bytes")
                 self.assertEqual(
                     view_image_result(data, None),
-                    "Error: exceeded MaxSize by 100 bytes; "
-                    "original MIME type: image/png; original dimensions: 4000x2000",
+                    (
+                        "Error: exceeded MaxSize by 100 bytes; "
+                        "original MIME type: image/png; original dimensions: 4000x2000",
+                        False,
+                    ),
                 )
                 data["Operations"][0]["State"]["Result"] = None
                 self.assertEqual(
                     view_image_result(data, None),
-                    "Error: view-image operation " + state,
+                    ("Error: view-image operation " + state, False),
                 )
         self.assertEqual(
             view_image_result({"Status": {"Error": "invalid path"}}, None),
-            "Error: invalid path",
+            ("Error: invalid path", False),
         )
         self.assertEqual(
             view_image_result(
@@ -135,7 +141,7 @@ class ViewImageTests(unittest.TestCase):
                 ),
                 None,
             ),
-            "Error: decode image header; original dimensions unavailable",
+            ("Error: decode image header; original dimensions unavailable", False),
         )
 
     def test_rejects_invalid_results(self):
@@ -196,14 +202,60 @@ class ViewImageTests(unittest.TestCase):
             )
             observations = trajectory.steps[0].observation.results
             self.assertEqual(observations[0].content, RUNNING)
+            self.assertIs(observations[0].extra["running"], True)
             self.assertEqual(observations[0].extra["available_before_turn"], "turn-2")
             self.assertEqual(observations[1].extra["available_before_turn"], "turn-3")
             self.assertEqual(observations[1].source_call_id, "image-call")
+            self.assertIs(observations[1].extra["running"], False)
             self.assertEqual(observations[1].content[0].type, "image")
             self.assertEqual(observations[1].content[1].type, "text")
             restored = Trajectory.model_validate(trajectory.to_json_dict())
             self.assertEqual(restored, trajectory)
             self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 20)
+
+    def test_only_latest_pending_image_result_is_marked_available(self):
+        call = {
+            "Type": "tool_call",
+            "Data": {
+                "CallID": "image-call",
+                "Name": "ViewImage",
+                "Arguments": '{"path":"image.png"}',
+            },
+        }
+        for state in (
+            "ready",
+            "awaiting",
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+        ):
+            with ExitStack() as stack:
+                stack.enter_context(self.subTest(state=state))
+                output_dir = Path(stack.enter_context(TemporaryDirectory()))
+                lines = [
+                    record(1, "model_response", response("turn-1", [call])),
+                    record(2, "tool_call_status", image_status("ready")),
+                    record(3, "tool_call_status", image_status(state)),
+                    record(4, "turn", {"ID": "turn-2"}),
+                ]
+                trajectory = convert(
+                    lines,
+                    Agent(name="unreal-agent", version="test"),
+                    "session",
+                    output_dir=output_dir,
+                )
+                observations = trajectory.steps[0].observation.results
+                self.assertEqual(len(observations), 2)
+                self.assertEqual(observations[0].content, RUNNING)
+                self.assertIs(observations[0].extra["running"], True)
+                self.assertNotIn("available_before_turn", observations[0].extra)
+                content, running = view_image_result(image_status(state), output_dir)
+                self.assertEqual(observations[1].content, content)
+                self.assertIs(observations[1].extra["running"], running)
+                self.assertEqual(
+                    observations[1].extra["available_before_turn"], "turn-2"
+                )
 
 
 if __name__ == "__main__":

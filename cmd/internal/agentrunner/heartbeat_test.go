@@ -17,7 +17,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
@@ -52,7 +51,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 				continue
 			}
 			result := item.Data.(llm.ToolResult)
-			if result.CallID != "waiting-call" || result.Output[0].Value == contextbuilder.ToolCallRunningPayload {
+			if result.CallID != "waiting-call" || result.Running {
 				continue
 			}
 			if result.Output[0].Value != "released" {

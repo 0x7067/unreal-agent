@@ -58,7 +58,7 @@ class TrajectoryTests(unittest.TestCase):
         for text in ("test", "1234", "aGVsbG8=", "😃\n", "", "{not JSON", '  "hi"\n\n'):
             with self.subTest(text=text):
                 self.assertEqual(
-                    bash_result(status(stdout=text)), text or "(no output)"
+                    bash_result(status(stdout=text)), (text or "(no output)", False)
                 )
 
     def test_preserves_inline_truncation_without_duplicate_metadata(self):
@@ -72,7 +72,7 @@ class TrajectoryTests(unittest.TestCase):
             ErrPath="/err",
         )
         self.assertEqual(
-            bash_result(data), f"{stdout}\nStderr:\n{stderr}\nExit code: 7"
+            bash_result(data), (f"{stdout}\nStderr:\n{stderr}\nExit code: 7", False)
         )
 
     def test_labels_stderr_and_nonzero_exit_codes(self):
@@ -87,19 +87,21 @@ class TrajectoryTests(unittest.TestCase):
                 data = status(
                     Result={"Out": stdout, "Err": stderr, "ExitCode": exit_code}
                 )
-                self.assertEqual(bash_result(data), expected)
+                self.assertEqual(bash_result(data), (expected, False))
 
     def test_running_and_failed_operations(self):
         for state in ("ready", "awaiting", "canceling"):
             with self.subTest(state=state):
-                self.assertEqual(bash_result(status(state=state, Result=None)), RUNNING)
+                self.assertEqual(
+                    bash_result(status(state=state, Result=None)), (RUNNING, True)
+                )
         for state in ("failed", "canceled"):
             for error in ("", "shell stopped", "err...100 bytes truncated...end"):
                 with self.subTest(state=state, error=error):
                     data = status(state=state, Result=None, TerminalError=error)
                     self.assertEqual(
                         bash_result(data),
-                        f"Error: {error or 'shell operation ' + state}",
+                        (f"Error: {error or 'shell operation ' + state}", False),
                     )
 
     def test_failure_and_cancellation_preserve_available_captures(self):
@@ -116,7 +118,8 @@ class TrajectoryTests(unittest.TestCase):
                 with self.subTest(state=state, fields=fields):
                     data = status(state=state, Result=None, **fields)
                     self.assertEqual(
-                        bash_result(data), prefix + f"Error: shell operation {state}"
+                        bash_result(data),
+                        (prefix + f"Error: shell operation {state}", False),
                     )
 
     def test_rejects_invalid_shell_results(self):
@@ -147,7 +150,9 @@ class TrajectoryTests(unittest.TestCase):
                 "ErrorTruncated": True,
             }
         }
-        self.assertEqual(bash_result(data), "Error: bad...100 bytes truncated...JSON")
+        self.assertEqual(
+            bash_result(data), ("Error: bad...100 bytes truncated...JSON", False)
+        )
 
     def test_internal_control_and_delayed_observations(self):
         tool_call = {
@@ -177,9 +182,11 @@ class TrajectoryTests(unittest.TestCase):
         self.assertEqual(trajectory.steps[0].message, '"literal quotes"')
         observations = trajectory.steps[1].observation.results
         self.assertEqual(observations[0].content, RUNNING)
+        self.assertIs(observations[0].extra["running"], True)
         self.assertEqual(observations[0].extra["available_before_turn"], "turn-2")
         self.assertEqual(observations[1].extra["available_before_turn"], "turn-3")
         self.assertEqual(observations[1].content, "test")
+        self.assertIs(observations[1].extra["running"], False)
         self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 30)
         self.assertEqual(trajectory.final_metrics.total_cached_tokens, 12)
         self.assertEqual(trajectory.final_metrics.total_completion_tokens, 9)
@@ -218,16 +225,51 @@ class TrajectoryTests(unittest.TestCase):
                 self.assertNotIn("available_before_turn", observations[0].extra)
                 self.assertEqual(observations[1].source_call_id, "call-2")
                 self.assertEqual(observations[1].content, RUNNING)
+                self.assertIs(observations[0].extra["running"], True)
+                self.assertIs(observations[1].extra["running"], True)
                 self.assertEqual(
                     observations[1].extra["available_before_turn"], "turn-2"
                 )
-                self.assertEqual(
-                    observations[2].content, bash_result(status(state=state))
-                )
+                content, running = bash_result(status(state=state))
+                self.assertEqual(observations[2].content, content)
+                self.assertIs(observations[2].extra["running"], running)
                 self.assertEqual(
                     observations[2].extra["available_before_turn"], "turn-2"
                 )
                 self.assertEqual(observations[2].extra["sequence"], 5)
+
+    def test_completed_output_matching_running_payload_remains_available(self):
+        call = {
+            "Type": "tool_call",
+            "Data": {
+                "CallID": "call-1",
+                "Name": "Bash",
+                "Arguments": "{}",
+            },
+        }
+        lines = [
+            record(1, "model_response", response("turn-1", [call])),
+            record(2, "tool_call_status", status(stdout=RUNNING)),
+            record(3, "tool_call_status", status(state="ready")),
+            record(4, "tool_call_status", status()),
+            record(5, "turn", {"ID": "turn-2"}),
+        ]
+        trajectory = convert(
+            lines, Agent(name="unreal-agent", version="test"), "session"
+        )
+        observations = trajectory.steps[0].observation.results
+        self.assertEqual(len(observations), 3)
+        self.assertEqual(observations[0].content, RUNNING)
+        self.assertIs(observations[0].extra["running"], False)
+        self.assertEqual(observations[0].extra["available_before_turn"], "turn-2")
+        self.assertIs(observations[1].extra["running"], True)
+        self.assertNotIn("available_before_turn", observations[1].extra)
+        self.assertEqual(observations[2].content, "test")
+        self.assertIs(observations[2].extra["running"], False)
+        self.assertEqual(observations[2].extra["available_before_turn"], "turn-2")
+        self.assertEqual(
+            Trajectory.model_validate(trajectory.to_json_dict()), trajectory
+        )
 
     def test_malformed_record_is_an_error_including_partial_final_line(self):
         for lines in (["{"], ['{"Kind":']):

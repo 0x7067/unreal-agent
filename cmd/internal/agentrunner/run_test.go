@@ -17,7 +17,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
@@ -293,7 +292,7 @@ func TestRunMainExecutesBashToolToCompletion(t *testing.T) {
 						continue
 					}
 					result := item.Data.(llm.ToolResult)
-					if result.CallID != "call-1" || result.Output[0].Value == contextbuilder.ToolCallRunningPayload {
+					if result.CallID != "call-1" || result.Running {
 						continue
 					}
 					if test.truncated {

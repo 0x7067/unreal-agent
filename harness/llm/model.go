@@ -50,8 +50,9 @@ type ToolResultOutput struct {
 }
 
 type ToolResult struct {
-	CallID string
-	Output []ToolResultOutput
+	CallID  string
+	Output  []ToolResultOutput
+	Running bool
 }
 
 // Raw is the provider's verbatim reasoning item. A provider may attach state to

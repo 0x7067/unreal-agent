@@ -43,7 +43,7 @@ func TestCoordinatorSubmissionBoundarySurvivesRecovery(t *testing.T) {
 						continue
 					}
 					result := item.Data.(llm.ToolResult)
-					if result.CallID == "call-1" && result.Output[0].Value == contextbuilder.ToolCallRunningPayload {
+					if result.CallID == "call-1" && result.Running {
 						t.Fatal("completion before submission retained its running placeholder")
 					}
 				}
@@ -270,7 +270,7 @@ func TestCoordinatorStartsNewToolWhileDeliveringPreviousCompletion(t *testing.T)
 		want.Input = append(append([]llm.Item(nil), first.Input...), response.Output...)
 		want.Input = append(want.Input,
 			llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "call-0", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: string(operation.StatusCompleted)}}}},
-			llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "C", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: contextbuilder.ToolCallRunningPayload}}}},
+			llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "C", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: contextbuilder.ToolCallRunningPayload}}, Running: true}},
 		)
 		if len(run.calls) != 2 || !reflect.DeepEqual(run.calls[1].request, want) {
 			t.Fatal("new tool response, old completion, and new running result were reordered")

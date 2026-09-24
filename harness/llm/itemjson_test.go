@@ -19,6 +19,9 @@ func TestItemJSONRoundTrip(t *testing.T) {
 		{ProviderID: "result-1", Type: ItemToolResult, Data: ToolResult{
 			CallID: "call-1", Output: []ToolResultOutput{{Kind: ToolResultText, Value: "done"}},
 		}},
+		{ProviderID: "result-running", Type: ItemToolResult, Data: ToolResult{
+			CallID: "call-running", Output: []ToolResultOutput{{Kind: ToolResultText, Value: "running"}}, Running: true,
+		}},
 		{ProviderID: "result-image", Type: ItemToolResult, Data: ToolResult{
 			CallID: "call-image", Output: []ToolResultOutput{{Kind: ToolResultImage, Value: "image-data"}},
 		}},

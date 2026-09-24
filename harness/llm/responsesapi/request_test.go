@@ -116,11 +116,13 @@ func TestRequestBodyRejectsInvalidUTF8ToolResult(t *testing.T) {
 
 func TestRequestBodyEncodesToolResultOutputs(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		output []llm.ToolResultOutput
-		want   string
+		name    string
+		output  []llm.ToolResultOutput
+		running bool
+		want    string
 	}{
 		{name: "text", output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "done"}}, want: `[{"type":"input_text","text":"done"}]`},
+		{name: "running", output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "running"}}, running: true, want: `[{"type":"input_text","text":"running"}]`},
 		{name: "empty text", output: []llm.ToolResultOutput{{Kind: llm.ToolResultText}}, want: `[{"type":"input_text","text":""}]`},
 		{name: "no outputs", want: `[]`},
 		{name: "image URL", output: []llm.ToolResultOutput{{Kind: llm.ToolResultImage, Value: "https://example.com/image.png"}}, want: `[{"type":"input_image","image_url":"https://example.com/image.png"}]`},
@@ -139,7 +141,7 @@ func TestRequestBodyEncodesToolResultOutputs(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := requestBody(llm.Request{
 				Model: llm.Model{ID: "gpt-test"},
-				Input: []llm.Item{{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "call-1", Output: test.output}}},
+				Input: []llm.Item{{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "call-1", Output: test.output, Running: test.running}}},
 			}, "", nil)
 			if err != nil {
 				t.Fatal(err)

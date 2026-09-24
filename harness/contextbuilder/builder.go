@@ -105,21 +105,25 @@ func (current *builder) AddToolResult(
 	payload []llm.ToolResultOutput,
 	running bool,
 ) {
-	runningOutput := []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}
-	if running {
-		payload = runningOutput
-	}
-	current.stagedSuffix = slices.DeleteFunc(current.stagedSuffix, func(item llm.Item) bool {
+	runningIndex := slices.IndexFunc(current.stagedSuffix, func(item llm.Item) bool {
 		if item.Type != llm.ItemToolResult {
 			return false
 		}
 		result := item.Data.(llm.ToolResult)
-		return result.CallID == callID && slices.Equal(result.Output, runningOutput)
+		return result.CallID == callID && result.Running
 	})
-	current.stagedSuffix = append(current.stagedSuffix, llm.Item{
+	if running {
+		payload = []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}
+	}
+	resultItem := llm.Item{
 		Type: llm.ItemToolResult,
-		Data: llm.ToolResult{CallID: callID, Output: payload},
-	})
+		Data: llm.ToolResult{CallID: callID, Output: payload, Running: running},
+	}
+	if runningIndex != -1 {
+		current.stagedSuffix[runningIndex] = resultItem
+		return
+	}
+	current.stagedSuffix = append(current.stagedSuffix, resultItem)
 }
 
 func (current *builder) Commit() {
