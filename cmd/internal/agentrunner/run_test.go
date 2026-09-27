@@ -77,6 +77,7 @@ description: Review code.
 			],
 			"system_prompt":"be concise",
 			"model":"gpt-test",
+			"max_output_tokens":2048,
 			"thinking_level":"medium"
 		}`),
 		&stdout,
@@ -89,6 +90,9 @@ description: Review code.
 	request := <-requests
 	if request.Model.ID != "gpt-test" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
 		t.Fatalf("model = %#v", request.Model)
+	}
+	if request.Model.MaxOutputTokens == nil || *request.Model.MaxOutputTokens != 2048 {
+		t.Fatalf("max output tokens = %v, want 2048", request.Model.MaxOutputTokens)
 	}
 	wantMessages := []llm.Message{
 		{Role: llm.RoleUser, Text: "first"},
@@ -200,6 +204,9 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
 		if request.Model.ID != "environment-model" {
 			return llm.Response{}, fmt.Errorf("model = %q", request.Model.ID)
+		}
+		if request.Model.MaxOutputTokens != nil {
+			return llm.Response{}, fmt.Errorf("max output tokens = %d, want unset", *request.Model.MaxOutputTokens)
 		}
 		return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
 	}}

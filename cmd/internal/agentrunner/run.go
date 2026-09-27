@@ -67,6 +67,7 @@ type Request struct {
 	Prompt                 *string          `json:"prompt"`
 	SystemPrompt           *string          `json:"system_prompt"`
 	Model                  string           `json:"model"`
+	MaxOutputTokens        *int64           `json:"max_output_tokens"`
 	MaxAttempts            *int             `json:"max_attempts"`
 	SessionID              *string          `json:"session_id"`
 	ThinkingLevel          string           `json:"thinking_level"`
@@ -410,6 +411,7 @@ func Run(
 	builder := contextbuilder.NewBuilder(registry.Skills()...)
 	builder.SetModel(llm.Model{
 		ID:              model,
+		MaxOutputTokens: parsed.MaxOutputTokens,
 		ReasoningEffort: reasoningEffort(parsed.ThinkingLevel),
 	})
 	systemPrompt := defaultSystemPrompt
@@ -605,6 +607,9 @@ func (scope *environmentScope) Close() error {
 }
 
 func validateRequest(parsed Request) ([]RequestMessage, error) {
+	if parsed.MaxOutputTokens != nil && *parsed.MaxOutputTokens <= 0 {
+		return nil, errors.New("max_output_tokens must be positive")
+	}
 	if parsed.SessionID != nil && strings.TrimSpace(*parsed.SessionID) == "" {
 		return nil, errors.New("session_id must not be empty")
 	}
