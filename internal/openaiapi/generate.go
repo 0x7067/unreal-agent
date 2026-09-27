@@ -1,4 +1,4 @@
 // Package openaiapi contains generated OpenAI Responses API wire types.
 package openaiapi
 
-//go:generate sh generate.sh
+//go:generate uv run --script generate.py

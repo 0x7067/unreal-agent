@@ -547,7 +547,7 @@ func TestAdapterCacheKeyPlacement(t *testing.T) {
 					Input []struct {
 						Content string `json:"content"`
 					} `json:"input"`
-					PromptCacheKey *string `json:"prompt_cache_key"`
+					PromptCacheKey jsontext.Value `json:"prompt_cache_key"`
 				}
 				if err := json.UnmarshalRead(request.Body, &body); err != nil {
 					t.Errorf("decode request: %v", err)
@@ -573,10 +573,10 @@ func TestAdapterCacheKeyPlacement(t *testing.T) {
 				}
 				if wantBody == "" {
 					if body.PromptCacheKey != nil {
-						t.Errorf("%s: unexpected prompt_cache_key = %q", caseName, *body.PromptCacheKey)
+						t.Errorf("%s: unexpected prompt_cache_key = %s", caseName, body.PromptCacheKey)
 					}
-				} else if body.PromptCacheKey == nil || *body.PromptCacheKey != wantBody {
-					t.Errorf("%s: prompt_cache_key = %v, want %q", caseName, body.PromptCacheKey, wantBody)
+				} else if string(body.PromptCacheKey) != `"`+wantBody+`"` {
+					t.Errorf("%s: prompt_cache_key = %s, want %q", caseName, body.PromptCacheKey, wantBody)
 				}
 				if got := request.Header.Get("x-cache-affinity"); got != wantHeader {
 					t.Errorf("%s: affinity header = %q, want %q", caseName, got, wantHeader)
