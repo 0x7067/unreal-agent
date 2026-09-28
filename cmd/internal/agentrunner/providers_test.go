@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/anthropic"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func TestRunnerAnthropicUsesMessagesAPI(t *testing.T) {
-	selected, err := selectProvider(DefaultProviders(), "anthropic")
+	selected, err := providers.Find(providers.Default(), "anthropic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func TestRunnerAnthropicUsesMessagesAPI(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				if body.Model != "claude-test" || !body.Stream || len(body.System) != 1 || !strings.HasSuffix(body.System[0].Text, "\n\nmy system prompt") || body.Thinking.Type != "adaptive" || body.OutputConfig.Effort != "high" {
+				if body.Model != "claude-opus-5-5" || !body.Stream || len(body.System) != 1 || !strings.HasSuffix(body.System[0].Text, "\n\nmy system prompt") || body.Thinking.Type != "adaptive" || body.OutputConfig.Effort != "high" {
 					t.Errorf("request = %#v", body)
 				}
 				if len(body.Tools) != 2 || body.Tools[0].Name != "Bash" || body.Tools[1].Name != "ViewImage" || body.Tools[0].Type != "custom" || body.Tools[1].Type != "custom" {
@@ -78,7 +79,6 @@ data: {"type":"message_stop"}
 			environment := map[string]string{
 				"UNREAL_HARNESS_LLM_PROVIDER": "anthropic",
 				"UNREAL_HARNESS_LLM_BASE_URL": server.URL + "/v1",
-				"UNREAL_HARNESS_LLM_MODEL":    "claude-test",
 				"ANTHROPIC_API_KEY":           "anthropic-key",
 			}
 			if override {
@@ -88,7 +88,7 @@ data: {"type":"message_stop"}
 			code := RunMain(t.Context(), []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()},
 				func(key string) string { return environment[key] }, func() []string { return nil },
 				strings.NewReader(`{"prompt":"hello","system_prompt":"my system prompt"}`), &output, &stderr,
-				Config{Name: "agent-runner", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
+				Config{Name: "agent-runner", ParseRequest: parseTestRequest, Providers: providers.Default()})
 			if code != 0 || requests.Load() != 1 || !strings.Contains(output.String(), "anthropic works") {
 				t.Fatalf("exit = %d, requests = %d, stderr = %s", code, requests.Load(), stderr.String())
 			}
@@ -100,7 +100,7 @@ data: {"type":"message_stop"}
 }
 
 func TestRunnerProviderRetries(t *testing.T) {
-	for _, provider := range DefaultProviders() {
+	for _, provider := range providers.Default() {
 		for _, maxAttempts := range []int{1, 2} {
 			t.Run(provider.Name+"/"+strconv.Itoa(maxAttempts), func(t *testing.T) {
 				t.Parallel()
@@ -140,23 +140,11 @@ func TestRunnerProviderRetries(t *testing.T) {
 						}
 					}, func() []string { return nil },
 					strings.NewReader(`{"prompt":"hello","model":"test","max_attempts":`+strconv.Itoa(maxAttempts)+`}`),
-					io.Discard, io.Discard, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
+					io.Discard, io.Discard, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: providers.Default()})
 				if code != 1 || attempts.Load() != int64(maxAttempts) {
 					t.Fatalf("exit = %d, attempts = %d, want %d", code, attempts.Load(), maxAttempts)
 				}
 			})
-		}
-	}
-}
-
-func TestRunnerProviderDefaultModels(t *testing.T) {
-	for _, provider := range DefaultProviders() {
-		want := ""
-		if provider.Name == "openai" {
-			want = "gpt-6-astra"
-		}
-		if provider.DefaultModel != want {
-			t.Errorf("%s default model = %q, want %q", provider.Name, provider.DefaultModel, want)
 		}
 	}
 }
@@ -167,12 +155,13 @@ func TestRunnerCodexUsesSubscriptionWithoutAPIKey(t *testing.T) {
 			t.Error("wrong authentication")
 		}
 		var body struct {
-			Stream bool `json:"stream"`
+			Stream bool   `json:"stream"`
+			Model  string `json:"model"`
 		}
 		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
-		if !body.Stream {
+		if !body.Stream || body.Model != "gpt-6-astra" {
 			t.Errorf("body = %#v", body)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -187,7 +176,7 @@ func TestRunnerCodexUsesSubscriptionWithoutAPIKey(t *testing.T) {
 			"OPENAI_CODEX_ACCESS_TOKEN":   "subscription-token",
 			"OPENAI_CODEX_ACCOUNT_ID":     "account",
 		}[key]
-	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello","model":"gpt-test","system_prompt":"my system prompt"}`), &output, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
+	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello","system_prompt":"my system prompt"}`), &output, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: providers.Default()})
 	if code != 0 || !strings.Contains(output.String(), "subscription works") {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}

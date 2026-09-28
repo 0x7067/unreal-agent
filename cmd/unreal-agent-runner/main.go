@@ -7,6 +7,7 @@ import (
 	"os/signal"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 		agentrunner.Config{
 			Name:         "unreal-agent-runner",
 			ParseRequest: parseRequest,
-			Providers:    agentrunner.DefaultProviders(),
+			Providers:    providers.Default(),
 		},
 	))
 }

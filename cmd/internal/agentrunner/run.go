@@ -22,6 +22,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
@@ -48,19 +49,6 @@ const defaultSystemPrompt = `You are an AI agent running inside an isolated sand
 - Save output files to the workspace root.
 - For large datasets, inspect a sample first before processing everything.
 `
-
-type Client interface {
-	llm.Adapter
-	Close() error
-}
-
-type Provider struct {
-	Name              string
-	BaseURL           string
-	DefaultModel      string
-	APIKeyEnvironment string // Empty delegates authentication to NewClient.
-	NewClient         func(apiKey, baseURL string, maxAttempts int, getenv func(string) string) (Client, error)
-}
 
 type Request struct {
 	Messages               []RequestMessage `json:"messages"`
@@ -242,7 +230,7 @@ func Run(
 	if providerName == "" {
 		providerName = defaultProvider
 	}
-	selected, err := selectProvider(config.Providers, providerName)
+	selected, err := providers.Find(config.Providers, providerName)
 	if err != nil {
 		return err
 	}
@@ -466,22 +454,6 @@ func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error)
 		return 0, errors.New("max attempts must be positive")
 	}
 	return maxAttempts, nil
-}
-
-func selectProvider(providers []Provider, name string) (Provider, error) {
-	for _, provider := range providers {
-		if provider.Name == name {
-			if provider.NewClient == nil {
-				return Provider{}, fmt.Errorf("provider %q has no client factory", name)
-			}
-			return provider, nil
-		}
-	}
-	names := make([]string, 0, len(providers))
-	for _, provider := range providers {
-		names = append(names, provider.Name)
-	}
-	return Provider{}, fmt.Errorf("unsupported provider %q; available providers: %s", name, strings.Join(names, ", "))
 }
 
 func DecodeRequest(input io.Reader, destination any) error {

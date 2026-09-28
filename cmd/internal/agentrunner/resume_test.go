@@ -12,6 +12,7 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 )
@@ -103,7 +104,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 			messageID := "69621f8d-4f4d-49a5-8f7d-3b24fd855c01"
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			run := func(client Client) (int, string, string) {
+			run := func(client providers.Client) (int, string, string) {
 				var stdout, stderr bytes.Buffer
 				request := fmt.Sprintf(`{"model":%q,"thinking_level":%q,"session_id":"resume-delivery","messages":[{"role":"user","content":"run it","message_id":%q}]}`, model, effort, messageID)
 				code := RunMain(ctx, []string{"-workspace", workspace, "-session-directory", sessions},

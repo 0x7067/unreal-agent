@@ -1,6 +1,10 @@
-package agentrunner
+package providers
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/anthropic"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/fireworks"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/ollama"
@@ -9,16 +13,22 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter"
 )
 
-func DefaultProviders() []Provider {
+type Client interface {
+	llm.Adapter
+	Close() error
+}
+
+type Provider struct {
+	Name              string
+	BaseURL           string
+	DefaultModel      string
+	APIKeyEnvironment string // Empty delegates authentication to NewClient.
+	// The caller must close the returned client.
+	NewClient func(apiKey, baseURL string, maxAttempts int, getenv func(string) string) (Client, error)
+}
+
+func Default() []Provider {
 	return []Provider{
-		{
-			Name:              "anthropic",
-			BaseURL:           anthropic.DefaultBaseURL,
-			APIKeyEnvironment: "ANTHROPIC_API_KEY",
-			NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (Client, error) {
-				return anthropic.NewClient(anthropic.Config{APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts})
-			},
-		},
 		{
 			Name:    "ollama",
 			BaseURL: ollama.BaseURL,
@@ -36,8 +46,9 @@ func DefaultProviders() []Provider {
 			},
 		},
 		{
-			Name:    "openai-codex",
-			BaseURL: openaicodex.BaseURL,
+			Name:         "openai-codex",
+			BaseURL:      openaicodex.BaseURL,
+			DefaultModel: "gpt-6-astra",
 			NewClient: func(_, baseURL string, maxAttempts int, getenv func(string) string) (Client, error) {
 				config, err := openaicodex.EnvironmentConfig(getenv)
 				if err != nil {
@@ -47,7 +58,6 @@ func DefaultProviders() []Provider {
 				return openaicodex.NewClient(config)
 			},
 		},
-
 		{
 			Name:              "openrouter",
 			BaseURL:           "https://openrouter.ai/api/v1",
@@ -64,5 +74,30 @@ func DefaultProviders() []Provider {
 				return fireworks.NewClient(fireworks.Config{APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts})
 			},
 		},
+		{
+			Name:              "anthropic",
+			BaseURL:           anthropic.DefaultBaseURL,
+			DefaultModel:      "claude-opus-5-5",
+			APIKeyEnvironment: "ANTHROPIC_API_KEY",
+			NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (Client, error) {
+				return anthropic.NewClient(anthropic.Config{APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts})
+			},
+		},
 	}
+}
+
+func Find(available []Provider, name string) (Provider, error) {
+	for _, provider := range available {
+		if provider.Name == name {
+			if provider.NewClient == nil {
+				return Provider{}, fmt.Errorf("provider %q has no client factory", name)
+			}
+			return provider, nil
+		}
+	}
+	names := make([]string, 0, len(available))
+	for _, provider := range available {
+		names = append(names, provider.Name)
+	}
+	return Provider{}, fmt.Errorf("unsupported provider %q; available providers: %s", name, strings.Join(names, ", "))
 }

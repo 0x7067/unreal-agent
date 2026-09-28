@@ -19,6 +19,7 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
@@ -170,9 +171,9 @@ func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
 				return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
 			}}
 			created := false
-			providers := []Provider{{
+			available := []providers.Provider{{
 				Name: "custom", DefaultModel: "test-model", APIKeyEnvironment: test.keyEnvironment,
-				NewClient: func(apiKey, _ string, _ int, _ func(string) string) (Client, error) {
+				NewClient: func(apiKey, _ string, _ int, _ func(string) string) (providers.Client, error) {
 					created = true
 					if apiKey != test.wantKey {
 						return nil, errors.New("unexpected API key")
@@ -188,7 +189,7 @@ func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
 					"CUSTOM_CREDENTIAL":    test.providerKey,
 					"CUSTOM_API_KEY":       "must-not-use",
 				}[name]
-			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: providers})
+			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: available})
 			if test.wantError {
 				if code != 1 || created || !strings.Contains(stderr.String(), test.keyEnvironment) {
 					t.Fatalf("exit = %d, client created = %v, stderr = %s", code, created, stderr.String())
@@ -211,18 +212,18 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 		return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
 	}}
 	selected := false
-	providers := []Provider{
+	available := []providers.Provider{
 		{
 			Name:              "openai",
 			APIKeyEnvironment: "OPENAI_API_KEY",
-			NewClient: func(_ string, _ string, _ int, _ func(string) string) (Client, error) {
+			NewClient: func(_ string, _ string, _ int, _ func(string) string) (providers.Client, error) {
 				return nil, errors.New("default provider selected")
 			},
 		},
 		{
 			Name: "openrouter", BaseURL: "https://default.example/v1", DefaultModel: "router-model",
 			APIKeyEnvironment: "OPENROUTER_API_KEY",
-			NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (Client, error) {
+			NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (providers.Client, error) {
 				if apiKey != "custom-secret" || baseURL != "https://custom.example/v1" || maxAttempts != 2 {
 					return nil, errors.New("unexpected OpenRouter configuration")
 				}
@@ -259,7 +260,7 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 		}`),
 		&stdout,
 		&stderr,
-		Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: providers},
+		Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: available},
 	)
 	if code != 0 || !selected {
 		t.Fatalf("exit = %d, selected = %t, stderr = %q", code, selected, stderr.String())
@@ -458,12 +459,12 @@ func (client *fakeClient) Close() error {
 	return nil
 }
 
-func testConfig(client Client) Config {
-	return Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: []Provider{{
+func testConfig(client providers.Client) Config {
+	return Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: []providers.Provider{{
 		Name: "openai", BaseURL: "https://example.com",
 		DefaultModel:      "gpt-default",
 		APIKeyEnvironment: "OPENAI_API_KEY",
-		NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (Client, error) {
+		NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (providers.Client, error) {
 			if apiKey != "secret" || baseURL != "https://example.com" || maxAttempts != 5 {
 				return nil, errors.New("unexpected provider configuration")
 			}

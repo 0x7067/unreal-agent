@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func TestResolveMaxAttempts(t *testing.T) {
@@ -45,7 +46,7 @@ func TestRunMainRequestDisablesRetries(t *testing.T) {
 		return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
 	}}
 	config := testConfig(client)
-	config.Providers[0].NewClient = func(_, _ string, maxAttempts int, _ func(string) string) (Client, error) {
+	config.Providers[0].NewClient = func(_, _ string, maxAttempts int, _ func(string) string) (providers.Client, error) {
 		if maxAttempts != 1 {
 			return nil, errors.New("request did not disable retries")
 		}
