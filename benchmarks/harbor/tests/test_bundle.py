@@ -100,6 +100,7 @@ class BundleTests(unittest.TestCase):
                 )
             )
             for prefix, key in (
+                ("anthropic", "ANTHROPIC_API_KEY"),
                 ("openai", "OPENAI_API_KEY"),
                 ("openrouter", "OPENROUTER_API_KEY"),
                 ("fireworks_ai", "FIREWORKS_AI_API_KEY"),
@@ -115,7 +116,7 @@ class BundleTests(unittest.TestCase):
                     self.assertEqual(agent.model_connection.api_key, "test-key")
 
     def test_invalid_model_and_reasoning_fail_before_installation(self):
-        for model in ("test", "anthropic/test", "openai/"):
+        for model in ("test", "unsupported/test", "openai/"):
             with ExitStack() as stack:
                 stack.enter_context(self.subTest(model=model))
                 stack.enter_context(self.assertRaises(ValueError))

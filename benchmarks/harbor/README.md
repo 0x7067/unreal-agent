@@ -33,7 +33,8 @@ uv run --project benchmarks/harbor --locked harbor run \
 ```
 
 `thinking_level`: `low`, `medium`, `high` (default), `xhigh`, or `max`.
-Also supports `openrouter/<model>` with `OPENROUTER_API_KEY` and
+Also supports `anthropic/<model>` with `ANTHROPIC_API_KEY`,
+`openrouter/<model>` with `OPENROUTER_API_KEY`, and
 `fireworks_ai/<model>` with `FIREWORKS_AI_API_KEY`. Use Harbor's `--ae` option for
 environment overrides.
 

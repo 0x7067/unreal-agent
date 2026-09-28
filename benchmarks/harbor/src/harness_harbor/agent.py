@@ -45,10 +45,12 @@ class UnrealAgent(BaseInstalledAgent):
         if (
             not separator
             or not self._model
-            or self._provider not in {"openai", "openrouter", "fireworks_ai"}
+            or self._provider
+            not in {"anthropic", "openai", "openrouter", "fireworks_ai"}
         ):
             raise ValueError(
-                "Model must use the openai/, openrouter/ or fireworks_ai/ prefix"
+                "Model must use the anthropic/, openai/, openrouter/ "
+                "or fireworks_ai/ prefix"
             )
         # A task may declare MCP servers or a skills directory for agents that use
         # them; this integration exposes Bash and ViewImage, so they are recorded in
