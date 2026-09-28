@@ -1,6 +1,6 @@
 # JSON defaults for generated API types
 
-Use this package to marshal and unmarshal generated OpenAI types.
+Use this package to marshal and unmarshal generated OpenAI and Anthropic types.
 Generated JSON methods use these defaults too:
 
 - Numbers decoded into `any` retain precision as `encoding/json.Number`.
