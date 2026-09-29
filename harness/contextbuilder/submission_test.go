@@ -1,6 +1,7 @@
 package contextbuilder
 
 import (
+	"encoding/json/jsontext"
 	"reflect"
 	"testing"
 
@@ -38,7 +39,6 @@ func TestBuilderPlacesResponseBeforeUnsubmittedInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 			current.AddControlMessage(inbox.ControlMessage{Mode: inbox.Heartbeat, Reason: "heartbeat"})
-			current.AddReasoning(llm.Reasoning{Summary: []string{"added reasoning"}})
 			preview, err := current.Build()
 			if err != nil {
 				t.Fatal(err)
@@ -47,14 +47,13 @@ func TestBuilderPlacesResponseBeforeUnsubmittedInputs(t *testing.T) {
 				{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: "A", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "done A"}}}},
 				{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "continue"}},
 				{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "heartbeat"}},
-				{Type: llm.ItemReasoning, Data: llm.Reasoning{Summary: []string{"added reasoning"}}},
 			}
 			wantPreview := append(append([]llm.Item(nil), original...), suffix...)
 			if !reflect.DeepEqual(preview.Request.Input, wantPreview) {
 				t.Fatalf("preview input = %#v, want %#v", preview.Request.Input, wantPreview)
 			}
 			output := []llm.Item{
-				{ProviderID: "reasoning", Type: llm.ItemReasoning, Data: llm.Reasoning{Summary: []string{"response reasoning"}}},
+				{ProviderID: "reasoning", Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`), Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "response reasoning"}}},
 				{ProviderID: "message", Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "working"}},
 				{ProviderID: "call", Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "C", Name: "test", Arguments: `{}`}},
 			}

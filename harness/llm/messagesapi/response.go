@@ -141,7 +141,7 @@ func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
 		if err != nil {
 			return llm.Item{}, err
 		}
-		reasoning := llm.Reasoning{Raw: raw}
+		provider := llm.ProviderItem{Type: kind, Raw: raw}
 		if kind == "thinking" {
 			block, err := source.AsResponseThinkingBlock()
 			if err != nil {
@@ -151,7 +151,7 @@ func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
 				return llm.Item{}, fmt.Errorf("thinking block must have a signature")
 			}
 			if block.Thinking != "" {
-				reasoning.Summary = []string{block.Thinking}
+				provider.Display = &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: block.Thinking}
 			}
 		} else {
 			block, err := source.AsResponseRedactedThinkingBlock()
@@ -162,7 +162,7 @@ func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
 				return llm.Item{}, fmt.Errorf("redacted thinking block must have data")
 			}
 		}
-		return llm.Item{Type: llm.ItemReasoning, Data: reasoning}, nil
+		return llm.Item{Type: llm.ItemProvider, Data: provider}, nil
 	default:
 		return llm.Item{}, fmt.Errorf("unsupported output block type %q", kind)
 	}

@@ -16,7 +16,7 @@ func BenchmarkRequestBody(b *testing.B) {
 			for index := range 32 {
 				id := fmt.Sprint(index)
 				if kind == "thinking" {
-					request.Input = append(request.Input, llm.Item{Type: llm.ItemReasoning, Data: llm.Reasoning{
+					request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking",
 						Raw: jsontext.Value(`{"type":"thinking","thinking":"","signature":"` + strings.Repeat("x", 16<<10) + `","provider_state":{"v":2}}`),
 					}})
 				}

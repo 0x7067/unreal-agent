@@ -63,7 +63,7 @@ func TestCollectedItemsFallback(t *testing.T) {
 				if len(response.Output) != 3 {
 					t.Fatalf("output = %#v", response.Output)
 				}
-				if !strings.Contains(string(response.Output[0].Data.(llm.Reasoning).Raw), `"vendor_field":"kept"`) {
+				if !strings.Contains(string(response.Output[0].Data.(llm.ProviderItem).Raw), `"vendor_field":"kept"`) {
 					t.Fatal("reasoning data lost")
 				}
 				if message := response.Output[1].Data.(llm.Message); message.Text != "fallback" || message.Phase != "final_answer" {

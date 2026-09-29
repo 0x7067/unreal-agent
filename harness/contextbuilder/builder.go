@@ -89,13 +89,6 @@ func (current *builder) AddModelResponse(response llm.Response) {
 	current.committedPrefix = append(current.committedPrefix, response.Output...)
 }
 
-func (current *builder) AddReasoning(reasoning llm.Reasoning) {
-	current.stagedSuffix = append(current.stagedSuffix, llm.Item{
-		Type: llm.ItemReasoning,
-		Data: reasoning,
-	})
-}
-
 func (current *builder) AddTool(tool llm.Tool) {
 	current.request.Tools = append(current.request.Tools, tool)
 }

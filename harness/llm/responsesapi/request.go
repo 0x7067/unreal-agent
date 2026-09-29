@@ -3,7 +3,6 @@ package responsesapi
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -242,17 +241,12 @@ func requestItem(source llm.Item) (openaiapi.Item, error) {
 		if err := setUnion(&item, converted); err != nil {
 			return item, err
 		}
-	case llm.ItemReasoning:
-		reasoning, ok := source.Data.(llm.Reasoning)
-		if !ok {
-			return item, fmt.Errorf("reasoning item data must be llm.Reasoning, got %T", source.Data)
-		}
-		if len(reasoning.Raw) == 0 {
-			return item, errors.New("reasoning item must carry the provider item in Raw")
-		}
-		if err := setUnion(&item, reasoning.Raw); err != nil {
+	case llm.ItemProvider:
+		if err := source.Validate(); err != nil {
 			return item, err
 		}
+		provider := source.Data.(llm.ProviderItem)
+		return item, item.UnmarshalJSON(provider.Raw)
 	default:
 		return item, fmt.Errorf("unsupported input item type %q", source.Type)
 	}

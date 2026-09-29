@@ -1,6 +1,7 @@
 package contextbuilder
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"reflect"
 	"strings"
@@ -87,8 +88,8 @@ func TestBuilderAddsModelResponseOutput(t *testing.T) {
 	output := []llm.Item{
 		{
 			ProviderID: "reasoning-1",
-			Type:       llm.ItemReasoning,
-			Data:       llm.Reasoning{Summary: []string{"Need current weather."}},
+			Type:       llm.ItemProvider,
+			Data:       llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`), Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "Need current weather."}},
 		},
 		{
 			ProviderID: "message-1",
@@ -124,7 +125,7 @@ func TestBuilderBuildsRequestFromAddedValues(t *testing.T) {
 	weather := llm.Tool{
 		Type: llm.ToolFunction, Name: "weather", Description: "Get weather",
 	}
-	reasoning := llm.Reasoning{Summary: []string{"Need current weather."}}
+	reasoning := llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`), Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "Need current weather."}}
 	call := llm.ToolCall{
 		CallID: "call-1", Name: "weather", Arguments: `{"city":"London"}`,
 	}
@@ -132,12 +133,10 @@ func TestBuilderBuildsRequestFromAddedValues(t *testing.T) {
 	current := NewBuilder()
 	current.SetModel(model)
 	current.AddTool(weather)
-	current.AddReasoning(reasoning)
-	current.Commit()
-	current.AddModelResponse(llm.Response{Output: []llm.Item{{
-		Type: llm.ItemToolCall,
-		Data: call,
-	}}})
+	current.AddModelResponse(llm.Response{Output: []llm.Item{
+		{Type: llm.ItemProvider, Data: reasoning},
+		{Type: llm.ItemToolCall, Data: call},
+	}})
 	current.AddToolResult("call-1", []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "completed:operation-1"}}, false)
 	result, err := current.Build()
 	if err != nil {
@@ -148,7 +147,7 @@ func TestBuilderBuildsRequestFromAddedValues(t *testing.T) {
 		Model: model,
 		Tools: []llm.Tool{weather},
 		Input: withPreamble(
-			llm.Item{Type: llm.ItemReasoning, Data: reasoning},
+			llm.Item{Type: llm.ItemProvider, Data: reasoning},
 			llm.Item{Type: llm.ItemToolCall, Data: call},
 			llm.Item{
 				Type: llm.ItemToolResult,

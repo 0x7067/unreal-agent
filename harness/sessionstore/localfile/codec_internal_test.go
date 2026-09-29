@@ -119,8 +119,8 @@ func TestEncodeInitialLogEmbedsJSONValues(t *testing.T) {
 		TurnID: "turn-1",
 		Response: llm.Response{
 			Output: []llm.Item{{
-				Type: llm.ItemReasoning,
-				Data: llm.Reasoning{Raw: jsontext.Value(`{"reasoning":true}`)},
+				Type: llm.ItemProvider,
+				Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"reasoning":true}`)},
 			}},
 			Usage: llm.Usage{Raw: jsontext.Value(`{"usage":true}`)},
 		},

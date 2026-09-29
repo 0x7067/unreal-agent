@@ -249,12 +249,9 @@ func requestInputBlock(item llm.Item) (anthropicapi.InputContentBlock, error) {
 			return block, fmt.Errorf("encode tool call %q arguments: %w", call.CallID, err)
 		}
 		return block, setUnion(&block, anthropicapi.RequestToolUseBlock{Type: "tool_use", Id: call.CallID, Name: call.Name, Input: arguments})
-	case llm.ItemReasoning:
-		raw := item.Data.(llm.Reasoning).Raw
-		if len(raw) == 0 {
-			return block, fmt.Errorf("reasoning must carry an Anthropic thinking block in Raw")
-		}
-		return block, block.UnmarshalJSON(raw)
+	case llm.ItemProvider:
+		provider := item.Data.(llm.ProviderItem)
+		return block, block.UnmarshalJSON(provider.Raw)
 	default:
 		return block, fmt.Errorf("unsupported assistant item type %q", item.Type)
 	}

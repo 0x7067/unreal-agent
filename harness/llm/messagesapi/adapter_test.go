@@ -45,7 +45,11 @@ func TestAdapterValidatesConfiguration(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	for _, config := range []Config{{}, {Endpoint: "http://example.invalid/messages", MaxAttempts: new(0)}, {Endpoint: "http://example.invalid/messages", MaxAttempts: new(-1)}} {
+	for _, config := range []Config{
+		{},
+		{Endpoint: "http://example.invalid/messages", MaxAttempts: new(0)},
+		{Endpoint: "http://example.invalid/messages", MaxAttempts: new(-1)},
+	} {
 		if _, err := NewAdapter(remote, config); err == nil {
 			t.Fatalf("accepted config=%#v", config)
 		}

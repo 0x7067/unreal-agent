@@ -1,6 +1,7 @@
 package contextbuilder
 
 import (
+	"encoding/json/jsontext"
 	"reflect"
 	"testing"
 
@@ -48,7 +49,10 @@ func TestBuilderSettingsOnlyChangeEffortInSubsequentRequests(t *testing.T) {
 	builder := NewBuilder()
 	builder.SetModel(llm.Model{ID: "model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh})
 	builder.AddTool(llm.Tool{Name: "tool"})
-	builder.AddReasoning(llm.Reasoning{Summary: []string{"thought"}})
+	builder.AddModelResponse(llm.Response{Output: []llm.Item{{Type: llm.ItemProvider, Data: llm.ProviderItem{
+		Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`),
+		Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "thought"},
+	}}}})
 	original, err := builder.Build()
 	if err != nil {
 		t.Fatal(err)

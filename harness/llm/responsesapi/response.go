@@ -147,13 +147,14 @@ func responseOutputItem(source openaiapi.OutputItem) (llm.Item, bool, error) {
 		for index, part := range reasoning.Summary {
 			summary[index] = part.Text
 		}
+		provider := llm.ProviderItem{Type: itemType, Raw: raw}
+		if text := strings.Join(summary, "\n\n"); text != "" {
+			provider.Display = &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: text}
+		}
 		return llm.Item{
 			ProviderID: reasoning.Id,
-			Type:       llm.ItemReasoning,
-			Data: llm.Reasoning{
-				Summary: summary,
-				Raw:     raw,
-			},
+			Type:       llm.ItemProvider,
+			Data:       provider,
 		}, true, nil
 	default:
 		return llm.Item{}, false, fmt.Errorf("unsupported output item type %q", itemType)

@@ -202,19 +202,20 @@ func TestRequestRejectsInvalidHistory(t *testing.T) {
 		items []llm.Item
 		want  string
 	}{
-		"empty":              {nil, "messages must not be empty"},
-		"wrong payload":      {[]llm.Item{{Type: llm.ItemToolCall}}, "data must be llm.ToolCall"},
-		"unknown tag":        {[]llm.Item{{Type: "unknown"}}, "unsupported item type"},
-		"unknown role":       {[]llm.Item{message("tool", "bad")}, "unsupported role"},
-		"late system":        {[]llm.Item{message(llm.RoleUser, "hi"), message(llm.RoleSystem, "late")}, "system message must be the first input item"},
-		"second system":      {[]llm.Item{message(llm.RoleSystem, "first"), message(llm.RoleSystem, "second")}, "system message must be the first input item"},
-		"missing result":     {[]llm.Item{toolCall("a")}, "missing immediately following results"},
-		"missing one result": {[]llm.Item{toolCall("a"), toolCall("b"), toolResult("a", "done", false)}, `result for tool call "b"`},
-		"result too late":    {[]llm.Item{toolCall("a"), message(llm.RoleUser, "hi"), message(llm.RoleAssistant, "wait"), toolResult("a", "done", false)}, `result for tool call "a"`},
-		"unknown call":       {[]llm.Item{toolResult("a", "done", false)}, "unknown tool call"},
-		"duplicate call":     {[]llm.Item{toolCall("a"), toolCall("a")}, "duplicate tool call"},
-		"missing call id":    {[]llm.Item{toolCall("")}, "must have an ID and name"},
-		"reasoning summary":  {[]llm.Item{{Type: llm.ItemReasoning, Data: llm.Reasoning{Summary: []string{"only summary"}}}}, "thinking block in Raw"},
+		"empty":                  {nil, "messages must not be empty"},
+		"wrong payload":          {[]llm.Item{{Type: llm.ItemToolCall}}, "data must be llm.ToolCall"},
+		"provider without raw":   {[]llm.Item{{Type: llm.ItemProvider, Data: llm.ProviderItem{}}}, "provider item Raw is required"},
+		"provider with null raw": {[]llm.Item{{Type: llm.ItemProvider, Data: llm.ProviderItem{Raw: jsontext.Value(`null`)}}}, "provider item Raw is required"},
+		"unknown tag":            {[]llm.Item{{Type: "unknown"}}, "unsupported item type"},
+		"unknown role":           {[]llm.Item{message("tool", "bad")}, "unsupported role"},
+		"late system":            {[]llm.Item{message(llm.RoleUser, "hi"), message(llm.RoleSystem, "late")}, "system message must be the first input item"},
+		"second system":          {[]llm.Item{message(llm.RoleSystem, "first"), message(llm.RoleSystem, "second")}, "system message must be the first input item"},
+		"missing result":         {[]llm.Item{toolCall("a")}, "missing immediately following results"},
+		"missing one result":     {[]llm.Item{toolCall("a"), toolCall("b"), toolResult("a", "done", false)}, `result for tool call "b"`},
+		"result too late":        {[]llm.Item{toolCall("a"), message(llm.RoleUser, "hi"), message(llm.RoleAssistant, "wait"), toolResult("a", "done", false)}, `result for tool call "a"`},
+		"unknown call":           {[]llm.Item{toolResult("a", "done", false)}, "unknown tool call"},
+		"duplicate call":         {[]llm.Item{toolCall("a"), toolCall("a")}, "duplicate tool call"},
+		"missing call id":        {[]llm.Item{toolCall("")}, "must have an ID and name"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := requestInput(test.items)
@@ -312,10 +313,15 @@ func TestRequestReplaysOpaqueReasoning(t *testing.T) {
 		`{"type":"redacted_thinking","data":"opaque","signature":{"future":true},"thinking":42}`,
 		`{"type":"thinking","signature":null}`,
 		`{"type":"redacted_thinking","data":""}`,
-		`{"type":"reasoning","unknown":{"value":1e1000}}`,
 	} {
 		request := validRequest()
-		request.Input = append(request.Input, llm.Item{Type: llm.ItemReasoning, Data: llm.Reasoning{Raw: jsontext.Value(raw)}})
+		var header struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(raw), &header); err != nil {
+			t.Fatal(err)
+		}
+		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: header.Type, Raw: jsontext.Value(raw)}})
 		body, err := requestBody(request)
 		if err != nil {
 			t.Fatal(err)
@@ -347,7 +353,7 @@ func TestRequestRejectsMalformedReasoningJSON(t *testing.T) {
 		`{"type":"redacted_thinking","data":"unfinished`,
 	} {
 		request := validRequest()
-		request.Input = append(request.Input, llm.Item{Type: llm.ItemReasoning, Data: llm.Reasoning{Raw: jsontext.Value(raw)}})
+		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking", Raw: jsontext.Value(raw)}})
 		if _, err := requestBody(request); err == nil {
 			t.Fatalf("accepted malformed reasoning JSON: %s", raw)
 		}

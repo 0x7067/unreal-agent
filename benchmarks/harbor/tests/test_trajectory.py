@@ -54,6 +54,45 @@ def status(state="completed", stdout="test", **fields):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def test_provider_and_legacy_reasoning_preserve_trajectory_and_usage(self):
+        for kind, value, expected in (
+            ("reasoning", {"Summary": ["first", "second"]}, "first\n\nsecond"),
+            (
+                "provider",
+                {"Display": {"Kind": "reasoning", "Text": "first\n\nsecond"}},
+                "first\n\nsecond",
+            ),
+            (
+                "provider",
+                {"Raw": {"type": "reasoning", "summary": [{"text": "raw only"}]}},
+                None,
+            ),
+            ("provider", {"Display": None}, None),
+            ("provider", {"Display": {"Kind": "reasoning", "Text": ""}}, None),
+            ("provider", {"Display": {"Kind": "tool", "Text": "Searching"}}, None),
+        ):
+            with self.subTest(kind=kind, value=value):
+                output = [
+                    {"Type": kind, "Data": value},
+                    {"Type": "message", "Data": {"Text": "done"}},
+                ]
+                trajectory = convert(
+                    [record(1, "model_response", response("turn-1", output))],
+                    Agent(name="unreal-agent", version="test"),
+                    "session",
+                )
+                step = trajectory.steps[0]
+                self.assertEqual(step.message, "done")
+                self.assertEqual(step.reasoning_content, expected)
+                self.assertEqual(step.metrics.extra["reasoning_tokens"], 1)
+                self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 10)
+                self.assertEqual(trajectory.final_metrics.total_completion_tokens, 3)
+                self.assertEqual(trajectory.final_metrics.total_cached_tokens, 4)
+                self.assertEqual(trajectory.final_metrics.extra["reasoning_tokens"], 1)
+                self.assertEqual(
+                    Trajectory.model_validate(trajectory.to_json_dict()), trajectory
+                )
+
     def test_plain_text_is_not_base64_decoded(self):
         for text in ("test", "1234", "aGVsbG8=", "😃\n", "", "{not JSON", '  "hi"\n\n'):
             with self.subTest(text=text):

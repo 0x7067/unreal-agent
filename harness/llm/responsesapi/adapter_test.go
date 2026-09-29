@@ -81,9 +81,9 @@ func TestAdapterResponds(t *testing.T) {
 			},
 			{
 				ProviderID: "reasoning-1",
-				Type:       llm.ItemReasoning,
-				Data: llm.Reasoning{
-					Summary: []string{"Used tools."},
+				Type:       llm.ItemProvider,
+				Data: llm.ProviderItem{Type: "reasoning",
+					Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "Used tools."},
 					Raw: jsontext.Value(`{"id":"reasoning-1","type":"reasoning","status":"completed",` +
 						`"summary":[{"type":"summary_text","text":"Used tools."}],"encrypted_content":"opaque"}`),
 				},
@@ -422,9 +422,9 @@ func detailedRequest() llm.Request {
 			},
 			{
 				ProviderID: "previous-reasoning",
-				Type:       llm.ItemReasoning,
-				Data: llm.Reasoning{
-					Summary: []string{"Checked the request."},
+				Type:       llm.ItemProvider,
+				Data: llm.ProviderItem{Type: "reasoning",
+					Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "Checked the request."},
 					Raw: jsontext.Value(`{"id":"previous-reasoning","type":"reasoning","status":"completed",` +
 						`"summary":[{"type":"summary_text","text":"Checked the request."}],` +
 						`"content":[{"type":"reasoning_text","text":"verbatim"}],` +

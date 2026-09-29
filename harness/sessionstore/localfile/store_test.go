@@ -68,8 +68,8 @@ func TestStorePersistsTypedHistoryAndPagination(t *testing.T) {
 				{ProviderID: "call-1", Type: llm.ItemToolCall, Data: llm.ToolCall{
 					CallID: "call-1", Name: "bash", Arguments: `{"command":"pwd"}`,
 				}},
-				{ProviderID: "reasoning-1", Type: llm.ItemReasoning, Data: llm.Reasoning{
-					Summary: []string{"inspect"}, Raw: jsontext.Value(`{"encrypted":"opaque"}`),
+				{ProviderID: "reasoning-1", Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning",
+					Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "inspect"}, Raw: jsontext.Value(`{"encrypted":"opaque"}`),
 				}},
 			},
 			Usage: llm.Usage{
@@ -1250,13 +1250,13 @@ func TestRejectedPublicTransitionsDoNotChangePersistedState(t *testing.T) {
 		},
 		{
 			name: "reasoning data has wrong type",
-			call: invalidResponseCall(t.Context(), llm.Item{Type: llm.ItemReasoning, Data: llm.Message{}}),
+			call: invalidResponseCall(t.Context(), llm.Item{Type: llm.ItemProvider, Data: llm.Message{}}),
 		},
 		{
 			name: "reasoning raw data is invalid JSON",
 			call: invalidResponseCall(t.Context(), llm.Item{
-				Type: llm.ItemReasoning,
-				Data: llm.Reasoning{Raw: jsontext.Value(`{`)},
+				Type: llm.ItemProvider,
+				Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{`)},
 			}),
 		},
 		{

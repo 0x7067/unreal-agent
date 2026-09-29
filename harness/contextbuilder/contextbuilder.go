@@ -36,7 +36,6 @@ type Builder interface {
 	SetModel(llm.Model)
 	SetSystemPrompt(string)
 	AddModelResponse(llm.Response)
-	AddReasoning(llm.Reasoning)
 	AddTool(llm.Tool)
 	AddToolResult(string, []llm.ToolResultOutput, bool)
 	Commit()

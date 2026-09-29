@@ -16,7 +16,7 @@ const (
 	ItemMessage    ItemType = "message"
 	ItemToolCall   ItemType = "tool_call"
 	ItemToolResult ItemType = "tool_result"
-	ItemReasoning  ItemType = "reasoning"
+	ItemProvider   ItemType = "provider"
 )
 
 type Item struct {
@@ -55,12 +55,20 @@ type ToolResult struct {
 	Running bool
 }
 
-// Raw is the provider's verbatim reasoning item. A provider may attach state to
-// it that the harness cannot reconstruct, such as encrypted reasoning content, so
-// adapters replay Raw unchanged instead of re-encoding Summary.
-type Reasoning struct {
-	Summary []string       `json:",omitzero"`
-	Raw     jsontext.Value `json:",omitzero"`
+// Raw is required and authoritative for replay. Display is a presentation projection.
+type ProviderItem struct {
+	Type    string
+	Raw     jsontext.Value
+	Display *ProviderDisplay `json:",omitzero"`
+}
+
+type ProviderDisplayKind string
+
+const ProviderDisplayReasoning ProviderDisplayKind = "reasoning"
+
+type ProviderDisplay struct {
+	Kind ProviderDisplayKind
+	Text string
 }
 
 type ToolType string

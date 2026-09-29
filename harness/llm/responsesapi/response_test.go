@@ -44,7 +44,7 @@ func TestResponseConvertsWebSearchResponse(t *testing.T) {
 	if len(response.Output) != 2 {
 		t.Fatalf("output = %#v", response.Output)
 	}
-	reasoning, ok := response.Output[0].Data.(llm.Reasoning)
+	reasoning, ok := response.Output[0].Data.(llm.ProviderItem)
 	if !ok {
 		t.Fatalf("reasoning = %#v", response.Output[0])
 	}

@@ -101,8 +101,8 @@ func TestStreamFixtures(t *testing.T) {
 					t.Fatalf("text = %#v, want %#v", response.Output[0], want)
 				}
 			case "thinking":
-				reasoning, ok := response.Output[0].Data.(llm.Reasoning)
-				if !ok || response.Output[0].Type != llm.ItemReasoning || len(reasoning.Summary) != 0 {
+				reasoning, ok := response.Output[0].Data.(llm.ProviderItem)
+				if !ok || response.Output[0].Type != llm.ItemProvider || reasoning.Display != nil {
 					t.Fatalf("thinking = %#v", response.Output[0])
 				}
 				answer, ok := response.Output[1].Data.(llm.Message)
@@ -268,8 +268,8 @@ func TestStreamPreservesThinkingForReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reasoning := response.Output[0].Data.(llm.Reasoning)
-	if !reflect.DeepEqual(reasoning.Summary, []string{"first second"}) || !bytes.Contains(reasoning.Raw, []byte(`"signature":"start-end"`)) || !bytes.Contains(reasoning.Raw, []byte(`9007199254740993`)) {
+	reasoning := response.Output[0].Data.(llm.ProviderItem)
+	if (reasoning.Display == nil || reasoning.Display.Text != "first second") || !bytes.Contains(reasoning.Raw, []byte(`"signature":"start-end"`)) || !bytes.Contains(reasoning.Raw, []byte(`9007199254740993`)) {
 		t.Fatalf("reasoning = %#v", reasoning)
 	}
 	request := validRequest()

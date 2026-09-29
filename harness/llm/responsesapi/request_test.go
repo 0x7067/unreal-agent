@@ -204,14 +204,19 @@ func TestRequestBodyRejectsInvalidItemPayloads(t *testing.T) {
 			want: `input item 0: unsupported tool result kind "unknown"`,
 		},
 		{
-			name: "reasoning",
-			item: llm.Item{Type: llm.ItemReasoning},
-			want: "input item 0: reasoning item data must be llm.Reasoning, got <nil>",
+			name: "provider",
+			item: llm.Item{Type: llm.ItemProvider},
+			want: "input item 0: provider data must be llm.ProviderItem, got <nil>",
 		},
 		{
-			name: "reasoning without raw",
-			item: llm.Item{Type: llm.ItemReasoning, Data: llm.Reasoning{Summary: []string{"thought"}}},
-			want: "input item 0: reasoning item must carry the provider item in Raw",
+			name: "provider without raw",
+			item: llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{}},
+			want: "input item 0: provider item Raw is required",
+		},
+		{
+			name: "provider with null raw",
+			item: llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Raw: jsontext.Value(`null`)}},
+			want: "input item 0: provider item Raw is required",
 		},
 	}
 
@@ -269,9 +274,9 @@ func TestRequestInputItemReplaysRawReasoningVerbatim(t *testing.T) {
 		`"content":[{"type":"reasoning_text","text":"verbatim"}],"encrypted_content":"opaque"}`
 	item, err := requestInputItem(llm.Item{
 		ProviderID: "ignored",
-		Type:       llm.ItemReasoning,
-		Data: llm.Reasoning{
-			Summary: []string{"stale summary"},
+		Type:       llm.ItemProvider,
+		Data: llm.ProviderItem{Type: "reasoning",
+			Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "stale summary"},
 			Raw:     jsontext.Value(raw),
 		},
 	})

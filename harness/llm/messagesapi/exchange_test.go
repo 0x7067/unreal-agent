@@ -70,7 +70,10 @@ func TestAdapterAssemblesChunkedLiveStream(t *testing.T) {
 		t.Fatalf("response=%#v trace=%#v", response, trace)
 	}
 	decoded, err := decodeResponse(trace.ResponseBody)
-	if err != nil || !reflect.DeepEqual(response, decoded) {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(response, decoded) {
 		t.Fatalf("trace response differs: %v", err)
 	}
 }

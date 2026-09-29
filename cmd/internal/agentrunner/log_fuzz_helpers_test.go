@@ -58,8 +58,8 @@ func fuzzLogResponse(t *testing.T, text string, usage llm.Usage, index int, vari
 		ID: fmt.Sprintf("response-%d", index), Usage: usage,
 		Stop: []llm.StopReason{llm.StopComplete, llm.StopMaxOutputTokens, llm.StopRefused}[variant%3],
 		Output: []llm.Item{
-			{ProviderID: fmt.Sprintf("reasoning-%d", index), Type: llm.ItemReasoning, Data: llm.Reasoning{
-				Summary: []string{text}, Raw: logJSON(t, struct {
+			{ProviderID: fmt.Sprintf("reasoning-%d", index), Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning",
+				Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: text}, Raw: logJSON(t, struct {
 					Encrypted string
 					Index     int
 				}{text, index}),
@@ -88,8 +88,10 @@ func copyLogResponse(value llm.Response) llm.Response {
 		value.Failure = new(*value.Failure)
 	}
 	for index, item := range value.Output {
-		if reasoning, ok := item.Data.(llm.Reasoning); ok {
-			reasoning.Summary = slices.Clone(reasoning.Summary)
+		if reasoning, ok := item.Data.(llm.ProviderItem); ok {
+			if reasoning.Display != nil {
+				reasoning.Display = new(*reasoning.Display)
+			}
 			reasoning.Raw = reasoning.Raw.Clone()
 			value.Output[index].Data = reasoning
 		}

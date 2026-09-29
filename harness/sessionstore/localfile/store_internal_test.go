@@ -68,9 +68,9 @@ func TestStoreLoadsGoldenLog(t *testing.T) {
 							},
 						},
 						{
-							ProviderID: "reasoning-1", Type: llm.ItemReasoning,
-							Data: llm.Reasoning{
-								Summary: []string{"inspect"},
+							ProviderID: "reasoning-1", Type: llm.ItemProvider,
+							Data: llm.ProviderItem{
+								Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "inspect"},
 								Raw:     jsontext.Value(`{"encrypted":"opaque"}`),
 							},
 						},
@@ -171,9 +171,9 @@ func TestStoreLoadsGoldenForkLog(t *testing.T) {
 							Data: llm.ToolCall{CallID: "call-1", Name: "test", Arguments: `{}`},
 						},
 						{
-							ProviderID: "reasoning-1", Type: llm.ItemReasoning,
-							Data: llm.Reasoning{
-								Summary: []string{"inspect"},
+							ProviderID: "reasoning-1", Type: llm.ItemProvider,
+							Data: llm.ProviderItem{
+								Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "inspect"},
 								Raw:     jsontext.Value(`{"encrypted":"opaque"}`),
 							},
 						},
@@ -212,6 +212,35 @@ func TestStoreLoadsGoldenForkLog(t *testing.T) {
 		!reflect.DeepEqual(got.Items, want.Items) ||
 		!reflect.DeepEqual(got.Operations, want.Operations) {
 		t.Fatalf("golden state = %#v\nwant %#v", got, want)
+	}
+}
+
+func TestLegacyGoldenLogsSaveAsProviderItems(t *testing.T) {
+	for _, name := range []string{"golden-session", "golden-fork"} {
+		t.Run(name, func(t *testing.T) {
+			store, err := New("testdata")
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, _, err := store.readState(t.Context(), session.ID(name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := encodeInitialLog(original.Snapshot.Session, original.Items)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), `"Type":"reasoning"`) || !strings.Contains(string(encoded), `"Type":"provider"`) {
+				t.Fatalf("retired item type survived migration: %s", encoded)
+			}
+			restored, _, err := decodeLog(encoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(original.Items, restored.Items) {
+				t.Fatal("saving migrated history changed its items")
+			}
+		})
 	}
 }
 

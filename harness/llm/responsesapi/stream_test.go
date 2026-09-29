@@ -284,7 +284,10 @@ func TestResponsesPreservesTerminalAfterDisconnect(t *testing.T) {
 				t.Fatalf("error=%v requests=%d", err, calls.Load())
 			}
 			want, err := decodeResponse([]byte(completedResponse))
-			if err != nil || !reflect.DeepEqual(response, want) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(response, want) {
 				t.Fatalf("response=%#v want=%#v error=%v", response, want, err)
 			}
 		})

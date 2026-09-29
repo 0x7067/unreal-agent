@@ -34,7 +34,7 @@ func TestResponsePreservesBlockOrderAndThinking(t *testing.T) {
 	if decoded.ID != "msg-1" || decoded.Stop != llm.StopComplete || decoded.Failure != nil || len(decoded.Output) != 7 {
 		t.Fatalf("response = %#v", decoded)
 	}
-	wantTypes := []llm.ItemType{llm.ItemReasoning, llm.ItemMessage, llm.ItemToolCall, llm.ItemReasoning, llm.ItemMessage, llm.ItemReasoning, llm.ItemToolCall}
+	wantTypes := []llm.ItemType{llm.ItemProvider, llm.ItemMessage, llm.ItemToolCall, llm.ItemProvider, llm.ItemMessage, llm.ItemProvider, llm.ItemToolCall}
 	for i, item := range decoded.Output {
 		if item.Type != wantTypes[i] {
 			t.Fatalf("block %d: %#v", i, item)
@@ -44,15 +44,15 @@ func TestResponsePreservesBlockOrderAndThinking(t *testing.T) {
 		}
 	}
 	for index, want := range map[int]string{0: thinking, 3: redacted, 5: omitted} {
-		reasoning := decoded.Output[index].Data.(llm.Reasoning)
+		reasoning := decoded.Output[index].Data.(llm.ProviderItem)
 		if string(reasoning.Raw) != want {
 			t.Fatalf("thinking block %d changed: %s", index, reasoning.Raw)
 		}
-		if index == 0 && !reflect.DeepEqual(reasoning.Summary, []string{"Considering tools"}) {
-			t.Fatalf("thinking summary = %#v", reasoning.Summary)
+		if index == 0 && (reasoning.Display == nil || reasoning.Display.Text != "Considering tools") {
+			t.Fatalf("thinking summary = %#v", reasoning.Display)
 		}
-		if index != 0 && len(reasoning.Summary) != 0 {
-			t.Fatalf("invented reasoning summary = %#v", reasoning.Summary)
+		if index != 0 && reasoning.Display != nil {
+			t.Fatalf("invented reasoning summary = %#v", reasoning.Display)
 		}
 	}
 	if decoded.Output[1].Data.(llm.Message).Text != "First" || decoded.Output[4].Data.(llm.Message).Text != "Second" {

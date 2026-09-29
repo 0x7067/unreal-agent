@@ -23,6 +23,7 @@ RUNNING = (
     "continue with independent work, or end your turn to wait for it."
 )
 TERMINAL = {"completed", "failed", "canceled"}
+PROVIDER_DISPLAY_REASONING = "reasoning"
 
 
 def bash_result(data: dict[str, Any]) -> tuple[str, bool]:
@@ -200,6 +201,10 @@ def convert(
                         texts.append(value["Text"])
                     case "reasoning":
                         reasoning.extend(value.get("Summary", []))
+                    case "provider":
+                        display = value.get("Display")
+                        if display and display["Kind"] == PROVIDER_DISPLAY_REASONING:
+                            reasoning.append(display["Text"])
                     case "tool_call":
                         raw = value["Arguments"]
                         try:

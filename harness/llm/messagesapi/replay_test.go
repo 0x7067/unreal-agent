@@ -109,8 +109,8 @@ func assertPersistedRequestReplay(t *testing.T, request llm.Request, expected []
 func TestRequestUsesRawThinkingInsteadOfSummary(t *testing.T) {
 	_, wire := encodeRequest(t, llm.Request{Model: llm.Model{ID: "claude-test"}, Input: []llm.Item{
 		message(llm.RoleUser, "Start"),
-		{Type: llm.ItemReasoning, Data: llm.Reasoning{
-			Summary: []string{"stale display text"},
+		{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking",
+			Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "stale display text"},
 			Raw:     jsontext.Value(`{"type":"thinking","thinking":"original","signature":"signed"}`),
 		}},
 		toolCall("a"), toolResult("a", "done", false),
@@ -118,8 +118,8 @@ func TestRequestUsesRawThinkingInsteadOfSummary(t *testing.T) {
 	if wire.Messages[1].Content[0].Type != "thinking" {
 		t.Fatal("thinking block was not preserved")
 	}
-	block, err := requestInputBlock(llm.Item{Type: llm.ItemReasoning, Data: llm.Reasoning{
-		Summary: []string{"stale display text"}, Raw: jsontext.Value(`{"type":"thinking","thinking":"original","signature":"signed"}`),
+	block, err := requestInputBlock(llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking",
+		Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "stale display text"}, Raw: jsontext.Value(`{"type":"thinking","thinking":"original","signature":"signed"}`),
 	}})
 	if err != nil {
 		t.Fatal(err)
