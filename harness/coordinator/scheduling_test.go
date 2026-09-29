@@ -120,8 +120,8 @@ type submittingResultErrorTranslator struct {
 	err error
 }
 
-func (translator *submittingResultErrorTranslator) TranslateResult(string, tool.CallStatus, []operation.Operation) (llm.ToolResult, error) {
-	return llm.ToolResult{}, translator.err
+func (translator *submittingResultErrorTranslator) TranslateResult(string, tool.CallStatus, []operation.Operation) (tool.Result, error) {
+	return nil, translator.err
 }
 
 func TestCoordinatorRunDefersCompletionsUntilModelFinishes(t *testing.T) {

@@ -48,16 +48,37 @@ func (translator *skillUseTranslator) Translate(ctx Context, call llm.ToolCall) 
 	return CallStatus{WaitingFor: []operation.ID{id}}
 }
 
+type SkillUseResult struct {
+	CallID  string
+	Content []byte
+	Running bool
+	Error   string
+}
+
+func (result SkillUseResult) ToLLMResult() llm.ToolResult {
+	text := strings.ToValidUTF8(string(result.Content), "\uFFFD")
+	if result.Running {
+		text = "Skill is loading."
+	} else if result.Error != "" {
+		text = result.Error
+	}
+	return llm.ToolResult{
+		CallID:  result.CallID,
+		Output:  []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: text}},
+		Running: result.Running,
+	}
+}
+
 func (translator *skillUseTranslator) TranslateResult(
 	callID string,
 	status CallStatus,
 	operations []operation.Operation,
-) (llm.ToolResult, error) {
+) (Result, error) {
 	if status.Error != "" {
-		return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: status.Error}}}, nil
+		return SkillUseResult{CallID: callID, Error: status.Error}, nil
 	}
 	if len(operations) != 1 {
-		return llm.ToolResult{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"skill-use call %q has %d operations, want 1",
 			callID,
 			len(operations),
@@ -66,27 +87,24 @@ func (translator *skillUseTranslator) TranslateResult(
 	current := operations[0]
 	state, err := operation.DecodeSkillUse(current)
 	if err != nil {
-		return llm.ToolResult{}, fmt.Errorf("decode skill-use call %q result: %w", callID, err)
+		return nil, fmt.Errorf("decode skill-use call %q result: %w", callID, err)
 	}
 	switch current.Status {
 	case operation.StatusCompleted:
-		return llm.ToolResult{
-			CallID: callID,
-			Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: strings.ToValidUTF8(string(state.Content), "\uFFFD")}},
-		}, nil
+		return SkillUseResult{CallID: callID, Content: state.Content}, nil
 	case operation.StatusReady, operation.StatusAwaiting, operation.StatusCanceling:
-		return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "Skill is loading."}}}, nil
+		return SkillUseResult{CallID: callID, Running: true}, nil
 	case operation.StatusCanceled, operation.StatusFailed:
 		if state.TerminalError == "" {
-			return llm.ToolResult{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"skill-use call %q terminal operation %q has no error",
 				callID,
 				current.ID,
 			)
 		}
-		return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: state.TerminalError}}}, nil
+		return SkillUseResult{CallID: callID, Content: state.Content, Error: state.TerminalError}, nil
 	default:
-		return llm.ToolResult{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"skill-use call %q operation %q has unsupported status %q",
 			callID,
 			current.ID,

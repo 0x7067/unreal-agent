@@ -19,8 +19,19 @@ func (translator unavailableTranslator) TranslateResult(
 	callID string,
 	_ CallStatus,
 	_ []operation.Operation,
-) (llm.ToolResult, error) {
-	return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: translator.errorMessage()}}}, nil
+) (Result, error) {
+	return UnavailableResult{CallID: callID, Error: translator.errorMessage()}, nil
+}
+
+type UnavailableResult struct {
+	CallID string
+	Error  string
+}
+
+func (result UnavailableResult) ToLLMResult() llm.ToolResult {
+	return llm.ToolResult{CallID: result.CallID, Output: []llm.ToolResultOutput{{
+		Kind: llm.ToolResultText, Value: result.Error,
+	}}}
 }
 
 func (translator unavailableTranslator) errorMessage() string {

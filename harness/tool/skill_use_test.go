@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/unreallabsai/unreal-agent/harness/primitives"
 )
 
 func TestSkillUseLoadsRegisteredSkillByName(t *testing.T) {
@@ -45,7 +47,13 @@ func TestSkillUseLoadsRegisteredSkillByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.CallID != "call-1" || result.Output[0].Value != want {
+	resultLLM := result.ToLLMResult()
+	raw, ok := result.(SkillUseResult)
+	if !ok || raw.CallID != "call-1" || raw.Running ||
+		string(raw.Content) != want {
+		t.Fatalf("structured result = %#v, ok = %t", raw, ok)
+	}
+	if resultLLM.CallID != "call-1" || resultLLM.Output[0].Value != want {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -70,6 +78,61 @@ func TestSkillUseRejectsInvalidSelection(t *testing.T) {
 			status := translator.Translate(&recordingContext{}, test.call)
 			if !strings.Contains(status.Error, test.wantError) || len(status.WaitingFor) != 0 {
 				t.Fatalf("status = %#v", status)
+			}
+		})
+	}
+}
+
+func TestSkillUseFailureKeepsPartialContentOutOfModelOutput(t *testing.T) {
+	partial := []byte("partial skill instructions")
+	encoded, err := json.Marshal(operation.SkillUseState{Path: "SKILL.md", Content: partial})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := operation.Operation{
+		ID: "skill-operation", Type: operation.TypeSkillUse, Version: operation.VersionSkillUse,
+		Status: operation.StatusAwaiting, State: encoded,
+	}
+	step, err := operation.AdvanceSkillUse(current, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := step.Dispatches[0].Data.(primitives.IOReadRequest)
+	for _, test := range []struct {
+		name  string
+		event primitives.PrimitiveEvent
+		want  string
+	}{
+		{name: "canceled", event: primitives.PrimitiveEvent{Type: primitives.PrimitiveEventCanceled}, want: "skill-use operation canceled"},
+		{
+			name: "read failed", want: "read failed",
+			event: primitives.PrimitiveEvent{Type: primitives.PrimitiveEventFailed, Result: primitives.PrimitiveFailureResult{Error: "read failed"}},
+		},
+		{
+			name: "size mismatch", want: "skill read returned an invalid completion",
+			event: primitives.PrimitiveEvent{Type: primitives.PrimitiveEventIOReadCompleted, Result: primitives.IOReadCompletedResult{Size: int64(len(partial) + 1)}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			event := test.event
+			event.Source = read.Source
+			event.CorrelationID = read.CorrelationID
+			terminal, err := operation.AdvanceSkillUse(*step.Operation, &event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := (&skillUseTranslator{}).TranslateResult("skill-call", CallStatus{}, []operation.Operation{*terminal.Operation})
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill, ok := result.(SkillUseResult)
+			if !ok || string(skill.Content) != string(partial) || skill.Error != test.want {
+				t.Fatalf("structured skill result = %#v", result)
+			}
+			model := result.ToLLMResult()
+			if model.CallID != "skill-call" || model.Running || len(model.Output) != 1 ||
+				model.Output[0].Kind != llm.ToolResultText || model.Output[0].Value != test.want {
+				t.Fatalf("model result exposed partial instructions: %#v", model)
 			}
 		})
 	}

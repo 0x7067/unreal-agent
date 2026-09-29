@@ -355,6 +355,6 @@ type submissionTranslator struct {
 	submittingTranslator
 }
 
-func (*submissionTranslator) TranslateResult(callID string, status tool.CallStatus, operations []operation.Operation) (llm.ToolResult, error) {
+func (*submissionTranslator) TranslateResult(callID string, status tool.CallStatus, operations []operation.Operation) (tool.Result, error) {
 	return (operationStatusTranslator{}).TranslateResult(callID, status, operations)
 }

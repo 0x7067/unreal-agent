@@ -2462,8 +2462,8 @@ func (testTranslator) TranslateResult(
 	_ string,
 	status tool.CallStatus,
 	_ []operation.Operation,
-) (llm.ToolResult, error) {
-	return llm.ToolResult{Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "error:" + status.Error}}}, nil
+) (tool.Result, error) {
+	return tool.SkillUseResult{Error: "error:" + status.Error}, nil
 }
 
 type submittingTranslator struct {
@@ -2491,8 +2491,8 @@ func (*submittingTranslator) TranslateResult(
 	callID string,
 	status tool.CallStatus,
 	_ []operation.Operation,
-) (llm.ToolResult, error) {
-	return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: status.Error}}}, nil
+) (tool.Result, error) {
+	return tool.SkillUseResult{CallID: callID, Error: status.Error}, nil
 }
 
 type operationStatusTranslator struct{}
@@ -2505,12 +2505,12 @@ func (operationStatusTranslator) TranslateResult(
 	_ string,
 	_ tool.CallStatus,
 	operations []operation.Operation,
-) (llm.ToolResult, error) {
+) (tool.Result, error) {
 	statuses := make([]string, 0, len(operations))
 	for _, value := range operations {
 		statuses = append(statuses, string(value.Status))
 	}
-	return llm.ToolResult{Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: strings.Join(statuses, ",")}}}, nil
+	return tool.SkillUseResult{Content: []byte(strings.Join(statuses, ","))}, nil
 }
 
 type failingResultTranslator struct {
@@ -2525,8 +2525,8 @@ func (translator failingResultTranslator) TranslateResult(
 	string,
 	tool.CallStatus,
 	[]operation.Operation,
-) (llm.ToolResult, error) {
-	return llm.ToolResult{}, translator.err
+) (tool.Result, error) {
+	return nil, translator.err
 }
 
 type terminalResultTranslator struct{}
@@ -2539,13 +2539,13 @@ func (terminalResultTranslator) TranslateResult(
 	_ string,
 	_ tool.CallStatus,
 	operations []operation.Operation,
-) (llm.ToolResult, error) {
+) (tool.Result, error) {
 	for _, value := range operations {
 		if operationIsTerminal(value.Status) {
-			return llm.ToolResult{}, errors.New("terminal result failed")
+			return nil, errors.New("terminal result failed")
 		}
 	}
-	return llm.ToolResult{Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "pending"}}}, nil
+	return tool.SkillUseResult{Content: []byte("pending")}, nil
 }
 
 type itemRequest struct {

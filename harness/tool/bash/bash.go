@@ -40,34 +40,69 @@ func (translator *translator) Translate(ctx tool.Context, call llm.ToolCall) too
 	return tool.CallStatus{WaitingFor: []operation.ID{id}}
 }
 
+type Result struct {
+	CallID  string
+	Running bool
+	Output  *operation.ShellResult
+	OutPath string
+	ErrPath string
+	Error   string
+}
+
+func (result Result) ToLLMResult() llm.ToolResult {
+	var parts []string
+	if result.Running {
+		parts = append(parts, "Command is still running.")
+	} else {
+		if result.Output != nil {
+			if result.Output.Out != "" {
+				parts = append(parts, result.Output.Out)
+			}
+			if result.Output.Err != "" {
+				parts = append(parts, "Stderr:\n"+result.Output.Err)
+			}
+			if result.Output.ExitCode != 0 {
+				parts = append(parts, fmt.Sprintf("Exit code: %d", result.Output.ExitCode))
+			}
+		} else {
+			if result.OutPath != "" {
+				parts = append(parts, "Stdout capture: "+result.OutPath)
+			}
+			if result.ErrPath != "" {
+				parts = append(parts, "Stderr capture: "+result.ErrPath)
+			}
+		}
+		if result.Error != "" {
+			parts = append(parts, "Error: "+result.Error)
+		}
+		if len(parts) == 0 {
+			parts = append(parts, "(no output)")
+		}
+	}
+	return llm.ToolResult{
+		CallID:  result.CallID,
+		Output:  []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: strings.Join(parts, "\n")}},
+		Running: result.Running,
+	}
+}
+
 func (translator *translator) TranslateResult(
 	callID string,
 	status tool.CallStatus,
 	operations []operation.Operation,
-) (llm.ToolResult, error) {
+) (tool.Result, error) {
 	if status.Error != "" {
 		if len(operations) != 0 {
-			return llm.ToolResult{}, fmt.Errorf("bash tool call %q has both a validation error and operations", callID)
+			return nil, fmt.Errorf("bash tool call %q has both a validation error and operations", callID)
 		}
-		return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "Error: " + status.Error}}}, nil
+		return Result{CallID: callID, Error: status.Error}, nil
 	}
 	if len(operations) != 1 {
-		return llm.ToolResult{}, fmt.Errorf("bash tool call %q has %d operations, want 1", callID, len(operations))
+		return nil, fmt.Errorf("bash tool call %q has %d operations, want 1", callID, len(operations))
 	}
-
-	output, err := translateOperationResult(callID, operations[0])
-	if err != nil {
-		return llm.ToolResult{}, err
-	}
-	return llm.ToolResult{CallID: callID, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: output}}}, nil
-}
-
-func translateOperationResult(
-	callID string,
-	current operation.Operation,
-) (string, error) {
+	current := operations[0]
 	if current.Type != operation.TypeShell {
-		return "", fmt.Errorf(
+		return nil, fmt.Errorf(
 			"bash tool call %q operation %q has type %q, want %q",
 			callID,
 			current.ID,
@@ -75,52 +110,28 @@ func translateOperationResult(
 			operation.TypeShell,
 		)
 	}
-
 	state, err := operation.DecodeShellState(current)
 	if err != nil {
-		return "", fmt.Errorf("decode Bash operation %q state: %w", current.ID, err)
+		return nil, fmt.Errorf("decode Bash operation %q state: %w", current.ID, err)
 	}
 	switch current.Status {
 	case operation.StatusReady, operation.StatusAwaiting, operation.StatusCanceling:
-		return "Command is still running.", nil
+		return Result{CallID: callID, Running: true}, nil
 	case operation.StatusCompleted:
 		if state.Result == nil {
-			return "", fmt.Errorf("bash tool call %q completed operation %q has no result", callID, current.ID)
+			return nil, fmt.Errorf("bash tool call %q completed operation %q has no result", callID, current.ID)
 		}
 	case operation.StatusFailed, operation.StatusCanceled:
 		if state.TerminalError == "" {
 			state.TerminalError = "shell operation " + string(current.Status)
 		}
 	default:
-		return "", fmt.Errorf("bash tool call %q operation %q has invalid status %q", callID, current.ID, current.Status)
+		return nil, fmt.Errorf("bash tool call %q operation %q has invalid status %q", callID, current.ID, current.Status)
 	}
-
-	var parts []string
-	if state.Result != nil {
-		if state.Result.Out != "" {
-			parts = append(parts, state.Result.Out)
-		}
-		if state.Result.Err != "" {
-			parts = append(parts, "Stderr:\n"+state.Result.Err)
-		}
-		if state.Result.ExitCode != 0 {
-			parts = append(parts, fmt.Sprintf("Exit code: %d", state.Result.ExitCode))
-		}
-	} else {
-		if state.OutPath != "" {
-			parts = append(parts, "Stdout capture: "+state.OutPath)
-		}
-		if state.ErrPath != "" {
-			parts = append(parts, "Stderr capture: "+state.ErrPath)
-		}
-	}
-	if state.TerminalError != "" {
-		parts = append(parts, "Error: "+state.TerminalError)
-	}
-	if len(parts) == 0 {
-		return "(no output)", nil
-	}
-	return strings.Join(parts, "\n"), nil
+	return Result{
+		CallID: callID, Output: state.Result,
+		OutPath: state.OutPath, ErrPath: state.ErrPath, Error: state.TerminalError,
+	}, nil
 }
 
 func validateArguments(encoded string) (string, int, error) {

@@ -75,8 +75,16 @@ func TestTranslatorRejectsInvalidArguments(t *testing.T) {
 				t.Fatalf("invalid arguments accepted: %+v, specs = %+v", status, ctx.specs)
 			}
 			result, err := translator.TranslateResult("call", status, nil)
-			if err != nil || result.CallID != "call" || len(result.Output) != 1 || result.Output[0].Kind != llm.ToolResultText ||
-				!strings.Contains(result.Output[0].Value, status.Error) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultLLM := result.ToLLMResult()
+			raw, ok := result.(viewimage.Result)
+			if !ok || raw.Image != nil || raw.Error != status.Error {
+				t.Fatalf("structured validation result = %#v", result)
+			}
+			if resultLLM.CallID != "call" || len(resultLLM.Output) != 1 || resultLLM.Output[0].Kind != llm.ToolResultText ||
+				!strings.Contains(resultLLM.Output[0].Value, status.Error) {
 				t.Fatalf("validation result = %+v, error = %v", result, err)
 			}
 		})
@@ -111,13 +119,23 @@ func TestTranslatorFormatsConditionalImageMetadata(t *testing.T) {
 				OriginalMIMEType: test.original, EncodedMIMEType: test.encoded, ScaleRatio: test.ratio,
 			})
 			result, err := viewimage.New(viewimage.Config{}).TranslateResult("call", tool.CallStatus{}, []operation.Operation{current})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultLLM := result.ToLLMResult()
+			raw, ok := result.(viewimage.Result)
+			if !ok || raw.CallID != "call" || raw.Running || raw.Error != "" || raw.Image == nil ||
+				raw.Image.OriginalMIMEType != test.original || raw.Image.EncodedMIMEType != test.encoded ||
+				raw.Image.ScaleRatio != test.ratio || raw.Image.OriginalWidth != 120 || raw.Image.OriginalHeight != 80 {
+				t.Fatalf("structured result = %#v, ok = %t", raw, ok)
+			}
 			want := llm.ToolResult{CallID: "call", Output: []llm.ToolResultOutput{
 				{Kind: llm.ToolResultImage, Value: "data:" + test.encoded + ";base64,aW1hZ2U="},
 			}}
 			if test.text != "" {
 				want.Output = append(want.Output, llm.ToolResultOutput{Kind: llm.ToolResultText, Value: test.text})
 			}
-			if err != nil || !reflect.DeepEqual(result, want) {
+			if !reflect.DeepEqual(resultLLM, want) {
 				t.Fatalf("result = %+v, error = %v, want %+v", result, err, want)
 			}
 		})
@@ -145,8 +163,25 @@ func TestTranslatorFormatsFailuresAndPendingOperations(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := viewimage.New(viewimage.Config{}).TranslateResult("call", tool.CallStatus{}, []operation.Operation{imageOperation(t, test.status, test.result)})
-			want := llm.ToolResult{CallID: "call", Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: test.want}}}
-			if err != nil || !reflect.DeepEqual(result, want) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultLLM := result.ToLLMResult()
+			want := llm.ToolResult{CallID: "call", Running: (test.status == operation.StatusReady || test.status == operation.StatusAwaiting || test.status == operation.StatusCanceling), Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: test.want}}}
+			raw, ok := result.(viewimage.Result)
+			if !ok || raw.Running != want.Running || !reflect.DeepEqual(raw.Image, test.result) {
+				t.Fatalf("structured image result = %#v", result)
+			}
+			if !raw.Running {
+				wantError := "view-image operation " + string(test.status)
+				if test.result != nil && test.result.Error != "" {
+					wantError = test.result.Error
+				}
+				if raw.Error != wantError {
+					t.Fatalf("tool error = %q, want %q", raw.Error, wantError)
+				}
+			}
+			if !reflect.DeepEqual(resultLLM, want) {
 				t.Fatalf("result = %+v, error = %v, want %+v", result, err, want)
 			}
 		})
@@ -230,12 +265,16 @@ func TestViewImageReadsWorkspaceFileAndReturnsResizedDataURL(t *testing.T) {
 				continue
 			}
 			result, err := resolved.TranslateResult("call", status, []operation.Operation{current})
-			if err != nil || current.Status != operation.StatusCompleted || len(result.Output) != 2 || result.Output[0].Kind != llm.ToolResultImage {
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultLLM := result.ToLLMResult()
+			if current.Status != operation.StatusCompleted || len(resultLLM.Output) != 2 || resultLLM.Output[0].Kind != llm.ToolResultImage {
 				t.Fatalf("result = %+v, status = %s, error = %v", result, current.Status, err)
 			}
-			encoded, found := strings.CutPrefix(result.Output[0].Value, "data:image/png;base64,")
+			encoded, found := strings.CutPrefix(resultLLM.Output[0].Value, "data:image/png;base64,")
 			if !found {
-				t.Fatalf("invalid image data URL: %q", result.Output[0].Value)
+				t.Fatalf("invalid image data URL: %q", resultLLM.Output[0].Value)
 			}
 			data, err := base64.StdEncoding.DecodeString(encoded)
 			if err != nil {
@@ -245,8 +284,8 @@ func TestViewImageReadsWorkspaceFileAndReturnsResizedDataURL(t *testing.T) {
 			if err != nil || format != "png" || decoded.Bounds() != image.Rect(0, 0, 6, 4) {
 				t.Fatalf("decoded image = %+v, format = %s, error = %v", decoded, format, err)
 			}
-			if result.Output[1].Kind != llm.ToolResultText || result.Output[1].Value != "original MIME type: image/bmp; original dimensions: 12x8; multiply coordinates by 2.00 to approximate original" {
-				t.Fatalf("metadata = %+v", result.Output[1])
+			if resultLLM.Output[1].Kind != llm.ToolResultText || resultLLM.Output[1].Value != "original MIME type: image/bmp; original dimensions: 12x8; multiply coordinates by 2.00 to approximate original" {
+				t.Fatalf("metadata = %+v", resultLLM.Output[1])
 			}
 			return
 		case <-managerCtx.Done():

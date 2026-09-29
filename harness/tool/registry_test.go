@@ -11,7 +11,7 @@ import (
 
 type fixedTranslator struct {
 	status CallStatus
-	result llm.ToolResult
+	result Result
 }
 
 type recordingContext struct {
@@ -31,7 +31,7 @@ func (translator *fixedTranslator) TranslateResult(
 	_ string,
 	_ CallStatus,
 	_ []operation.Operation,
-) (llm.ToolResult, error) {
+) (Result, error) {
 	return translator.result, nil
 }
 

@@ -212,15 +212,27 @@ func TestTranslatorTranslatesShellOperationResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.CallID != "call-1" {
-				t.Fatalf("call ID = %q", result.CallID)
+			resultLLM := result.ToLLMResult()
+			raw, ok := result.(bash.Result)
+			running := test.status == operation.StatusReady || test.status == operation.StatusAwaiting || test.status == operation.StatusCanceling
+			if !ok || raw.CallID != "call-1" || raw.Running != running || resultLLM.Running != running {
+				t.Fatalf("structured result = %#v, ok = %t", raw, ok)
 			}
-			if result.Output[0].Value != test.want {
-				t.Fatalf("result = %s, want %s", result.Output[0].Value, test.want)
+			if !running && (!reflect.DeepEqual(raw.Output, test.state.Result) || raw.OutPath != test.state.OutPath || raw.ErrPath != test.state.ErrPath) {
+				t.Fatalf("structured result lost shell output: %#v", raw)
+			}
+			if test.status == operation.StatusCompleted && raw.Error != test.state.TerminalError {
+				t.Fatalf("command exit code became a tool error: %#v", raw)
+			}
+			if resultLLM.CallID != "call-1" {
+				t.Fatalf("call ID = %q", resultLLM.CallID)
+			}
+			if resultLLM.Output[0].Value != test.want {
+				t.Fatalf("result = %s, want %s", resultLLM.Output[0].Value, test.want)
 			}
 			for _, internal := range []string{"secret command", "/secret/path", "operation-1"} {
-				if strings.Contains(result.Output[0].Value, internal) {
-					t.Fatalf("result exposes internal value %q: %s", internal, result.Output[0].Value)
+				if strings.Contains(resultLLM.Output[0].Value, internal) {
+					t.Fatalf("result exposes internal value %q: %s", internal, resultLLM.Output[0].Value)
 				}
 			}
 		})
@@ -242,7 +254,8 @@ func TestTranslatorTranslatesValidationErrorWithoutOperations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.CallID != "call-1" || result.Output[0].Value != "Error: "+status.Error {
+	resultLLM := result.ToLLMResult()
+	if resultLLM.CallID != "call-1" || resultLLM.Output[0].Value != "Error: "+status.Error {
 		t.Fatalf("result = %#v", result)
 	}
 }

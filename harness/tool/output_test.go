@@ -76,9 +76,10 @@ func TestValidationErrorsAreBoundedBeforeResultTranslation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			output, found := strings.CutPrefix(result.Output[0].Value, "Error: ")
+			resultLLM := result.ToLLMResult()
+			output, found := strings.CutPrefix(resultLLM.Output[0].Value, "Error: ")
 			if !found {
-				t.Fatalf("Bash validation error has no error label: %q", result.Output[0].Value)
+				t.Fatalf("Bash validation error has no error label: %q", resultLLM.Output[0].Value)
 			}
 			if output != status.Error {
 				t.Fatal("result translation changed the prepared validation error")
@@ -105,7 +106,8 @@ func TestToolsRejectInvalidOutputLengthsBeforeSubmission(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(result.Output[0].Value, "max_output_length") {
+				resultLLM := result.ToLLMResult()
+				if !strings.Contains(resultLLM.Output[0].Value, "max_output_length") {
 					t.Fatalf("result = %#v", result)
 				}
 			})

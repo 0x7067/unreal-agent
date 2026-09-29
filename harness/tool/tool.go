@@ -22,8 +22,14 @@ type Context interface {
 	Submit(operation.Spec) operation.ID
 }
 
+// Result is a tool-owned value. By convention, a concrete result's Error field
+// describes a model-visible failure and may accompany partial output.
+type Result interface {
+	ToLLMResult() llm.ToolResult
+}
+
 type ResultTranslator interface {
-	TranslateResult(string, CallStatus, []operation.Operation) (llm.ToolResult, error)
+	TranslateResult(string, CallStatus, []operation.Operation) (Result, error)
 }
 
 type Translator interface {
