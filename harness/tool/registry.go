@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"uuid"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -190,8 +192,8 @@ func DiscoverSkills(directory string) ([]Skill, []error) {
 }
 
 type skillFrontmatter struct {
-	Name        string
-	Description string
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
 }
 
 func parseSkillFrontmatter(contents []byte) (skillFrontmatter, error) {
@@ -200,22 +202,18 @@ func parseSkillFrontmatter(contents []byte) (skillFrontmatter, error) {
 		return skillFrontmatter{}, errors.New("missing opening YAML frontmatter delimiter")
 	}
 
-	var metadata skillFrontmatter
+	var frontmatter bytes.Buffer
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "---" {
+			var metadata skillFrontmatter
+			if err := yaml.Unmarshal(frontmatter.Bytes(), &metadata); err != nil {
+				return skillFrontmatter{}, fmt.Errorf("decode YAML frontmatter: %w", err)
+			}
 			return metadata, nil
 		}
-		key, value, found := strings.Cut(line, ":")
-		if !found {
-			continue
-		}
-		switch key {
-		case "name":
-			metadata.Name = strings.TrimSpace(value)
-		case "description":
-			metadata.Description = strings.TrimSpace(value)
-		}
+		frontmatter.WriteString(line)
+		frontmatter.WriteByte('\n')
 	}
 	if err := scanner.Err(); err != nil {
 		return skillFrontmatter{}, fmt.Errorf("read YAML frontmatter: %w", err)

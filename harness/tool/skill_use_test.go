@@ -13,14 +13,22 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
 )
 
-func TestSkillUseLoadsRegisteredSkillByName(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "SKILL.md")
-	want := "---\nname: review\ndescription: Review code.\n---\n\nRead all instructions.\n"
+func TestSkillUseLoadsDiscoveredSkillByName(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "review", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := "---\nname: \"review\" # stable name\ndescription: >-\n  Review code\n  carefully.\n---\n\nRead all instructions.\n"
 	if err := os.WriteFile(path, []byte(want), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	skills, skillErrors := DiscoverSkills(directory)
+	if len(skillErrors) != 0 || len(skills) != 1 {
+		t.Fatalf("skills = %#v, errors = %v", skills, skillErrors)
+	}
 	registry := NewRegistry(StaticTranslators{}, SkillUseName)
-	if _, err := registry.RegisterSkill(Skill{Name: "review", Description: "Review code.", Path: path}); err != nil {
+	if _, err := registry.RegisterSkill(skills[0]); err != nil {
 		t.Fatal(err)
 	}
 	translator, exists := registry.Resolve(SkillUseName)
