@@ -17,6 +17,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/sessionpath"
+	"github.com/unreallabsai/unreal-agent/cmd/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -27,6 +28,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/harness/settings"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
@@ -116,6 +118,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		return err
 	}
 	defer func() { _ = client.Close() }()
+	selectedModel := llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)}
+	configDirectory, err := xdgpath.Directory(getenv)
+	if err != nil {
+		return fmt.Errorf("resolve settings directory: %w", err)
+	}
+	modelSettings, err := settings.Load(filepath.Join(configDirectory, "settings.json"))
+	if err != nil {
+		return fmt.Errorf("load model settings: %w", err)
+	}
+	selectedModel.CompactionThreshold = modelSettings.Model(provider.Name, selectedModel.ID).CompactionThreshold
 	input, outputTTY, err := tea.OpenTTY()
 	if err != nil {
 		return fmt.Errorf("open terminal: %w", err)
@@ -190,7 +202,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		}
 	}
 	builder := contextbuilder.NewBuilder(skills...)
-	builder.SetModel(llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)})
+	builder.SetModel(selectedModel)
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
 	}

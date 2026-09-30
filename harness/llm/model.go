@@ -86,9 +86,10 @@ type Tool struct {
 }
 
 type Model struct {
-	ID              string
-	MaxOutputTokens *int64
-	ReasoningEffort ReasoningEffort
+	ID                  string
+	CompactionThreshold int64
+	MaxOutputTokens     *int64
+	ReasoningEffort     ReasoningEffort
 }
 
 type ReasoningEffort string

@@ -18,6 +18,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/unreallabsai/unreal-agent/cmd/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -28,6 +29,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/harness/settings"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
@@ -273,6 +275,17 @@ func Run(
 		}
 	}()
 
+	selectedModel := llm.Model{ID: model, MaxOutputTokens: parsed.MaxOutputTokens, ReasoningEffort: reasoningEffort(parsed.ThinkingLevel)}
+	configDirectory, err := xdgpath.Directory(getenv)
+	if err != nil {
+		return fmt.Errorf("resolve settings directory: %w", err)
+	}
+	modelSettings, err := settings.Load(filepath.Join(configDirectory, "settings.json"))
+	if err != nil {
+		return fmt.Errorf("load model settings: %w", err)
+	}
+	selectedModel.CompactionThreshold = modelSettings.Model(selected.Name, selectedModel.ID).CompactionThreshold
+
 	storeDirectory, err := resolveSessionDirectory(*sessionDirectory, getenv)
 	if err != nil {
 		return fmt.Errorf("resolve session directory: %w", err)
@@ -404,11 +417,7 @@ func Run(
 	}
 
 	builder := contextbuilder.NewBuilder(registry.Skills()...)
-	builder.SetModel(llm.Model{
-		ID:              model,
-		MaxOutputTokens: parsed.MaxOutputTokens,
-		ReasoningEffort: reasoningEffort(parsed.ThinkingLevel),
-	})
+	builder.SetModel(selectedModel)
 	builder.SetSystemPrompt(systemPrompt)
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)

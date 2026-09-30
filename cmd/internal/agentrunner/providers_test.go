@@ -106,6 +106,11 @@ func TestRunnerProviderRetries(t *testing.T) {
 				t.Parallel()
 				var attempts atomic.Int64
 				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					if request.Method != http.MethodPost || (request.URL.Path != "/responses" && request.URL.Path != "/messages") {
+						t.Errorf("unexpected request %s %s", request.Method, request.URL.Path)
+						writer.WriteHeader(http.StatusNotFound)
+						return
+					}
 					var body struct {
 						MaxAttempts *int `json:"max_attempts"`
 					}
@@ -149,11 +154,31 @@ func TestRunnerProviderRetries(t *testing.T) {
 	}
 }
 
-func TestRunnerCodexUsesSubscriptionWithoutAPIKey(t *testing.T) {
+func TestRunnerProviderDefaultModels(t *testing.T) {
+	for _, provider := range providers.Default() {
+		want := ""
+		switch provider.Name {
+		case "openai", "openai-codex":
+			want = "gpt-6-astra"
+		case "anthropic":
+			want = "claude-opus-5-5"
+		}
+		if provider.DefaultModel != want {
+			t.Errorf("%s default model = %q, want %q", provider.Name, provider.DefaultModel, want)
+		}
+	}
+}
+
+func TestRunnerCodexUsesOnlyResponsesAPI(t *testing.T) {
+	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/responses" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
 		if r.Header.Get("Authorization") != "Bearer subscription-token" || r.Header.Get("ChatGPT-Account-ID") != "account" {
 			t.Error("wrong authentication")
 		}
+		requests.Add(1)
 		var body struct {
 			Stream bool   `json:"stream"`
 			Model  string `json:"model"`
@@ -177,8 +202,8 @@ func TestRunnerCodexUsesSubscriptionWithoutAPIKey(t *testing.T) {
 			"OPENAI_CODEX_ACCOUNT_ID":     "account",
 		}[key]
 	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello","system_prompt":"my system prompt"}`), &output, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: providers.Default()})
-	if code != 0 || !strings.Contains(output.String(), "subscription works") {
-		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	if code != 0 || requests.Load() != 1 || !strings.Contains(output.String(), "subscription works") {
+		t.Fatalf("exit = %d, requests = %d, stderr = %s", code, requests.Load(), stderr.String())
 	}
 	if strings.Contains(output.String(), "subscription-token") {
 		t.Fatal("credential leaked into session output")

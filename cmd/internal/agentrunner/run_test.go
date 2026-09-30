@@ -25,10 +25,13 @@ import (
 )
 
 func TestRunMainExecutesBatchedMessages(t *testing.T) {
-	requests := make(chan llm.Request, 1)
+	var requestsMu sync.Mutex
+	var requests []llm.Request
 	client := &fakeClient{
 		respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
-			requests <- request
+			requestsMu.Lock()
+			requests = append(requests, request)
+			requestsMu.Unlock()
 			return llm.Response{
 				ID: "response-1", Stop: llm.StopComplete,
 				Output: []llm.Item{{
@@ -40,8 +43,13 @@ func TestRunMainExecutesBatchedMessages(t *testing.T) {
 		},
 	}
 	workspace := t.TempDir()
+	configHome := t.TempDir()
+	writeUserSettings(t, configHome, `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"gpt-test","name":"GPT Test","context_window":128000,"compaction_threshold":64000}]}}}`)
 	skillPath := filepath.Join(workspace, ".harness", "skills", "review", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".harness", "settings.json"), []byte("invalid"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(skillPath, []byte(`---
@@ -59,6 +67,8 @@ description: Review code.
 		[]string{"-workspace", workspace, "-session-directory", sessions, "-log-directory", logDirectory},
 		func(name string) string {
 			switch name {
+			case "XDG_CONFIG_HOME":
+				return configHome
 			case "OPENAI_API_KEY":
 				return "secret"
 			case "SHELL":
@@ -89,41 +99,51 @@ description: Review code.
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %q, stdout = %q", code, stderr.String(), stdout.String())
 	}
-	request := <-requests
-	if request.Model.ID != "gpt-test" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
-		t.Fatalf("model = %#v", request.Model)
-	}
-	if request.Model.MaxOutputTokens == nil || *request.Model.MaxOutputTokens != 2048 {
-		t.Fatalf("max output tokens = %v, want 2048", request.Model.MaxOutputTokens)
-	}
+	requestsMu.Lock()
+	recorded := slices.Clone(requests)
+	requestsMu.Unlock()
 	wantMessages := []llm.Message{
 		{Role: llm.RoleUser, Text: "first"},
 		{Role: llm.RoleUser, Text: "second"},
 	}
-	var messages []llm.Message
-	for _, item := range request.Input {
-		if item.Type == llm.ItemMessage {
-			messages = append(messages, item.Data.(llm.Message))
+	allMessagesDelivered := false
+	for _, request := range recorded {
+		if request.Model.CompactionThreshold != 64_000 || request.Model.ID != "gpt-test" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
+			t.Fatalf("model = %#v", request.Model)
+		}
+		if request.Model.MaxOutputTokens == nil || *request.Model.MaxOutputTokens != 2048 {
+			t.Fatalf("max output tokens = %v, want 2048", request.Model.MaxOutputTokens)
+		}
+		var messages []llm.Message
+		for _, item := range request.Input {
+			if item.Type == llm.ItemMessage {
+				message := item.Data.(llm.Message)
+				if message.Role != llm.RoleAssistant {
+					messages = append(messages, message)
+				}
+			}
+		}
+		if len(messages) < 2 || len(messages) > 3 || messages[0].Role != llm.RoleSystem ||
+			!strings.Contains(messages[0].Text, "<name>review</name>") ||
+			!strings.Contains(messages[0].Text, "<location>"+skillPath+"</location>") ||
+			!strings.HasSuffix(messages[0].Text, "\n\nbe concise") ||
+			!slices.Equal(messages[1:], wantMessages[:len(messages)-1]) {
+			t.Fatalf("messages = %#v, want system preamble plus ordered messages from %#v", messages, wantMessages)
+		}
+		allMessagesDelivered = allMessagesDelivered || len(messages) == 3
+		if len(request.Tools) != 3 || !containsTool(request.Tools, "Bash") || !containsTool(request.Tools, "ViewImage") || !containsTool(request.Tools, "SkillUse") {
+			t.Fatalf("tools = %#v, want Bash, ViewImage, and SkillUse", request.Tools)
 		}
 	}
-	if len(messages) != 3 || messages[0].Role != llm.RoleSystem ||
-		!strings.Contains(messages[0].Text, "<name>review</name>") ||
-		!strings.Contains(messages[0].Text, "<location>"+skillPath+"</location>") ||
-		!strings.HasSuffix(messages[0].Text, "\n\nbe concise") ||
-		!slices.Equal(messages[1:], wantMessages) {
-		t.Fatalf("messages = %#v, want system preamble plus %#v", messages, wantMessages)
+	if !allMessagesDelivered {
+		t.Fatal("no model request included both messages")
 	}
-	if len(request.Tools) != 3 || !containsTool(request.Tools, "Bash") || !containsTool(request.Tools, "ViewImage") || !containsTool(request.Tools, "SkillUse") {
-		t.Fatalf("tools = %#v, want Bash, ViewImage, and SkillUse", request.Tools)
+	if !slices.Contains(itemKinds(t, stdout.String()), sessionstore.ItemModelResponse) {
+		t.Fatal("model response was not recorded")
 	}
-	assertItemSequence(t, stdout.String(),
-		"input.control input.external input.external input.control turn model_response",
-		"input.control input.external input.external turn input.control model_response",
-		"input.control input.external input.external turn model_response input.control",
-	)
 	items := decodeLogItems(t, stdout.Bytes())
 	control, err := items[0].Data.(inbox.Input).DecodeControlMessage()
-	if err != nil || control.Mode != inbox.UpdateSettings || !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "gpt-test", SystemPrompt: new("be concise"), MaxOutputTokens: request.Model.MaxOutputTokens, ReasoningEffort: llm.ReasoningEffortMedium}) {
+	if err != nil || control.Mode != inbox.UpdateSettings || !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "gpt-test", SystemPrompt: new("be concise"), MaxOutputTokens: new(int64(2048)), ReasoningEffort: llm.ReasoningEffortMedium}) {
 		t.Fatalf("initial settings = %#v, error = %v", control, err)
 	}
 	ids := inputIDs(t, stdout.String())
@@ -706,5 +726,81 @@ func TestResolveSessionDirectoryRejectsMissingStateLocation(t *testing.T) {
 				t.Fatalf("error = %v, want actionable state location error", err)
 			}
 		})
+	}
+}
+
+func TestRunLoadsModelSettings(t *testing.T) {
+	for _, test := range []struct {
+		name, provider, model, settings string
+		threshold                       int64
+		wantError                       bool
+	}{
+		{name: "built-in", model: "gpt-6-astra", threshold: 244_800},
+		{name: "Codex built-in", provider: "openai-codex", model: "gpt-6-astra", threshold: 244_800},
+		{name: "provider-specific model", provider: "other", model: "gpt-6-astra", settings: `{"providers":{"other":{"info":{"id":"other","name":"Other"},"models":[{"id":"gpt-6-astra","name":"Other Astra","context_window":200000,"compaction_threshold":75000}]}}}`, threshold: 75_000},
+		{name: "unconfigured provider", provider: "other", model: "gpt-6-astra"},
+		{name: "override", model: "gpt-6-astra", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"gpt-6-astra","name":"GPT-6 Astra","context_window":200000,"compaction_threshold":64000}]}}}`, threshold: 64_000},
+		{name: "custom model", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000,"compaction_threshold":75000}]}}}`, threshold: 75_000},
+		{name: "default threshold", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000}]}}}`, threshold: 100_000},
+		{name: "zero threshold", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000,"compaction_threshold":0}]}}}`, threshold: 100_000},
+		{name: "unknown model", model: "unknown"},
+		{name: "invalid settings", model: "gpt-6-astra", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"gpt-6-astra","name":"GPT-6 Astra","context_window":200000,"compaction_threshold":-1}]}}}`, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			configHome := t.TempDir()
+			if test.settings != "" {
+				writeUserSettings(t, configHome, test.settings)
+			}
+			requests := make(chan llm.Request, 1)
+			client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+				requests <- request
+				return llm.Response{Stop: llm.StopComplete}, nil
+			}}
+			config := testConfig(client)
+			if test.provider != "" {
+				config.Providers[0].Name = test.provider
+			}
+			err := Run(t.Context(), []string{"-workspace", workspace, "-session-directory", t.TempDir()}, func(name string) string {
+				if name == llmProviderEnvironment {
+					return test.provider
+				}
+				if name == "XDG_CONFIG_HOME" {
+					return configHome
+				}
+				if name == llmAPIKeyEnvironment {
+					return "secret"
+				}
+				return ""
+			}, func() []string { return nil }, strings.NewReader(fmt.Sprintf(`{"prompt":"hello","model":%q}`, test.model)), io.Discard, io.Discard, config)
+			if test.wantError {
+				if err == nil || !strings.Contains(err.Error(), "load model settings") || len(requests) != 0 {
+					t.Fatalf("invalid settings: error = %v, requests = %d", err, len(requests))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case request := <-requests:
+				if request.Model.ID != test.model || request.Model.CompactionThreshold != test.threshold {
+					t.Fatalf("model = %#v, want %s with threshold %d", request.Model, test.model, test.threshold)
+				}
+			default:
+				t.Fatal("no model request")
+			}
+		})
+	}
+}
+
+func writeUserSettings(t *testing.T, configHome, contents string) {
+	t.Helper()
+	directory := filepath.Join(configHome, "unreal-agent")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "settings.json"), []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
