@@ -1,6 +1,11 @@
 package main
 
 import (
+	"embed"
+	"encoding/hex"
+	"encoding/json/v2"
+	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -11,29 +16,52 @@ import (
 )
 
 type theme struct {
-	Background    string
-	Foreground    string
-	Muted         string
-	Hint          string
-	Status        string
-	StatusActive  string
-	Surface       string
-	User          string
-	Selection     string
-	Accent        string
-	Success       string
-	PendingDim    string
-	PendingBright string
-	Warning       string
-	Error         string
+	Background    string `json:"background"`
+	Foreground    string `json:"foreground"`
+	Muted         string `json:"muted"`
+	Hint          string `json:"hint"`
+	Status        string `json:"status"`
+	StatusActive  string `json:"status_active"`
+	Surface       string `json:"surface"`
+	User          string `json:"user"`
+	Selection     string `json:"selection"`
+	Accent        string `json:"accent"`
+	Success       string `json:"success"`
+	PendingDim    string `json:"pending_dim"`
+	PendingBright string `json:"pending_bright"`
+	Warning       string `json:"warning"`
+	Error         string `json:"error"`
 }
 
-func defaultTheme() theme {
-	return theme{
-		Background: "#15181e", Foreground: "#d9e2ec", Muted: "#a3adba", Hint: "#697585",
-		Status: "#252f3c", StatusActive: "#405473", Surface: "#1b2029", User: "#252f3c", Selection: "#344357",
-		Accent: "#84b9ff", Success: "#8ccb9e", Warning: "#e6ba73", PendingDim: "#705016", PendingBright: "#ffe28a", Error: "#ff8f91",
+//go:embed themes/*.json
+var themeFiles embed.FS
+
+func loadTheme(name string) (theme, error) {
+	var t theme
+	var data []byte
+	var err error
+	if strings.HasSuffix(name, ".json") {
+		data, err = os.ReadFile(name)
+	} else {
+		data, err = themeFiles.ReadFile("themes/" + name + ".json")
 	}
+	if err != nil {
+		return t, fmt.Errorf("load theme %q: %w", name, err)
+	}
+	if err := json.Unmarshal(data, &t, json.RejectUnknownMembers(true)); err != nil {
+		return t, fmt.Errorf("decode theme %q: %w", name, err)
+	}
+	for field, value := range map[string]string{
+		"background": t.Background, "foreground": t.Foreground, "muted": t.Muted, "hint": t.Hint,
+		"status": t.Status, "status_active": t.StatusActive, "surface": t.Surface, "user": t.User,
+		"selection": t.Selection, "accent": t.Accent, "success": t.Success,
+		"pending_dim": t.PendingDim, "pending_bright": t.PendingBright, "warning": t.Warning, "error": t.Error,
+	} {
+		if _, err := hex.DecodeString(strings.TrimPrefix(value, "#")); err != nil || len(value) != 7 || value[0] != '#' {
+			return t, fmt.Errorf("theme %q: %s must be a #RRGGBB color", name, field)
+		}
+	}
+	return t, nil
 }
 
 func textStyle(color string) lipgloss.Style {
@@ -66,8 +94,11 @@ func (t theme) markdownStyles() glamouransi.StyleConfig {
 		*heading = glamouransi.StyleBlock{}
 	}
 	style.Link.Color, style.LinkText.Color = &t.Accent, &t.Accent
+	style.Image.Color, style.ImageText.Color = &t.Accent, &t.Muted
+	style.HorizontalRule.Color = &t.Hint
 	style.Code.Color, style.Code.BackgroundColor = &t.Accent, &t.Surface
 	style.BlockQuote.Color = &t.Muted
+	style.CodeBlock.Color = &t.Foreground
 	style.CodeBlock.Margin = new(uint(0))
 	style.CodeBlock.Chroma = &glamouransi.Chroma{
 		Text:          glamouransi.StylePrimitive{Color: &t.Foreground},

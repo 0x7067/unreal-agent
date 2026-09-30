@@ -33,42 +33,21 @@ import (
 type options struct {
 	provider, model, effort, baseURL string
 	maxAttempts                      int
+	theme                            theme
 }
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
 	var opts options
-	var providerNames []string
-	for _, provider := range providers.Default() {
-		providerNames = append(providerNames, provider.Name)
-	}
+	var themeName string
 	flags := flag.NewFlagSet("unreal-agent-lite", flag.ContinueOnError)
 	flags.SetOutput(output)
-	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), strings.Join(providerNames, ", ")+" (default openai)")
-	flags.StringVar(&opts.model, "model", getenv("UNREAL_HARNESS_LLM_MODEL"), "model identifier (required)")
-	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), "low, medium, high, xhigh, or max (default medium)")
-	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "provider base URL override")
-	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, "maximum provider attempts per request; 1 disables retries")
-	flags.Usage = func() {
-		_, _ = fmt.Fprint(output, `Usage: unreal-agent-lite [flags]
-
-Run in the workspace to inspect. Bash runs with your process permissions.
-Each launch creates fresh temporary Run Files; no resume or runtime settings.
-Run Files are kept after exit for inspection.
-
-Environment (flags override):
-  UNREAL_HARNESS_LLM_PROVIDER, UNREAL_HARNESS_LLM_MODEL,
-  UNREAL_HARNESS_LLM_REASONING_EFFORT, UNREAL_HARNESS_LLM_BASE_URL
-  UNREAL_HARNESS_LLM_API_KEY overrides OPENAI_API_KEY, OPENROUTER_API_KEY,
-  FIREWORKS_API_KEY, or ANTHROPIC_API_KEY. Ollama needs no key.
-  Codex uses existing harness credentials: OPENAI_CODEX_AUTH_FILE or
-  $CODEX_HOME/auth.json (~/.codex/auth.json), or OPENAI_CODEX_ACCESS_TOKEN
-  with OPENAI_CODEX_ACCOUNT_ID. To sign in:
-  codex -c 'cli_auth_credentials_store="file"' login
-
-Flags:
-`)
-		flags.PrintDefaults()
-	}
+	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default openai)")
+	flags.StringVar(&opts.model, "model", getenv("UNREAL_HARNESS_LLM_MODEL"), "model ID (required)")
+	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), strings.Join(reasoning.Choices(), ", ")+" (default medium)")
+	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "API endpoint override")
+	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, fmt.Sprintf("request attempts (default %d)", responsesapi.DefaultMaxAttempts))
+	flags.StringVar(&themeName, "theme", "default", "palette name or JSON path")
+	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
 		return opts, err
 	}
@@ -91,7 +70,8 @@ Flags:
 	if opts.maxAttempts < 1 {
 		return opts, errors.New("max-attempts must be positive")
 	}
-	return opts, nil
+	opts.theme, err = loadTheme(themeName)
+	return opts, err
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) error {

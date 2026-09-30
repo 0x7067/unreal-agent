@@ -1,0 +1,17 @@
+{
+  "background": "#1e1e2e",
+  "foreground": "#cdd6f4",
+  "muted": "#a6adc8",
+  "hint": "#7f849c",
+  "status": "#313244",
+  "status_active": "#45475a",
+  "surface": "#181825",
+  "user": "#313244",
+  "selection": "#45475a",
+  "accent": "#cba6f7",
+  "success": "#a6e3a1",
+  "pending_dim": "#675f55",
+  "pending_bright": "#f9e2af",
+  "warning": "#f9e2af",
+  "error": "#f38ba8"
+}

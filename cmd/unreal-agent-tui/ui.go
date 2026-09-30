@@ -115,14 +115,14 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	composer.MaxContentHeight = math.MaxInt
 	composer.CharLimit = 0
 	composer.MaxWidth = 0
-	composer.SetStyles(defaultTheme().composerStyles())
+	composer.SetStyles(opts.theme.composerStyles())
 	composer.Focus()
 	conversation := viewport.New(viewport.WithWidth(80), viewport.WithHeight(17))
 	conversation.FillHeight = true
 	loading := spinner.Spinner{Frames: []string{"●"}, FPS: time.Second / 30}
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
 		width: 80, height: 24, spinner: spinner.New(spinner.WithSpinner(loading)), details: viewport.New(),
-		theme: defaultTheme(), animationRunning: true,
+		theme: opts.theme, animationRunning: true,
 		workspace: singleLine(workspace), directory: singleLine(directory),
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
@@ -584,6 +584,7 @@ func (m model) View() tea.View {
 	if m.width < 20 || m.height < 8 {
 		v := tea.NewView(ansi.Truncate("Resize terminal", max(1, m.width), "…"))
 		v.AltScreen = true
+		v.BackgroundColor, v.ForegroundColor = lipgloss.Color(m.theme.Background), lipgloss.Color(m.theme.Foreground)
 		return v
 	}
 	x, y := m.padding()

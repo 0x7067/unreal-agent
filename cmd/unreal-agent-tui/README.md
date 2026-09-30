@@ -6,6 +6,10 @@ A minimal terminal client for the existing harness, alongside `unreal-agent`.
 go -C unreal-agent build -o /tmp/unreal-agent-lite ./cmd/unreal-agent-lite
 cd /path/to/workspace
 /tmp/unreal-agent-lite -provider openai-codex -model gpt-5.6-luna
+/tmp/unreal-agent-lite -provider openai-codex -model gpt-5.6-luna -theme catppuccin-dark
+/tmp/unreal-agent-lite -provider openai-codex -model gpt-5.6-luna -theme ./my-theme.json
 /tmp/unreal-agent-lite -provider ollama -model qwen3.8:27b
 /tmp/unreal-agent-lite -help
 ```
+
+[Theme JSON examples](themes/) · [Default palette](themes/default.json)
