@@ -12,7 +12,7 @@ const entranceDuration = 600 * time.Millisecond
 
 func (m model) entranceView(view tea.View, now time.Time) tea.View {
 	elapsed := now.Sub(m.entranceStarted)
-	if m.entranceStarted.IsZero() || elapsed >= entranceDuration || m.ended ||
+	if !m.animations || m.entranceStarted.IsZero() || elapsed >= entranceDuration || m.ended ||
 		len(m.lines) > 0 || len(m.tools) > 0 || m.responding || m.sending || m.detailsOpen || m.toolsFocused {
 		return view
 	}

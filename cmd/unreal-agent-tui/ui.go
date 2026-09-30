@@ -94,6 +94,7 @@ type model struct {
 	workTimer                           stopwatch.Model
 	mascotTop                           int
 	entranceStarted                     time.Time
+	animations                          bool
 	animationRunning                    bool
 	animationFrame                      int
 	toolPulseFrame                      int
@@ -122,7 +123,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	loading := spinner.Spinner{Frames: []string{"●"}, FPS: time.Second / 30}
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
 		width: 80, height: 24, spinner: spinner.New(spinner.WithSpinner(loading)), details: viewport.New(),
-		theme: opts.theme, animationRunning: true,
+		theme: opts.theme, animations: opts.animations, animationRunning: true,
 		workspace: singleLine(workspace), directory: singleLine(directory),
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
@@ -351,13 +352,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) needsAnimation() bool {
 	now := time.Now()
-	if !m.ended && (m.responding || m.sending || now.Sub(m.entranceStarted) < entranceDuration ||
-		len(m.lines) > 0 && now.Sub(m.lines[len(m.lines)-1].created) < revealDuration) {
+	if !m.ended && (m.responding || m.sending || m.animations &&
+		(now.Sub(m.entranceStarted) < entranceDuration ||
+			len(m.lines) > 0 && now.Sub(m.lines[len(m.lines)-1].created) < revealDuration)) {
 		return true
 	}
 	return slices.ContainsFunc(m.tools, func(card toolCard) bool {
 		return now.Sub(card.completed) < toolStatusLinger ||
-			!m.ended && (card.status == awaiting || now.Sub(card.created) < revealDuration)
+			!m.ended && (card.status == awaiting || m.animations && now.Sub(card.created) < revealDuration)
 	})
 }
 
@@ -495,7 +497,7 @@ func (m *model) renderConversation() {
 
 func (m model) conversationView(now time.Time) string {
 	view := m.conversation.View()
-	if m.ended || m.detailsOpen || m.width < 90 && m.toolsFocused {
+	if !m.animations || m.ended || m.detailsOpen || m.width < 90 && m.toolsFocused {
 		return view
 	}
 	width, height := m.conversation.Width(), m.conversation.Height()
@@ -632,7 +634,7 @@ func (m model) View() tea.View {
 	status += strings.Repeat(" ", statusWidth-ansi.StringWidth(status)-ansi.StringWidth(indicators)) + indicators
 	statusRow := renderSurface(textStyle(m.theme.Muted).Background(lipgloss.Color(m.theme.Status)).
 		Width(m.width).Padding(0, 1, 0, x+1), ansi.Truncate(status, m.width-x-2, "…"))
-	if !m.ended && (m.responding || m.sending || pending) {
+	if m.animations && !m.ended && (m.responding || m.sending || pending) {
 		canvas := lipgloss.NewCanvas(m.width, 1).Compose(lipgloss.NewLayer(statusRow))
 		for column := range m.width {
 			phase := (column*len(m.statusColors)/m.width - m.animationFrame + len(m.statusColors)) % len(m.statusColors)

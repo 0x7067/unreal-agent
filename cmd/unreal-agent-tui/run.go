@@ -34,11 +34,13 @@ type options struct {
 	provider, model, effort, baseURL string
 	maxAttempts                      int
 	theme                            theme
+	animations                       bool
 }
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
 	var opts options
 	var themeName string
+	var noAnimations bool
 	flags := flag.NewFlagSet("unreal-agent-lite", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default openai)")
@@ -47,10 +49,12 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "API endpoint override")
 	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, fmt.Sprintf("request attempts (default %d)", responsesapi.DefaultMaxAttempts))
 	flags.StringVar(&themeName, "theme", "default", "palette name or JSON path")
+	flags.BoolVar(&noAnimations, "no-animations", false, "disable reveal and background animations")
 	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
 		return opts, err
 	}
+	opts.animations = !noAnimations
 	if flags.NArg() != 0 {
 		return opts, errors.New("unexpected positional arguments; send prompts inside the TUI")
 	}

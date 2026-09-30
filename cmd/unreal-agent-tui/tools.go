@@ -123,7 +123,7 @@ func (m *model) refreshDetails() {
 }
 
 func (m model) revealTool(text string, elapsed time.Duration) string {
-	if elapsed >= revealDuration || m.ended {
+	if !m.animations || elapsed >= revealDuration || m.ended {
 		return text
 	}
 	elapsed = max(0, elapsed)
@@ -139,7 +139,7 @@ func (m model) revealTool(text string, elapsed time.Duration) string {
 }
 
 func (m model) shimmerTool(row string, elapsed time.Duration) string {
-	if m.ended || elapsed <= 0 || elapsed >= revealDuration {
+	if !m.animations || m.ended || elapsed <= 0 || elapsed >= revealDuration {
 		return row
 	}
 	width := ansi.StringWidth(row)
