@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -15,6 +16,106 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 )
+
+func TestCoordinatorResumeProcessesQueuedHardStopBeforeModelRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newStopTestRun(t, 0)
+		run.store.items = []sessionstore.Item{
+			storedItem(1, sessionstore.ItemInput, externalEvent(t, 0, "pending", "hello")),
+		}
+		submitTestInput(t, run.inputs, stopInput(t, "stop", inbox.StopHard))
+		run.start(t)
+		if err := <-run.done; err != nil {
+			t.Fatal(err)
+		}
+		if len(run.store.appendedTurns) != 0 {
+			t.Fatal("resume started a model turn before accepting the queued hard stop")
+		}
+	})
+}
+
+func TestCoordinatorResumeProcessesQueuedSettingsBeforeModelRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newStopTestRun(t, 0)
+		run.store.items = []sessionstore.Item{
+			storedItem(1, sessionstore.ItemInput, externalEvent(t, 0, "pending", "hello")),
+		}
+		run.current.dependencies.ContextBuilder.SetModel(llm.Model{ID: "previous"})
+		adapter := &fakeAdapter{respond: func(context.Context, llm.Request) (llm.Response, error) {
+			return textResponse("Hello."), nil
+		}}
+		run.current.dependencies.LLM = adapter
+		submitTestInput(t, run.inputs, settingsInput(t, "settings", inbox.Settings{Model: "next"}))
+		submitTestInput(t, run.inputs, stopInput(t, "stop", inbox.StopWhenIdle))
+		run.start(t)
+		if err := <-run.done; err != nil {
+			t.Fatal(err)
+		}
+		requests := adapter.requestSnapshot()
+		if len(requests) != 1 {
+			t.Fatalf("requests = %d, want one resumed request", len(requests))
+		}
+		if got := requests[0].Model.ID; got != "next" {
+			t.Fatalf("resumed request model = %q, want the queued model %q", got, "next")
+		}
+	})
+}
+
+func TestCoordinatorResumeProcessesQueuedInputBeforeModelRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newStopTestRun(t, 0)
+		run.store.items = []sessionstore.Item{
+			storedItem(1, sessionstore.ItemInput, externalEvent(t, 0, "pending", "hello")),
+		}
+		adapter := &fakeAdapter{respond: func(context.Context, llm.Request) (llm.Response, error) {
+			return textResponse("Hello."), nil
+		}}
+		run.current.dependencies.LLM = adapter
+		submitTestInput(t, run.inputs, externalEvent(t, 1, "queued", "continue"))
+		submitTestInput(t, run.inputs, stopInput(t, "stop", inbox.StopWhenIdle))
+		run.start(t)
+		if err := <-run.done; err != nil {
+			t.Fatal(err)
+		}
+		requests := adapter.requestSnapshot()
+		want := withPreamble(t,
+			llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "hello"}},
+			llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "continue"}},
+		)
+		if len(requests) != 1 {
+			t.Fatalf("requests = %d, want one resumed request", len(requests))
+		}
+		if !reflect.DeepEqual(requests[0].Input, want) {
+			t.Fatal("resumed request did not include both inputs")
+		}
+	})
+}
+
+func TestCoordinatorResumeProcessesQueuedCompletionBeforeModelRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newStopTestRun(t, 1)
+		run.store.items = append(run.store.items,
+			storedItem(4, sessionstore.ItemInput, externalEvent(t, 0, "pending", "check progress")),
+		)
+		adapter := &fakeAdapter{respond: func(context.Context, llm.Request) (llm.Response, error) {
+			return textResponse("Done."), nil
+		}}
+		run.current.dependencies.LLM = adapter
+		completed := run.store.resume.Operations[0]
+		completed.Status = operation.StatusCompleted
+		run.operations.updates <- completed
+		submitTestInput(t, run.inputs, stopInput(t, "stop", inbox.StopWhenIdle))
+		run.start(t)
+		if err := <-run.done; err != nil {
+			t.Fatal(err)
+		}
+		requests := adapter.requestSnapshot()
+		if len(requests) != 1 {
+			t.Fatalf("requests = %d, want one resumed request", len(requests))
+		}
+		assertStopResult(t, requests[0], "call-0", string(operation.StatusCompleted))
+	})
+}
 
 func TestCoordinatorResumesUnavailableTool(t *testing.T) {
 	for _, stage := range []string{"untranslated", "rejected", "accepted"} {

@@ -161,7 +161,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 			resumed := &fakeClient{}
 			resumed.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
 				resumed.calls++
-				if request.Model.ID != "initial-model" || request.Model.ReasoningEffort != llm.ReasoningEffortLow {
+				if request.Model.ID != model || request.Model.ReasoningEffort != effort {
 					return llm.Response{}, fmt.Errorf("recovered request settings = %#v", request.Model)
 				}
 				if withTool && !hasResult(request) {

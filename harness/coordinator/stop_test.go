@@ -246,6 +246,8 @@ func TestCoordinatorCancellationWhileCollectingUpdates(t *testing.T) {
 				defer cancel(nil)
 				go func() { run.done <- run.current.Run(ctx) }()
 				synctest.Wait()
+				synctest.Sleep(2 * slurpIdleTimeout)
+				synctest.Wait()
 				if source == "inbox" {
 					submitTestInput(t, run.inputs, externalEvent(t, 0, "input", "hello"))
 				} else {
@@ -431,6 +433,8 @@ func (run *stopTestRun) start(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	go func() { run.done <- run.current.Run(ctx) }()
+	synctest.Wait()
+	synctest.Sleep(2 * slurpIdleTimeout)
 	synctest.Wait()
 }
 

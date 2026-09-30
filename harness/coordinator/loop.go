@@ -102,21 +102,35 @@ func (current *coordinator) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := current.reconcileToolCalls(ctx); err != nil {
-		return err
-	}
 	if err := current.dispatchOperationsToManager(); err != nil {
 		return err
 	}
-	if toolCallStatusesRequireModelResponse(statuses) || current.pendingInputs() > 0 {
-		err = current.requestModelResponse(modelContext, modelResponses)
-		if err != nil {
-			return err
-		}
-	}
+	current.state.callModel = toolCallStatusesRequireModelResponse(statuses)
 
 	var heartbeat <-chan time.Time
 	for {
+		callModel, err := current.processEvents(ctx)
+		if err != nil {
+			return err
+		}
+		if current.stop.request.Mode == inbox.StopHard {
+			stopped, err := current.handleStop()
+			if err != nil {
+				return err
+			}
+			if stopped {
+				return ctx.Err()
+			}
+		} else if callModel {
+			if err := current.requestModelResponse(modelContext, modelResponses); err != nil {
+				return err
+			}
+			current.clearToolGrace()
+		}
+		if current.stop.request.Mode == inbox.StopWhenIdle && current.isIdle() {
+			return ctx.Err()
+		}
+
 		if !current.isWaitingForOnlyToolCalls() {
 			heartbeat = nil
 		} else if heartbeat == nil && current.dependencies.ToolHeartbeatInterval > 0 {
@@ -157,32 +171,6 @@ func (current *coordinator) Run(ctx context.Context) error {
 			if err := current.processModelResponse(ctx, received); err != nil {
 				return err
 			}
-		}
-
-		callModel, err := current.processEvents(ctx)
-		if err != nil {
-			return err
-		}
-		if current.stop.request.Mode == inbox.StopHard {
-			stopped, err := current.handleStop()
-			if err != nil {
-				return err
-			}
-			if stopped {
-				return ctx.Err()
-			}
-			continue
-		}
-		if callModel {
-			err = current.requestModelResponse(modelContext, modelResponses)
-			if err != nil {
-				return err
-			}
-			current.clearToolGrace()
-			// heartbeat is cleared immediately at the top of the loop, because now we're waiting for the model response
-		}
-		if current.stop.request.Mode == inbox.StopWhenIdle && current.isIdle() {
-			return ctx.Err()
 		}
 	}
 }
