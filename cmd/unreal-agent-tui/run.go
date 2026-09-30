@@ -182,8 +182,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: client,
 		ToolHeartbeatInterval: 10 * time.Minute,
 	})
-	program := tea.NewProgram(newModel(runCtx, inputs, registry, opts, workspace, directory),
-		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY))
+	ui := newModel(runCtx, inputs, registry, workspace, directory, opts)
+	ui.entranceStarted = time.Now()
+	program := tea.NewProgram(ui,
+		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(filterMouseWheel))
 	observer := store.AddObserver(func(_ session.ID, item sessionstore.Item) { program.Send(item) })
 	defer store.RemoveObserver(observer)
 	done := make(chan error, 1)
