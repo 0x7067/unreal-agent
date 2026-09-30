@@ -22,10 +22,3 @@ func Parse(value string) (llm.ReasoningEffort, error) {
 	}
 	return effort, nil
 }
-
-func Label(effort llm.ReasoningEffort) string {
-	if effort == "" {
-		return string(Default)
-	}
-	return string(effort)
-}

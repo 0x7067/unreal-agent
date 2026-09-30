@@ -33,6 +33,7 @@ import (
 
 type options struct {
 	provider, model, effort, baseURL string
+	version                          bool
 	maxAttempts                      int
 	theme                            theme
 	animations                       bool
@@ -42,8 +43,9 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	var opts options
 	var themeName string
 	var noAnimations bool
-	flags := flag.NewFlagSet("unreal-agent-lite", flag.ContinueOnError)
+	flags := flag.NewFlagSet("unreal-agent", flag.ContinueOnError)
 	flags.SetOutput(output)
+	flags.BoolVar(&opts.version, "version", false, "print version")
 	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default openai)")
 	flags.StringVar(&opts.model, "model", getenv("UNREAL_HARNESS_LLM_MODEL"), "model ID (required)")
 	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), strings.Join(reasoning.Choices(), ", ")+" (default medium)")
@@ -54,6 +56,9 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
 		return opts, err
+	}
+	if opts.version {
+		return opts, nil
 	}
 	opts.animations = !noAnimations
 	if flags.NArg() != 0 {
@@ -82,6 +87,10 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) error {
 	opts, err := parseOptions(args, getenv, output)
 	if err != nil {
+		return err
+	}
+	if opts.version {
+		_, err := fmt.Fprintf(output, "unreal-agent %s (commit %s, built %s)\n", version, commit, date)
 		return err
 	}
 	provider, err := providers.Find(providers.Default(), opts.provider)
@@ -120,7 +129,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err != nil {
 		return err
 	}
-	directory, err := sessionpath.Resolve("", getenv)
+	directory, err := sessionpath.Resolve(getenv)
 	if err != nil {
 		return err
 	}
@@ -153,11 +162,21 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
 		return err
 	}
+	skills, skillErrors := tool.DiscoverSkills(filepath.Join(workspace, ".harness", "skills"))
+	enabled := []string{tool.BashName, tool.ViewImageName}
+	if len(skills) > 0 {
+		enabled = append(enabled, tool.SkillUseName)
+	}
 	registry := tool.NewRegistry(tool.StaticTranslators{
 		Bash:      bash.New(bash.Config{Shell: shell, Directory: workspace, BaseDirectory: operationDirectory}),
 		ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
-	}, tool.BashName, tool.ViewImageName)
-	builder := contextbuilder.NewBuilder()
+	}, enabled...)
+	for _, skill := range skills {
+		if _, err := registry.RegisterSkill(skill); err != nil {
+			return fmt.Errorf("register skill %q: %w", skill.Name, err)
+		}
+	}
+	builder := contextbuilder.NewBuilder(skills...)
 	builder.SetModel(llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)})
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
@@ -168,6 +187,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		ToolHeartbeatInterval: 10 * time.Minute,
 	})
 	ui := newModel(runCtx, inputs, registry, workspace, directory, opts)
+	for _, err := range skillErrors {
+		ui.append("Skill error", err.Error())
+	}
 	ui.entranceStarted = time.Now()
 	program := tea.NewProgram(ui,
 		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(filterMouseWheel))
@@ -184,7 +206,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	_, uiErr := program.Run()
 	stopCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stop()
-	runErr := runcontrol.Stop(stopCtx, inputs, done, "Unreal Agent Lite exited")
+	runErr := runcontrol.Stop(stopCtx, inputs, done, "Unreal Agent exited")
 	cancel()
 	for range done {
 	}

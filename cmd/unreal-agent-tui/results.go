@@ -22,6 +22,8 @@ func resultState(result tool.Result) (running bool, failure string) {
 		return result.Running, failure
 	case viewimage.Result:
 		return result.Running, result.Error
+	case tool.SkillUseResult:
+		return result.Running, result.Error
 	default:
 		return false, fmt.Sprintf("Unsupported tool result %T", result)
 	}
@@ -86,6 +88,11 @@ func resultText(result tool.Result) (string, string) {
 		}
 		if image := result.Image; image != nil && image.OriginalMIMEType != "" {
 			parts = append(parts, fmt.Sprintf("Image: %s · %d×%d", image.OriginalMIMEType, image.OriginalWidth, image.OriginalHeight))
+		}
+	case tool.SkillUseResult:
+		parts = append(parts, string(result.Content))
+		if result.Error != "" {
+			parts = append(parts, result.Error)
 		}
 	}
 	return boundedDetail(strings.Join(parts, "\n\n"), 32000), strings.Join(paths, "\n")

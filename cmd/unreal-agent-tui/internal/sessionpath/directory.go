@@ -5,13 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-func Resolve(configured string, getenv func(string) string) (string, error) {
-	if configured = strings.TrimSpace(configured); configured != "" {
-		return filepath.Abs(configured)
-	}
+func Resolve(getenv func(string) string) (string, error) {
 	stateHome := getenv("XDG_STATE_HOME")
 	if !filepath.IsAbs(stateHome) {
 		userHome := getenv("HOME")

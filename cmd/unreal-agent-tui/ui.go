@@ -495,7 +495,7 @@ func (m *model) renderConversation() {
 		case "You":
 			style = style.Background(lipgloss.Color(m.theme.User)).Padding(1, 1, 1, 2)
 		case "Agent":
-		case "Run failed", "Model failed", "Send failed":
+		case "Run failed", "Model failed", "Send failed", "Skill error":
 			color = m.theme.Error
 		default:
 			style = style.Foreground(lipgloss.Color(m.theme.Muted))
@@ -704,7 +704,7 @@ func (m model) View() tea.View {
 	if m.selectText {
 		view.MouseMode = tea.MouseModeNone
 	}
-	view.WindowTitle = "Unreal Agent Lite"
+	view.WindowTitle = "Unreal Agent"
 	if !m.toolsFocused {
 		view.Cursor = m.composer.Cursor()
 	}

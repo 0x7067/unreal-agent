@@ -9,7 +9,7 @@ import (
 func TestEffortChoicesRoundTrip(t *testing.T) {
 	for _, value := range Choices() {
 		effort, err := Parse(value)
-		if err != nil || Label(effort) != value {
+		if err != nil || string(effort) != value {
 			t.Fatalf("round trip %q: %q, %v", value, effort, err)
 		}
 	}
