@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"strings"
+	"time"
 	"uuid"
 
 	"charm.land/bubbles/v2/textarea"
@@ -21,6 +22,12 @@ import (
 )
 
 type runEnded struct{ err error }
+type tick time.Time
+
+func tickCommand() tea.Cmd {
+	return tea.Tick(time.Second, func(now time.Time) tea.Msg { return tick(now) })
+}
+
 type submitted struct {
 	text string
 	err  error
@@ -33,13 +40,16 @@ type callKey struct {
 type model struct {
 	ctx                        context.Context
 	inputs                     inbox.Writer
+	registry                   tool.Registry
 	composer                   textarea.Model
 	conversation               viewport.Model
 	width, height              int
 	header                     string
 	lines                      []string
-	active                     map[callKey]string
-	registry                   tool.Registry
+	tools                      []toolCard
+	selected                   int
+	toolsFocused               bool
+	now                        time.Time
 	responding, sending, ended bool
 	turn                       session.TurnID
 }
@@ -57,7 +67,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	conversation := viewport.New(viewport.WithWidth(80), viewport.WithHeight(17))
 	conversation.SoftWrap, conversation.FillHeight = true, true
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
-		width: 80, height: 24, active: make(map[callKey]string),
+		width: 80, height: 24, now: time.Now(),
 		header: "Unreal Agent Lite · " + opts.model + " · " + opts.effort,
 	}
 	m.append("Workspace", workspace)
@@ -66,11 +76,17 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	return m
 }
 
-func (m model) Init() tea.Cmd { return m.composer.Focus() }
+func (m model) Init() tea.Cmd { return tea.Batch(m.composer.Focus(), tickCommand()) }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case tick:
+		if m.ended {
+			break
+		}
+		m.now = time.Time(msg)
+		cmd = tickCommand()
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 && msg.Height > 0 {
 			follow := m.conversation.AtBottom()
@@ -90,10 +106,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case runEnded:
 		m.ended, m.responding = true, false
+		m.now = time.Now()
 		if msg.err != nil {
 			m.append("Run failed", msg.err.Error())
 		}
+	case tea.PasteMsg:
+		if !m.toolsFocused {
+			m.composer, cmd = m.composer.Update(msg)
+		}
 	case tea.KeyPressMsg:
+		if msg.String() == "tab" || msg.String() == "esc" && m.toolsFocused {
+			m.toolsFocused = !m.toolsFocused
+			if m.toolsFocused {
+				m.composer.Blur()
+			} else {
+				cmd = m.composer.Focus()
+			}
+			m.resize()
+			return m, cmd
+		}
+		if m.toolsFocused && msg.String() != "ctrl+c" {
+			switch msg.String() {
+			case "up":
+				m.selected = max(0, m.selected-1)
+			case "down":
+				m.selected = min(max(0, len(m.tools)-1), m.selected+1)
+			case "pgup":
+				m.selected = max(0, m.selected-max(1, (m.conversation.Height()-1)/3))
+			case "pgdown":
+				m.selected = min(max(0, len(m.tools)-1), m.selected+max(1, (m.conversation.Height()-1)/3))
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -155,12 +199,15 @@ func (m *model) apply(item sessionstore.Item) {
 		if data.TurnID == m.turn {
 			m.responding = false
 		}
-		for _, item := range data.Response.Output {
-			switch value := item.Data.(type) {
+		for _, output := range data.Response.Output {
+			switch value := output.Data.(type) {
 			case llm.Message:
 				m.append("Agent", value.Text)
 			case llm.ToolCall:
-				m.active[callKey{data.TurnID, value.CallID}] = value.Name
+				card := m.card(callKey{data.TurnID, value.CallID})
+				card.name, card.arguments = value.Name, value.Arguments
+				card.summary = toolSummary(value.Name, value.Arguments)
+				card.started = item.RecordedAt
 			}
 		}
 		if data.Response.Failure != nil {
@@ -171,41 +218,34 @@ func (m *model) apply(item sessionstore.Item) {
 			m.append("Response truncated", "Model reached its output limit.")
 		}
 	case sessionstore.ToolCallStatus:
-		key := callKey{data.TurnID, data.CallID}
-		name, pending := m.active[key]
-		if !pending {
-			return
+		card := m.card(callKey{data.TurnID, data.CallID})
+		m.readToolResult(card, data)
+		if card.status != awaiting && card.finished.IsZero() {
+			card.finished = item.RecordedAt
 		}
-		translator, ok := m.registry.Resolve(name)
-		if !ok {
-			delete(m.active, key)
-			m.append("Tool failed", "Unknown tool: "+name)
-			return
-		}
-		result, err := translator.TranslateResult(data.CallID, data.Status, data.Operations)
-		active, failure := false, ""
-		if err != nil {
-			failure = err.Error()
-		} else {
-			active, failure = resultState(result)
-		}
-		if !active {
-			delete(m.active, key)
-		}
-		if failure != "" {
-			m.append("Tool failed", failure)
-		}
+
 	}
 }
 
 func (m *model) resize() {
 	m.composer.SetWidth(max(1, m.width))
 	m.composer.SetHeight(min(3, max(1, m.height-3)))
-	m.conversation.SetWidth(max(1, m.width))
+	width := m.width
+	if m.width >= 90 {
+		width -= m.sidebarWidth() + 1
+	}
+	m.conversation.SetWidth(max(1, width))
 	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-3))
 }
 
+func (m model) sidebarWidth() int { return min(42, m.width/3) }
+
 func (m model) View() tea.View {
+	if m.width < 20 || m.height < 8 {
+		v := tea.NewView(ansi.Truncate("Resize terminal", max(1, m.width), "…"))
+		v.AltScreen = true
+		return v
+	}
 	status := "Idle"
 	if m.responding {
 		status = "Agent responding"
@@ -213,7 +253,11 @@ func (m model) View() tea.View {
 	if m.sending {
 		status = "Sending message"
 	}
-	status += fmt.Sprintf(" · %d tools awaiting results", len(m.active))
+	active, failed := m.toolCounts()
+	status += fmt.Sprintf(" · %d tools awaiting results", active)
+	if failed > 0 {
+		status += fmt.Sprintf(" · %d failed", failed)
+	}
 	if m.ended {
 		status = "Run ended · Ctrl+C to exit"
 	}
@@ -221,13 +265,22 @@ func (m model) View() tea.View {
 	header := lipgloss.NewStyle().Bold(true).Render(fit(m.header))
 	parts := []string{header}
 	if m.conversation.Height() > 0 {
-		parts = append(parts, m.conversation.View())
+		body := m.conversation.View()
+		if m.width >= 90 {
+			side := lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).Render(m.toolPane(m.sidebarWidth(), m.conversation.Height()))
+			body = lipgloss.JoinHorizontal(lipgloss.Top, body, side)
+		} else if m.toolsFocused {
+			body = m.toolPane(m.width, m.conversation.Height())
+		}
+		parts = append(parts, body)
 	}
-	parts = append(parts, fit(status), m.composer.View(), fit("Enter send · Ctrl+J newline · PgUp/PgDn scroll · Ctrl+End latest · Ctrl+C stop & exit"))
+	parts = append(parts, fit(status), m.composer.View(), fit("Enter send · Ctrl+J newline · Tab tools · PgUp/PgDn scroll · Ctrl+C exit"))
 	view := tea.NewView(strings.Join(parts, "\n"))
 	view.AltScreen = true
 	view.WindowTitle = "Unreal Agent Lite"
-	view.Cursor = m.composer.Cursor()
+	if !m.toolsFocused {
+		view.Cursor = m.composer.Cursor()
+	}
 	if view.Cursor != nil {
 		view.Cursor.Y += 2 + m.conversation.Height()
 	}
