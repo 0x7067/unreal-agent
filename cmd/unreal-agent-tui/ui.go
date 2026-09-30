@@ -43,8 +43,11 @@ type model struct {
 	registry                   tool.Registry
 	composer                   textarea.Model
 	conversation               viewport.Model
+	details                    viewport.Model
+	detailsOpen                bool
 	width, height              int
 	header                     string
+	runError                   string
 	lines                      []string
 	tools                      []toolCard
 	selected                   int
@@ -67,9 +70,10 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	conversation := viewport.New(viewport.WithWidth(80), viewport.WithHeight(17))
 	conversation.SoftWrap, conversation.FillHeight = true, true
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
-		width: 80, height: 24, now: time.Now(),
+		width: 80, height: 24, now: time.Now(), details: viewport.New(),
 		header: "Unreal Agent Lite · " + opts.model + " · " + opts.effort,
 	}
+	m.details.SoftWrap, m.details.FillHeight = true, true
 	m.append("Workspace", workspace)
 	m.append("Run files", directory)
 	m.resize()
@@ -107,7 +111,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runEnded:
 		m.ended, m.responding = true, false
 		m.now = time.Now()
+		m.refreshDetails()
 		if msg.err != nil {
+			m.runError = singleLine(msg.err.Error())
 			m.append("Run failed", msg.err.Error())
 		}
 	case tea.PasteMsg:
@@ -115,6 +121,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.composer, cmd = m.composer.Update(msg)
 		}
 	case tea.KeyPressMsg:
+		if m.detailsOpen && msg.String() != "ctrl+c" {
+			switch msg.String() {
+			case "esc":
+				m.detailsOpen = false
+			case "tab":
+				m.detailsOpen, m.toolsFocused = false, false
+				cmd = m.composer.Focus()
+			case "ctrl+end":
+				m.details.GotoBottom()
+			default:
+				m.details, cmd = m.details.Update(msg)
+			}
+			return m, cmd
+		}
 		if msg.String() == "tab" || msg.String() == "esc" && m.toolsFocused {
 			m.toolsFocused = !m.toolsFocused
 			if m.toolsFocused {
@@ -127,6 +147,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.toolsFocused && msg.String() != "ctrl+c" {
 			switch msg.String() {
+			case "enter":
+				if len(m.tools) > 0 {
+					m.detailsOpen = true
+					m.refreshDetails()
+					m.details.GotoTop()
+				}
 			case "up":
 				m.selected = max(0, m.selected-1)
 			case "down":
@@ -219,11 +245,17 @@ func (m *model) apply(item sessionstore.Item) {
 		}
 	case sessionstore.ToolCallStatus:
 		card := m.card(callKey{data.TurnID, data.CallID})
-		m.readToolResult(card, data)
+		result := m.readToolResult(card, data)
+		card.output, card.paths = resultText(result)
+		if card.output == "" {
+			card.output = boundedDetail(card.failure, 32000)
+		}
 		if card.status != awaiting && card.finished.IsZero() {
 			card.finished = item.RecordedAt
 		}
-
+		if m.detailsOpen && card.key == m.tools[m.selected].key {
+			m.refreshDetails()
+		}
 	}
 }
 
@@ -236,6 +268,8 @@ func (m *model) resize() {
 	}
 	m.conversation.SetWidth(max(1, width))
 	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-3))
+	m.details.SetWidth(max(1, m.width))
+	m.details.SetHeight(m.conversation.Height())
 }
 
 func (m model) sidebarWidth() int { return min(42, m.width/3) }
@@ -254,19 +288,24 @@ func (m model) View() tea.View {
 		status = "Sending message"
 	}
 	active, failed := m.toolCounts()
-	status += fmt.Sprintf(" · %d tools awaiting results", active)
+	status += fmt.Sprintf(" · %d active", active)
 	if failed > 0 {
 		status += fmt.Sprintf(" · %d failed", failed)
 	}
 	if m.ended {
 		status = "Run ended · Ctrl+C to exit"
+		if m.runError != "" {
+			status = "Run failed · " + m.runError
+		}
 	}
 	fit := func(s string) string { return ansi.Truncate(terminaltext.Clean(s), max(1, m.width), "…") }
 	header := lipgloss.NewStyle().Bold(true).Render(fit(m.header))
 	parts := []string{header}
 	if m.conversation.Height() > 0 {
 		body := m.conversation.View()
-		if m.width >= 90 {
+		if m.detailsOpen {
+			body = m.details.View()
+		} else if m.width >= 90 {
 			side := lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).Render(m.toolPane(m.sidebarWidth(), m.conversation.Height()))
 			body = lipgloss.JoinHorizontal(lipgloss.Top, body, side)
 		} else if m.toolsFocused {
@@ -274,7 +313,21 @@ func (m model) View() tea.View {
 		}
 		parts = append(parts, body)
 	}
-	parts = append(parts, fit(status), m.composer.View(), fit("Enter send · Ctrl+J newline · Tab tools · PgUp/PgDn scroll · Ctrl+C exit"))
+	help := "Enter send · Tab tools · Ctrl+C exit"
+	if m.toolsFocused {
+		help = "↑/↓ select · Enter details · Tab input"
+	}
+	if m.detailsOpen {
+		help = "PgUp/PgDn scroll · Esc back · Tab input"
+	}
+	if m.width >= 90 {
+		if m.toolsFocused {
+			help += " · Ctrl+C exit"
+		} else {
+			help += " · Ctrl+J newline · PgUp/PgDn scroll"
+		}
+	}
+	parts = append(parts, fit(status), m.composer.View(), fit(help))
 	view := tea.NewView(strings.Join(parts, "\n"))
 	view.AltScreen = true
 	view.WindowTitle = "Unreal Agent Lite"

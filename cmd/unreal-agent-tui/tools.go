@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
+	"github.com/unreallabsai/unreal-agent/harness/operation"
 )
 
 const awaiting = "Awaiting result"
@@ -18,6 +19,7 @@ type toolCard struct {
 	key                                       callKey
 	name, arguments, summary, status, failure string
 	started, finished                         time.Time
+	output, paths                             string
 }
 
 func (m *model) card(key callKey) *toolCard {
@@ -52,6 +54,36 @@ func toolSummary(name, arguments string) string {
 
 func singleLine(text string) string {
 	return strings.Join(strings.Fields(terminaltext.Clean(text)), " ")
+}
+
+func boundedDetail(text string, limit int) string {
+	text, truncated := operation.BoundOutput(terminaltext.Clean(text), limit)
+	if truncated {
+		text += "\n[display shortened; inspect run files for full text]"
+	}
+	return text
+}
+
+func (m *model) refreshDetails() {
+	if !m.detailsOpen || m.selected >= len(m.tools) {
+		return
+	}
+	card := m.tools[m.selected]
+	arguments := card.arguments
+	if card.name == "Bash" {
+		var input struct {
+			Command *string `json:"command"`
+		}
+		if json.Unmarshal([]byte(arguments), &input) == nil && input.Command != nil {
+			arguments = *input.Command
+		}
+	}
+	status := card.status
+	if m.ended && status == awaiting {
+		status = "Run ended; result unavailable"
+	}
+	m.details.SetContent(singleLine(card.name) + " · " + status + "\nCall: " + singleLine(card.key.call) +
+		"\n\nArguments\n" + boundedDetail(arguments, 16000) + "\n\nResult\n" + card.output + "\n\n" + card.paths)
 }
 
 func (m model) toolCounts() (active, failed int) {

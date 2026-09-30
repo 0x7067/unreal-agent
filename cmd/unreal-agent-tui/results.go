@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
@@ -49,4 +50,43 @@ func (m model) readToolResult(card *toolCard, data sessionstore.ToolCallStatus) 
 		card.status = "Completed"
 	}
 	return result
+}
+
+func resultText(result tool.Result) (string, string) {
+	var parts, paths []string
+	switch result := result.(type) {
+	case bash.Result:
+		if result.Running {
+			parts = append(parts, "Command is still running.")
+		}
+		if output := result.Output; output != nil {
+			parts = append(parts, fmt.Sprintf("Exit code: %d", output.ExitCode))
+			if output.Out != "" {
+				parts = append(parts, "Stdout:\n"+output.Out)
+			}
+			if output.Err != "" {
+				parts = append(parts, "Stderr:\n"+output.Err)
+			}
+		}
+		if result.Error != "" {
+			parts = append(parts, result.Error)
+		}
+		if result.OutPath != "" {
+			paths = append(paths, "Full stdout: "+singleLine(result.OutPath))
+		}
+		if result.ErrPath != "" {
+			paths = append(paths, "Full stderr: "+singleLine(result.ErrPath))
+		}
+	case viewimage.Result:
+		if result.Running {
+			parts = append(parts, "Image is still loading.")
+		}
+		if result.Error != "" {
+			parts = append(parts, result.Error)
+		}
+		if image := result.Image; image != nil && image.OriginalMIMEType != "" {
+			parts = append(parts, fmt.Sprintf("Image: %s · %d×%d", image.OriginalMIMEType, image.OriginalWidth, image.OriginalHeight))
+		}
+	}
+	return boundedDetail(strings.Join(parts, "\n\n"), 32000), strings.Join(paths, "\n")
 }
