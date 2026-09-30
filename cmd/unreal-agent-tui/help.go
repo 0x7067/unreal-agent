@@ -56,7 +56,7 @@ func printHelp(flags *flag.FlagSet, output io.Writer) {
 		}
 		help.WriteString(name + "\n")
 	}
-	fmt.Fprintf(&help, "\n%s\n  unreal-agent-lite -provider openai-codex -model gpt-5.6-luna\n  unreal-agent-lite -provider openai-codex -model gpt-5.6-luna -theme catppuccin-dark\n\nCodex login: codex -c 'cli_auth_credentials_store=\"file\"' login\nAPI key: UNREAL_HARNESS_LLM_API_KEY\n",
+	fmt.Fprintf(&help, "\n%s\n  unreal-agent-lite -provider openai-codex -model gpt-5.6-luna\n  unreal-agent-lite -provider openai-codex -model gpt-5.6-luna -theme catppuccin-dark\n\nSessions: $XDG_STATE_HOME/unreal-agent/sessions (default ~/.local/state/unreal-agent/sessions)\n\nCodex login: codex -c 'cli_auth_credentials_store=\"file\"' login\nAPI key: UNREAL_HARNESS_LLM_API_KEY\n",
 		heading.Render("Examples"))
 	_, _ = io.WriteString(writer, help.String())
 }

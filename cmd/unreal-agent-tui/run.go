@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol"
+	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/sessionpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -119,7 +120,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err != nil {
 		return err
 	}
-	directory, err := os.MkdirTemp("", "unreal-agent-lite-")
+	directory, err := sessionpath.Resolve("", getenv)
 	if err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	operationDirectory := filepath.Join(directory, "operations")
+	operationDirectory := filepath.Join(directory, "operations", string(id))
 	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
 		return err
 	}
