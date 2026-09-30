@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -160,7 +161,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 			resumed := &fakeClient{}
 			resumed.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
 				resumed.calls++
-				if request.Model.ID != model || request.Model.ReasoningEffort != llm.ReasoningEffortLow {
+				if request.Model.ID != "initial-model" || request.Model.ReasoningEffort != llm.ReasoningEffortLow {
 					return llm.Response{}, fmt.Errorf("recovered request settings = %#v", request.Model)
 				}
 				if withTool && !hasResult(request) {
@@ -185,7 +186,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 					}
 					if control.Mode == inbox.UpdateSettings {
 						settings++
-						if control.Parameters != (inbox.Settings{ReasoningEffort: effort}) {
+						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, SystemPrompt: new(defaultSystemPrompt), ReasoningEffort: effort}) {
 							t.Fatalf("recorded settings = %#v", control.Parameters)
 						}
 					}

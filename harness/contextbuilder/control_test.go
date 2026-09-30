@@ -44,6 +44,56 @@ func TestBuilderControlMessages(t *testing.T) {
 	}
 }
 
+func TestBuilderSettingsApplySuppliedFields(t *testing.T) {
+	initialLimit, nextLimit := int64(123), int64(456)
+	initialModel := llm.Model{ID: "initial", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}
+	for _, test := range []struct {
+		name     string
+		settings inbox.Settings
+		model    llm.Model
+		prompt   string
+	}{
+		{"omitted", inbox.Settings{}, initialModel, "initial prompt"},
+		{"model", inbox.Settings{Model: "next"}, llm.Model{ID: "next", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}, "initial prompt"},
+		{"prompt", inbox.Settings{SystemPrompt: new("next prompt")}, initialModel, "next prompt"},
+		{"clear prompt", inbox.Settings{SystemPrompt: new("")}, initialModel, ""},
+		{"limit", inbox.Settings{MaxOutputTokens: &nextLimit}, llm.Model{ID: "initial", MaxOutputTokens: &nextLimit, ReasoningEffort: llm.ReasoningEffortHigh}, "initial prompt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			builder := NewBuilder()
+			builder.SetModel(initialModel)
+			builder.SetSystemPrompt("initial prompt")
+			builder.AddTool(llm.Tool{Name: "tool"})
+			if err := builder.AddExternalInput(inbox.Input{ID: "prompt", Kind: inbox.InputExternal, Payload: []byte(`"hello"`)}); err != nil {
+				t.Fatal(err)
+			}
+			original, err := builder.Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			builder.AddControlMessage(inbox.ControlMessage{Mode: inbox.UpdateSettings, Parameters: test.settings})
+			built, err := builder.Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := original
+			want.Request.Model = test.model
+			want.Request.Input = append([]llm.Item(nil), original.Request.Input...)
+			prompt := preamble
+			if test.prompt != "" {
+				prompt += "\n\n" + test.prompt
+			}
+			want.Request.Input[0].Data = llm.Message{Role: llm.RoleSystem, Text: prompt}
+			if !reflect.DeepEqual(built, want) {
+				t.Fatalf("request = %#v, want %#v", built, want)
+			}
+			if !reflect.DeepEqual(original.Request.Model, initialModel) || original.Request.Input[0].Data.(llm.Message).Text != preamble+"\n\ninitial prompt" {
+				t.Fatal("settings mutated an already built request")
+			}
+		})
+	}
+}
+
 func TestBuilderSettingsOnlyChangeEffortInSubsequentRequests(t *testing.T) {
 	limit := int64(123)
 	builder := NewBuilder()

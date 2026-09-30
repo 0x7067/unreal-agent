@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -122,7 +123,7 @@ description: Review code.
 	)
 	items := decodeLogItems(t, stdout.Bytes())
 	control, err := items[0].Data.(inbox.Input).DecodeControlMessage()
-	if err != nil || control.Mode != inbox.UpdateSettings || control.Parameters != (inbox.Settings{ReasoningEffort: llm.ReasoningEffortMedium}) {
+	if err != nil || control.Mode != inbox.UpdateSettings || !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "gpt-test", SystemPrompt: new("be concise"), MaxOutputTokens: request.Model.MaxOutputTokens, ReasoningEffort: llm.ReasoningEffortMedium}) {
 		t.Fatalf("initial settings = %#v, error = %v", control, err)
 	}
 	ids := inputIDs(t, stdout.String())

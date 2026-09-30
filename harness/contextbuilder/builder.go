@@ -68,7 +68,18 @@ func (current *builder) AddControlMessage(request inbox.ControlMessage) {
 	switch request.Mode {
 	case inbox.UpdateSettings:
 		settings := request.Parameters.(inbox.Settings)
-		current.request.Model.ReasoningEffort = settings.ReasoningEffort
+		if settings.SystemPrompt != nil {
+			current.SetSystemPrompt(*settings.SystemPrompt)
+		}
+		if settings.Model != "" {
+			current.request.Model.ID = settings.Model
+		}
+		if settings.MaxOutputTokens != nil {
+			current.request.Model.MaxOutputTokens = settings.MaxOutputTokens
+		}
+		if settings.ReasoningEffort != "" {
+			current.request.Model.ReasoningEffort = settings.ReasoningEffort
+		}
 	case inbox.Heartbeat:
 		current.stagedSuffix = append(current.stagedSuffix, llm.Item{
 			Type: llm.ItemMessage,

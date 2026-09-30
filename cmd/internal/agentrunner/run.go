@@ -354,9 +354,16 @@ func Run(
 	if err != nil {
 		return fmt.Errorf("open inbox: %w", err)
 	}
+	systemPrompt := defaultSystemPrompt
+	if parsed.SystemPrompt != nil {
+		systemPrompt = *parsed.SystemPrompt
+	}
 	settingsPayload, err := json.Marshal(inbox.ControlMessage{
 		Mode: inbox.UpdateSettings,
 		Parameters: inbox.Settings{
+			SystemPrompt:    &systemPrompt,
+			Model:           model,
+			MaxOutputTokens: parsed.MaxOutputTokens,
 			ReasoningEffort: reasoningEffort(parsed.ThinkingLevel),
 		},
 	})
@@ -402,10 +409,6 @@ func Run(
 		MaxOutputTokens: parsed.MaxOutputTokens,
 		ReasoningEffort: reasoningEffort(parsed.ThinkingLevel),
 	})
-	systemPrompt := defaultSystemPrompt
-	if parsed.SystemPrompt != nil {
-		systemPrompt = *parsed.SystemPrompt
-	}
 	builder.SetSystemPrompt(systemPrompt)
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)

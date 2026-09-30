@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -146,6 +147,18 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	defer cancel()
 	inputs, err := inbox.New(runCtx, nil)
 	if err != nil {
+		return err
+	}
+	settingsPayload, err := json.Marshal(inbox.ControlMessage{
+		Mode:       inbox.UpdateSettings,
+		Parameters: inbox.Settings{Model: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)},
+	})
+	if err != nil {
+		return err
+	}
+	if err := inputs.Submit(runCtx, inbox.Input{
+		ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: settingsPayload,
+	}); err != nil {
 		return err
 	}
 	operations := operation.NewLocalOperationManager(runCtx)

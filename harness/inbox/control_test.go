@@ -3,6 +3,7 @@ package inbox_test
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"reflect"
 	"testing"
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -53,16 +54,14 @@ func TestInboxRejectsInvalidControlMessages(t *testing.T) {
 		`{"Mode":"heartbeat","Reason":null}`,
 		`{"Mode":"settings"}`,
 		`{"Mode":"settings","Parameters":null}`,
-		`{"Mode":"settings","Parameters":{}}`,
 		`{"Mode":"settings","Parameters":[]}`,
 		`{"Mode":"settings","Parameters":"high"}`,
-		`{"Mode":"settings","Parameters":{"ReasoningEffort":""}}`,
-		`{"Mode":"settings","Parameters":{"ReasoningEffort":null}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"default"}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"turbo"}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":42}}`,
-		`{"Mode":"settings","Parameters":{"Model":"model"}}`,
-		`{"Mode":"settings","Parameters":{"Model":"model","ReasoningEffort":"high"}}`,
+		`{"Mode":"settings","Parameters":{"Model":" "}}`,
+		`{"Mode":"settings","Parameters":{"MaxOutputTokens":0}}`,
+		`{"Mode":"settings","Parameters":{"MaxOutputTokens":-1}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"high","extra":true}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"high"},"extra":true}`,
 		`{"Mode":"hard","Parameters":{"ReasoningEffort":"high"}}`,
@@ -79,5 +78,28 @@ func TestInboxRejectsInvalidControlMessages(t *testing.T) {
 	}
 	if _, err := (inbox.Input{Kind: inbox.InputExternal, Payload: jsontext.Value(`{"Mode":"hard"}`)}).DecodeControlMessage(); err == nil {
 		t.Fatal("external input decoded as control message")
+	}
+}
+
+func TestInboxPartialSettingsControls(t *testing.T) {
+	limit := int64(2048)
+	for _, settings := range []inbox.Settings{
+		{},
+		{Model: "model"},
+		{SystemPrompt: new("be concise")},
+		{SystemPrompt: new("")},
+		{MaxOutputTokens: &limit},
+		{Model: "model", SystemPrompt: new("be concise"), MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh},
+	} {
+		want := inbox.ControlMessage{Mode: inbox.UpdateSettings, Parameters: settings}
+		payload, err := json.Marshal(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := inbox.Input{ID: "settings", Kind: inbox.InputControl, Payload: payload}
+		got, err := submitAndReceive(t, newInbox(t), input).DecodeControlMessage()
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("settings control = %#v, error = %v, want %#v", got, err, want)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/synctest"
 
@@ -18,17 +19,19 @@ func TestCoordinatorSettingsDoNotWakeOrInterruptModel(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		run := newStopTestRun(t, 0)
 		run.start(t)
-		run.input(t, settingsInput(t, "initial", inbox.Settings{ReasoningEffort: llm.ReasoningEffortLow}))
+		limit := int64(2048)
+		initialModel := llm.Model{ID: "initial", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}
+		run.input(t, settingsInput(t, "initial", inbox.Settings{Model: initialModel.ID, MaxOutputTokens: &limit, SystemPrompt: new("initial prompt"), ReasoningEffort: initialModel.ReasoningEffort}))
 		if run.requestCount() != 0 || run.current.pendingInputs() != 0 {
 			t.Fatal("settings woke an idle model")
 		}
 		run.assertRunning(t)
 		run.input(t, externalEvent(t, 0, "prompt", "hello"))
-		if run.requestCount() != 1 || run.calls[0].request.Model.ReasoningEffort != llm.ReasoningEffortLow {
+		if run.requestCount() != 1 || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) || !strings.HasSuffix(run.calls[0].request.Input[0].Data.(llm.Message).Text, "initial prompt") {
 			t.Fatal("next turn did not use settings")
 		}
-		run.input(t, settingsInput(t, "next", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh}))
-		if run.requestCount() != 1 || run.calls[0].ctx.Err() != nil || run.calls[0].request.Model.ReasoningEffort != llm.ReasoningEffortLow {
+		run.input(t, settingsInput(t, "next", inbox.Settings{Model: "next", SystemPrompt: new("next prompt"), ReasoningEffort: llm.ReasoningEffortHigh}))
+		if run.requestCount() != 1 || run.calls[0].ctx.Err() != nil || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) || !strings.HasSuffix(run.calls[0].request.Input[0].Data.(llm.Message).Text, "initial prompt") {
 			t.Fatal("settings interrupted or altered the active request")
 		}
 		run.respond(t, 0, textResponse("Hello."))
@@ -36,7 +39,7 @@ func TestCoordinatorSettingsDoNotWakeOrInterruptModel(t *testing.T) {
 			t.Fatal("settings caused an extra turn after the response")
 		}
 		run.input(t, externalEvent(t, 1, "follow-up", "continue"))
-		if run.requestCount() != 2 || run.calls[1].request.Model.ReasoningEffort != llm.ReasoningEffortHigh {
+		if run.requestCount() != 2 || !reflect.DeepEqual(run.calls[1].request.Model, llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) || !strings.HasSuffix(run.calls[1].request.Input[0].Data.(llm.Message).Text, "next prompt") {
 			t.Fatal("following turn did not use updated settings")
 		}
 		run.respond(t, 1, textResponse("Done."))
@@ -70,14 +73,16 @@ func TestCoordinatorSettingsFollowInboxOrderAndDeduplicate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		run := newHeartbeatTestRun(t, 0)
 		run.start(t)
-		first := settingsInput(t, "first", inbox.Settings{ReasoningEffort: llm.ReasoningEffortLow})
-		last := settingsInput(t, "last", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh})
-		run.input(t, first, last, first)
-		if !reflect.DeepEqual(run.recordedInputs, []inbox.Input{first, last}) {
+		limit := int64(123)
+		first := settingsInput(t, "first", inbox.Settings{Model: "initial", MaxOutputTokens: &limit, SystemPrompt: new("saved prompt"), ReasoningEffort: llm.ReasoningEffortLow})
+		last := settingsInput(t, "last", inbox.Settings{Model: "next", ReasoningEffort: llm.ReasoningEffortHigh})
+		repeated := settingsInput(t, "repeated", inbox.Settings{Model: "next"})
+		run.input(t, first, last, first, repeated)
+		if !reflect.DeepEqual(run.recordedInputs, []inbox.Input{first, last, repeated}) {
 			t.Fatalf("recorded settings = %#v", run.recordedInputs)
 		}
 		run.input(t, externalEvent(t, 0, "prompt", "hello"))
-		if run.calls[0].request.Model.ReasoningEffort != llm.ReasoningEffortHigh {
+		if !reflect.DeepEqual(run.calls[0].request.Model, llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) || !strings.HasSuffix(run.calls[0].request.Input[0].Data.(llm.Message).Text, "saved prompt") {
 			t.Fatal("duplicate rolled back the latest settings")
 		}
 	})
@@ -135,12 +140,26 @@ func TestCoordinatorSettingsRequirePersistence(t *testing.T) {
 }
 
 func TestCoordinatorSettingsReplayOnResumeAndFork(t *testing.T) {
-	for _, mode := range []string{"resume", "fork"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, test := range []struct {
+		mode   string
+		prompt string
+	}{
+		{"resume", "saved prompt"},
+		{"fork", "saved prompt"},
+		{"resume", ""},
+		{"fork", ""},
+	} {
+		t.Run(test.mode+"/prompt="+test.prompt, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				parent := newStopTestRun(t, 0)
 				store := persistTestRun(t, parent)
-				for _, input := range []inbox.Input{settingsInput(t, "first", inbox.Settings{ReasoningEffort: llm.ReasoningEffortLow}), settingsInput(t, "last", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh})} {
+				limit := int64(123)
+				for _, input := range []inbox.Input{
+					settingsInput(t, "first", inbox.Settings{Model: "saved-model", SystemPrompt: new("initial prompt"), MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}),
+					settingsInput(t, "effort", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh}),
+					settingsInput(t, "prompt", inbox.Settings{SystemPrompt: new(test.prompt)}),
+					settingsInput(t, "omitted-prompt", inbox.Settings{Model: "saved-model"}),
+				} {
 					if err := store.AppendInput(t.Context(), "session-1", input); err != nil {
 						t.Fatal(err)
 					}
@@ -153,7 +172,7 @@ func TestCoordinatorSettingsReplayOnResumeAndFork(t *testing.T) {
 					t.Fatal(err)
 				}
 				id := session.ID("session-1")
-				if mode == "fork" {
+				if test.mode == "fork" {
 					id = "child"
 					if _, err := store.Fork(t.Context(), id, "session-1", turn.ID); err != nil {
 						t.Fatal(err)
@@ -168,12 +187,21 @@ func TestCoordinatorSettingsReplayOnResumeAndFork(t *testing.T) {
 				run.current.dependencies.Sessions = store
 				run.current.dependencies.Restored = restored
 				run.current.dependencies.ContextBuilder.SetModel(llm.Model{ID: "model", ReasoningEffort: llm.ReasoningEffortMedium})
+				baseline, err := run.current.dependencies.ContextBuilder.Build()
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantPrompt := baseline.Request.Input[0].Data.(llm.Message).Text
+				if test.prompt != "" {
+					wantPrompt += "\n\n" + test.prompt
+				}
+				run.current.dependencies.ContextBuilder.SetSystemPrompt("caller prompt")
 				run.start(t)
 				if run.requestCount() != 0 {
 					t.Fatal("replayed settings started a turn")
 				}
 				run.input(t, externalEvent(t, 0, "prompt", "continue"))
-				if run.calls[0].request.Model.ID != "model" || run.calls[0].request.Model.ReasoningEffort != llm.ReasoningEffortHigh {
+				if !reflect.DeepEqual(run.calls[0].request.Model, llm.Model{ID: "saved-model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) || run.calls[0].request.Input[0].Data.(llm.Message).Text != wantPrompt {
 					t.Fatal("latest recorded settings did not override initial configuration")
 				}
 			})

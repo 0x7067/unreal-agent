@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"strings"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 )
@@ -55,6 +56,9 @@ const (
 )
 
 type Settings struct {
+	SystemPrompt    *string             `json:",omitzero"`
+	Model           string              `json:",omitzero"`
+	MaxOutputTokens *int64              `json:",omitzero"`
 	ReasoningEffort llm.ReasoningEffort `json:",omitzero"`
 }
 
@@ -87,12 +91,21 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 			return ControlMessage{}, fmt.Errorf("heartbeat reason is empty")
 		}
 	case UpdateSettings:
+		if len(envelope.Parameters) == 0 || string(envelope.Parameters) == "null" {
+			return ControlMessage{}, fmt.Errorf("settings parameters are missing")
+		}
 		var settings Settings
 		if err := json.Unmarshal(envelope.Parameters, &settings, json.RejectUnknownMembers(true)); err != nil {
 			return ControlMessage{}, fmt.Errorf("decode settings parameters: %w", err)
 		}
-		if !settings.ReasoningEffort.Valid() {
+		if settings.ReasoningEffort != "" && !settings.ReasoningEffort.Valid() {
 			return ControlMessage{}, fmt.Errorf("unsupported reasoning effort %q", settings.ReasoningEffort)
+		}
+		if settings.Model != "" && strings.TrimSpace(settings.Model) == "" {
+			return ControlMessage{}, fmt.Errorf("model ID is empty")
+		}
+		if settings.MaxOutputTokens != nil && *settings.MaxOutputTokens <= 0 {
+			return ControlMessage{}, fmt.Errorf("max output tokens must be positive")
 		}
 		request.Parameters = settings
 	default:
