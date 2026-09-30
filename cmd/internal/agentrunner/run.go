@@ -363,7 +363,7 @@ func Run(
 	}
 
 	operations := operation.NewLocalOperationManager(runContext, configuredTools.RemoteJobs...)
-	inputs, err := inbox.New(runContext, restored.ExternalInputIDs)
+	inputs, err := inbox.New(runContext, restored.InputIDs)
 	if err != nil {
 		return fmt.Errorf("open inbox: %w", err)
 	}

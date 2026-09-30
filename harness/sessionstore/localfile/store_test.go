@@ -159,8 +159,8 @@ func TestStorePersistsTypedHistoryAndPagination(t *testing.T) {
 	if len(resume.Operations) != 1 || !reflect.DeepEqual(resume.Operations[0], initialOperation) {
 		t.Fatalf("resumed operations = %#v, want %#v", resume.Operations, initialOperation)
 	}
-	if !reflect.DeepEqual(resume.ExternalInputIDs, []inbox.ID{"input-1"}) {
-		t.Fatalf("external input IDs = %#v", resume.ExternalInputIDs)
+	if !reflect.DeepEqual(resume.InputIDs, []inbox.ID{"input-1"}) {
+		t.Fatalf("input IDs = %#v", resume.InputIDs)
 	}
 
 	afterEnd, err := reopened.Items(t.Context(), snapshot.Session.ID, 100, 10)
@@ -169,6 +169,36 @@ func TestStorePersistsTypedHistoryAndPagination(t *testing.T) {
 	}
 	if len(afterEnd.Items) != 0 || afterEnd.NextAfter != 100 || afterEnd.More {
 		t.Fatalf("page after end = %#v", afterEnd)
+	}
+}
+
+func TestStoreResumeRestoresPersistedInputIDs(t *testing.T) {
+	for _, input := range []inbox.Input{
+		{ID: "external", Kind: inbox.InputExternal},
+		{ID: "hard-stop", Kind: inbox.InputControl, Payload: jsontext.Value(`{"Mode":"hard"}`)},
+		{ID: "idle-stop", Kind: inbox.InputControl, Payload: jsontext.Value(`{"Mode":"when_idle"}`)},
+		{ID: "heartbeat", Kind: inbox.InputControl, Payload: jsontext.Value(`{"Mode":"heartbeat","Reason":"check progress"}`)},
+		{ID: "settings", Kind: inbox.InputControl, Payload: jsontext.Value(`{"Mode":"settings","Parameters":{"Model":"test"}}`)},
+		{ID: "crash", Kind: inbox.InputCrash},
+	} {
+		t.Run(string(input.ID), func(t *testing.T) {
+			directory := t.TempDir()
+			store := newStore(t, directory)
+			if _, err := store.Create(t.Context(), "session-1"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AppendInput(t.Context(), "session-1", input); err != nil {
+				t.Fatal(err)
+			}
+			reopened := newStore(t, directory)
+			restored, err := reopened.Resume(t.Context(), "session-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []inbox.ID{input.ID}; !reflect.DeepEqual(restored.InputIDs, want) {
+				t.Fatalf("restored input IDs = %#v, want %#v", restored.InputIDs, want)
+			}
+		})
 	}
 }
 

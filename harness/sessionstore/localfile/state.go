@@ -284,15 +284,13 @@ func (head *sessionHead) saveOperation(value operation.Operation) error {
 }
 
 func (state storedState) resume() sessionstore.ResumeState {
-	externalInputIDs := make([]inbox.ID, 0)
+	inputIDs := make([]inbox.ID, 0)
 	pending := make(map[operation.ID]struct{})
 	for _, item := range state.Items {
 		switch item.Kind {
 		case sessionstore.ItemInput:
 			input := item.Data.(inbox.Input)
-			if input.Kind == inbox.InputExternal {
-				externalInputIDs = append(externalInputIDs, input.ID)
-			}
+			inputIDs = append(inputIDs, input.ID)
 		case sessionstore.ItemToolCallStatus:
 			for _, value := range item.Data.(sessionstore.ToolCallStatus).Operations {
 				if terminalOperationStatus(value.Status) {
@@ -311,9 +309,9 @@ func (state storedState) resume() sessionstore.ResumeState {
 		}
 	}
 	return sessionstore.ResumeState{
-		Snapshot:         state.Snapshot,
-		Operations:       operations,
-		ExternalInputIDs: externalInputIDs,
+		Snapshot:   state.Snapshot,
+		Operations: operations,
+		InputIDs:   inputIDs,
 	}
 }
 

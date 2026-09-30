@@ -89,12 +89,12 @@ func TestStoredStateLifecycle(t *testing.T) {
 	if len(resume.Operations) != 1 || !reflect.DeepEqual(resume.Operations[0], updated) {
 		t.Fatalf("resumed operations = %#v, want %#v", resume.Operations, updated)
 	}
-	if !reflect.DeepEqual(resume.ExternalInputIDs, []inbox.ID{"input-1"}) {
-		t.Fatalf("external input IDs = %#v", resume.ExternalInputIDs)
+	if !reflect.DeepEqual(resume.InputIDs, []inbox.ID{"input-1"}) {
+		t.Fatalf("input IDs = %#v", resume.InputIDs)
 	}
 }
 
-func TestResumeReturnsOnlyExternalInputIDs(t *testing.T) {
+func TestResumeReturnsAllInputIDs(t *testing.T) {
 	state := newStoredState("session-1", stateCreatedAt)
 	for _, input := range []inbox.Input{
 		{ID: "external-1", Kind: inbox.InputExternal},
@@ -107,11 +107,11 @@ func TestResumeReturnsOnlyExternalInputIDs(t *testing.T) {
 		}
 	}
 
-	if got := state.resume().ExternalInputIDs; !reflect.DeepEqual(
+	if got := state.resume().InputIDs; !reflect.DeepEqual(
 		got,
-		[]inbox.ID{"external-1", "external-2"},
+		[]inbox.ID{"external-1", "control-1", "crash-1", "external-2"},
 	) {
-		t.Fatalf("external input IDs = %#v", got)
+		t.Fatalf("input IDs = %#v", got)
 	}
 }
 
