@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -43,6 +44,11 @@ func fuzzLogUsage(t *testing.T, text string, input, cached, written, output, rea
 		InputTokens: int64(input & math.MaxInt64), CachedInputTokens: int64(cached & math.MaxInt64),
 		CacheWriteInputTokens: int64(written & math.MaxInt64), OutputTokens: int64(output & math.MaxInt64),
 		ReasoningTokens: int64(reasoning & math.MaxInt64),
+		ByModel: map[string]llm.TokenUsage{
+			"primary": {InputTokens: int64(input & math.MaxInt64), OutputTokens: int64(output & math.MaxInt64)},
+			"fallback": {InputTokens: int64(input / 2), CachedInputTokens: int64(cached / 2),
+				CacheWriteInputTokens: int64(written / 2), OutputTokens: int64(output / 2), ReasoningTokens: int64(reasoning / 2)},
+		},
 		Raw: logJSON(t, struct {
 			Tokens  uint64
 			Cost    jsontext.Value
@@ -54,6 +60,7 @@ func fuzzLogUsage(t *testing.T, text string, input, cached, written, output, rea
 func fuzzLogResponse(t *testing.T, text string, usage llm.Usage, index int, variant byte) llm.Response {
 	t.Helper()
 	usage.Raw = usage.Raw.Clone()
+	usage.ByModel = maps.Clone(usage.ByModel)
 	response := llm.Response{
 		ID: fmt.Sprintf("response-%d", index), Usage: usage,
 		Stop: []llm.StopReason{llm.StopComplete, llm.StopMaxOutputTokens, llm.StopRefused}[variant%3],
@@ -83,6 +90,7 @@ func fuzzLogResponse(t *testing.T, text string, usage llm.Usage, index int, vari
 // to the coordinator. No production JSON codec constructs the oracle.
 func copyLogResponse(value llm.Response) llm.Response {
 	value.Usage.Raw = value.Usage.Raw.Clone()
+	value.Usage.ByModel = maps.Clone(value.Usage.ByModel)
 	value.Output = slices.Clone(value.Output)
 	if value.Failure != nil {
 		value.Failure = new(*value.Failure)

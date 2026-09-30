@@ -14,6 +14,7 @@ const DefaultBaseURL = "https://api.anthropic.com/v1"
 type Config struct {
 	APIKey      string
 	BaseURL     string
+	Fallback    bool
 	MaxAttempts *int
 	Trace       func(Exchange)
 }
@@ -43,7 +44,7 @@ func NewClient(config Config) (*Client, error) {
 			"Anthropic-Version": {"2023-06-01"},
 			"Content-Type":      {"application/json"},
 		},
-		Trace: config.Trace, MaxAttempts: config.MaxAttempts,
+		Trace: config.Trace, MaxAttempts: config.MaxAttempts, Fallback: config.Fallback,
 	})
 	if err != nil {
 		return nil, errors.Join(err, remote.Close())

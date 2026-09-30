@@ -132,15 +132,30 @@ type Response struct {
 	Failure *Failure
 }
 
+type Usage struct {
+	TokenUsage
+	ByModel map[string]TokenUsage `json:",omitzero"` // Empty key means the model was not reported.
+	Raw     jsontext.Value        `json:",omitzero"`
+}
+
 // InputTokens includes CachedInputTokens and CacheWriteInputTokens.
 // OutputTokens includes ReasoningTokens.
-type Usage struct {
+type TokenUsage struct {
 	InputTokens           int64
 	CachedInputTokens     int64
 	CacheWriteInputTokens int64
 	OutputTokens          int64
 	ReasoningTokens       int64
-	Raw                   jsontext.Value `json:",omitzero"`
+}
+
+func (usage TokenUsage) Add(other TokenUsage) TokenUsage {
+	return TokenUsage{
+		InputTokens:           usage.InputTokens + other.InputTokens,
+		CachedInputTokens:     usage.CachedInputTokens + other.CachedInputTokens,
+		CacheWriteInputTokens: usage.CacheWriteInputTokens + other.CacheWriteInputTokens,
+		OutputTokens:          usage.OutputTokens + other.OutputTokens,
+		ReasoningTokens:       usage.ReasoningTokens + other.ReasoningTokens,
+	}
 }
 
 type Failure struct {

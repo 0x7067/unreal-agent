@@ -39,6 +39,7 @@ type Exchange struct {
 type Config struct {
 	Endpoint string
 	Headers  map[string][]string
+	Fallback bool
 	// Nil uses DefaultMaxAttempts.
 	MaxAttempts *int
 	// Trace borrows read-only bodies: request JSON and assembled response JSON or provider error.
@@ -50,6 +51,7 @@ type adapter struct {
 	endpoint    string
 	headers     http.Header
 	maxAttempts int
+	fallback    bool
 	trace       func(Exchange)
 }
 
@@ -76,11 +78,14 @@ func NewAdapter(remote *primitives.RemoteClient, config Config) (llm.Adapter, er
 		}
 	}
 	headers.Set("Accept", "text/event-stream")
-	return &adapter{remote: remote, endpoint: config.Endpoint, headers: headers, maxAttempts: maxAttempts, trace: config.Trace}, nil
+	if config.Fallback {
+		headers.Add("Anthropic-Beta", "server-side-fallback-2026-07-01")
+	}
+	return &adapter{remote: remote, endpoint: config.Endpoint, headers: headers, maxAttempts: maxAttempts, fallback: config.Fallback, trace: config.Trace}, nil
 }
 
 func (adapter *adapter) Respond(ctx context.Context, request llm.Request, _ llm.RequestOptions) (llm.Response, error) {
-	body, err := requestBody(request)
+	body, err := requestBody(request, adapter.fallback)
 	if err != nil {
 		return llm.Response{}, err
 	}

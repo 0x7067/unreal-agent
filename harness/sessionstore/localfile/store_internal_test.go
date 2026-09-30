@@ -76,8 +76,8 @@ func TestStoreLoadsGoldenLog(t *testing.T) {
 						},
 					},
 					Usage: llm.Usage{
-						InputTokens: 10, CachedInputTokens: 2, CacheWriteInputTokens: 1,
-						OutputTokens: 4, ReasoningTokens: 3,
+						TokenUsage: llm.TokenUsage{InputTokens: 10, CachedInputTokens: 2, CacheWriteInputTokens: 1,
+							OutputTokens: 4, ReasoningTokens: 3},
 						Raw: jsontext.Value(`{"provider_total":14}`),
 					},
 				},
@@ -179,8 +179,8 @@ func TestStoreLoadsGoldenForkLog(t *testing.T) {
 						},
 					},
 					Usage: llm.Usage{
-						InputTokens: 10, CachedInputTokens: 2, CacheWriteInputTokens: 1,
-						OutputTokens: 4, ReasoningTokens: 3,
+						TokenUsage: llm.TokenUsage{InputTokens: 10, CachedInputTokens: 2, CacheWriteInputTokens: 1,
+							OutputTokens: 4, ReasoningTokens: 3},
 						Raw: jsontext.Value(`{"provider_total":14}`),
 					},
 				},

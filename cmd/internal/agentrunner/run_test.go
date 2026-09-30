@@ -34,7 +34,7 @@ func TestRunMainExecutesBatchedMessages(t *testing.T) {
 					Type: llm.ItemMessage,
 					Data: llm.Message{Role: llm.RoleAssistant, Text: "done"},
 				}},
-				Usage: llm.Usage{InputTokens: 4, OutputTokens: 2},
+				Usage: llm.Usage{TokenUsage: llm.TokenUsage{InputTokens: 4, OutputTokens: 2}},
 			}, nil
 		},
 	}

@@ -44,7 +44,7 @@ func newBlockContentBuilder(raw jsontext.Value) (*blockContentBuilder, error) {
 		}
 		block.text.WriteString(thinking)
 		block.signature.WriteString(signature)
-	case "tool_use", "redacted_thinking":
+	case "tool_use", "redacted_thinking", "fallback":
 	default:
 		return nil, fmt.Errorf("unsupported output block type %q", kind)
 	}

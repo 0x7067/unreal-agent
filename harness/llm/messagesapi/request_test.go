@@ -56,7 +56,7 @@ func toolResult(id, text string, running bool) llm.Item {
 
 func encodeRequest(t *testing.T, request llm.Request) ([]byte, wireRequest) {
 	t.Helper()
-	body, err := requestBody(request)
+	body, err := requestBody(request, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestRequestRejectsUnsupportedSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			request := llm.Request{Model: llm.Model{ID: "claude-test"}, Input: []llm.Item{message(llm.RoleUser, "Hello")}}
 			modify(&request)
-			if _, err := requestBody(request); err == nil {
+			if _, err := requestBody(request, false); err == nil {
 				t.Fatal("expected error")
 			}
 		})
@@ -322,7 +322,7 @@ func TestRequestReplaysOpaqueReasoning(t *testing.T) {
 			t.Fatal(err)
 		}
 		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: header.Type, Raw: jsontext.Value(raw)}})
-		body, err := requestBody(request)
+		body, err := requestBody(request, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -354,7 +354,7 @@ func TestRequestRejectsMalformedReasoningJSON(t *testing.T) {
 	} {
 		request := validRequest()
 		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking", Raw: jsontext.Value(raw)}})
-		if _, err := requestBody(request); err == nil {
+		if _, err := requestBody(request, false); err == nil {
 			t.Fatalf("accepted malformed reasoning JSON: %s", raw)
 		}
 	}

@@ -13,6 +13,7 @@ import (
 
 func decodeResponse(body []byte) (llm.Response, error) {
 	var envelope struct {
+		Model string         `json:"model"`
 		Usage jsontext.Value `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -27,6 +28,9 @@ func decodeResponse(body []byte) (llm.Response, error) {
 		return llm.Response{}, err
 	}
 	converted.Usage.Raw = envelope.Usage
+	if source.Usage != nil {
+		converted.Usage.ByModel = map[string]llm.TokenUsage{envelope.Model: converted.Usage.TokenUsage}
+	}
 	return converted, nil
 }
 
@@ -37,7 +41,7 @@ func response(source openaiapi.Response) (llm.Response, error) {
 	converted := llm.Response{
 		ID:     source.Id,
 		Output: make([]llm.Item, 0, len(source.Output)),
-		Usage:  responseUsage(source.Usage),
+		Usage:  llm.Usage{TokenUsage: responseUsage(source.Usage)},
 	}
 	switch *source.Status {
 	case openaiapi.ResponseStatusCompleted:
@@ -185,11 +189,11 @@ func responseFailure(source openaiapi.Response) llm.Failure {
 	}
 }
 
-func responseUsage(source *openaiapi.ResponseUsage) llm.Usage {
+func responseUsage(source *openaiapi.ResponseUsage) llm.TokenUsage {
 	if source == nil {
-		return llm.Usage{}
+		return llm.TokenUsage{}
 	}
-	return llm.Usage{
+	return llm.TokenUsage{
 		InputTokens:           int64(source.InputTokens),
 		CachedInputTokens:     int64(source.InputTokensDetails.CachedTokens),
 		CacheWriteInputTokens: int64(source.InputTokensDetails.CacheWriteTokens),

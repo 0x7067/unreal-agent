@@ -2,6 +2,7 @@ package responsesapi
 
 import (
 	"encoding/json/v2"
+	"reflect"
 	"testing"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -104,7 +105,7 @@ func TestResponseIgnoresUnfinishedToolCall(t *testing.T) {
 
 func TestResponsePreservesRawUsage(t *testing.T) {
 	raw := `{"input_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":12,"cost":0.0042,"provider_usage":{"prompt_tokens":7}}`
-	response, err := decodeResponse([]byte(`{"id":"response-1","status":"completed","output":[],"usage":` + raw + `}`))
+	response, err := decodeResponse([]byte(`{"id":"response-1","model":"served-model","status":"completed","output":[],"usage":` + raw + `}`))
 	if err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -115,5 +116,34 @@ func TestResponsePreservesRawUsage(t *testing.T) {
 	}
 	if string(response.Usage.Raw) != raw {
 		t.Fatalf("raw usage = %s, want %s", response.Usage.Raw, raw)
+	}
+	want := llm.TokenUsage{InputTokens: 7, CachedInputTokens: 3, CacheWriteInputTokens: 2, OutputTokens: 5, ReasoningTokens: 4}
+	if len(response.Usage.ByModel) != 1 || response.Usage.ByModel["served-model"] != want {
+		t.Fatalf("usage by model = %#v", response.Usage.ByModel)
+	}
+}
+
+func TestResponseUsageWithoutModel(t *testing.T) {
+	for _, model := range []string{"", `"model":null,`, `"model":"",`} {
+		for _, usage := range []string{"", "null", "{}", `{"input_tokens":7,"output_tokens":5}`} {
+			body := `{"id":"response-1","status":"completed","output":[],` + model + `"object":"response"`
+			var want map[string]llm.TokenUsage
+			if usage != "" {
+				body += `,"usage":` + usage
+				if usage != "null" {
+					want = map[string]llm.TokenUsage{"": {}}
+					if usage != "{}" {
+						want[""] = llm.TokenUsage{InputTokens: 7, OutputTokens: 5}
+					}
+				}
+			}
+			response, err := decodeResponse([]byte(body + "}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(response.Usage.ByModel, want) {
+				t.Fatalf("model = %s, usage = %s: by model = %#v, want %#v", model, usage, response.Usage.ByModel, want)
+			}
+		}
 	}
 }

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -79,8 +80,19 @@ func Default() []Provider {
 			BaseURL:           anthropic.DefaultBaseURL,
 			DefaultModel:      "claude-opus-5-5",
 			APIKeyEnvironment: "ANTHROPIC_API_KEY",
-			NewClient: func(apiKey, baseURL string, maxAttempts int, _ func(string) string) (Client, error) {
-				return anthropic.NewClient(anthropic.Config{APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts})
+			NewClient: func(apiKey, baseURL string, maxAttempts int, getenv func(string) string) (Client, error) {
+				fallback := false
+				if value := getenv("ANTHROPIC_FALLBACK"); value != "" {
+					var err error
+					fallback, err = strconv.ParseBool(value)
+					if err != nil {
+						return nil, fmt.Errorf("parse ANTHROPIC_FALLBACK: %w", err)
+					}
+				}
+				return anthropic.NewClient(anthropic.Config{
+					APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts,
+					Fallback: fallback,
+				})
 			},
 		},
 	}

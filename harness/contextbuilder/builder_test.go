@@ -107,7 +107,7 @@ func TestBuilderAddsModelResponseOutput(t *testing.T) {
 	current := NewBuilder()
 	current.AddModelResponse(llm.Response{
 		ID: "response-1", Stop: llm.StopComplete, Output: output,
-		Usage: llm.Usage{InputTokens: 12, OutputTokens: 8},
+		Usage: llm.Usage{TokenUsage: llm.TokenUsage{InputTokens: 12, OutputTokens: 8}},
 	})
 
 	result, err := current.Build()

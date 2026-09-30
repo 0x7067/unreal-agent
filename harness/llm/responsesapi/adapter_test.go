@@ -99,8 +99,9 @@ func TestAdapterResponds(t *testing.T) {
 			},
 		},
 		Usage: llm.Usage{
-			InputTokens: 20, CachedInputTokens: 8, CacheWriteInputTokens: 3,
-			OutputTokens: 10, ReasoningTokens: 4,
+			TokenUsage: llm.TokenUsage{InputTokens: 20, CachedInputTokens: 8, CacheWriteInputTokens: 3,
+				OutputTokens: 10, ReasoningTokens: 4},
+			ByModel: map[string]llm.TokenUsage{"": {InputTokens: 20, CachedInputTokens: 8, CacheWriteInputTokens: 3, OutputTokens: 10, ReasoningTokens: 4}},
 			Raw: jsontext.Value(`{"input_tokens":20,"input_tokens_details":{"cached_tokens":8,"cache_write_tokens":3},` +
 				`"output_tokens":10,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":30}`),
 		},
@@ -174,8 +175,9 @@ func TestResponseSeparatesStopReasonsFromFailures(t *testing.T) {
 			want: llm.Response{
 				ID: "resp-1", Stop: llm.StopMaxOutputTokens, Output: []llm.Item{},
 				Usage: llm.Usage{
-					InputTokens: 2, OutputTokens: 1,
-					Raw: jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":1,"output_tokens_details":{}}`),
+					TokenUsage: llm.TokenUsage{InputTokens: 2, OutputTokens: 1},
+					ByModel:    map[string]llm.TokenUsage{"": {InputTokens: 2, OutputTokens: 1}},
+					Raw:        jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":1,"output_tokens_details":{}}`),
 				},
 			},
 		},
@@ -185,8 +187,9 @@ func TestResponseSeparatesStopReasonsFromFailures(t *testing.T) {
 			want: llm.Response{
 				ID: "resp-2", Stop: llm.StopRefused, Output: []llm.Item{},
 				Usage: llm.Usage{
-					InputTokens: 2,
-					Raw:         jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":0,"output_tokens_details":{}}`),
+					TokenUsage: llm.TokenUsage{InputTokens: 2},
+					ByModel:    map[string]llm.TokenUsage{"": {InputTokens: 2}},
+					Raw:        jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":0,"output_tokens_details":{}}`),
 				},
 			},
 		},
@@ -196,8 +199,9 @@ func TestResponseSeparatesStopReasonsFromFailures(t *testing.T) {
 			want: llm.Response{
 				ID: "resp-3", Output: []llm.Item{},
 				Usage: llm.Usage{
-					InputTokens: 2,
-					Raw:         jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":0,"output_tokens_details":{}}`),
+					TokenUsage: llm.TokenUsage{InputTokens: 2},
+					ByModel:    map[string]llm.TokenUsage{"": {InputTokens: 2}},
+					Raw:        jsontext.Value(`{"input_tokens":2,"input_tokens_details":{},"output_tokens":0,"output_tokens_details":{}}`),
 				},
 				Failure: &llm.Failure{Code: "server_error", Message: "failed"},
 			},

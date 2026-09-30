@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -206,14 +205,6 @@ func TestResponseRejectsUnsupportedBlocks(t *testing.T) {
 	}
 }
 
-func TestResponseRejectsDuplicateCalls(t *testing.T) {
-	call := `{"type":"tool_use","id":"a","name":"Bash","input":{}}`
-	_, err := decodeResponse(responseBody("tool_use", `[`+call+`,`+call+`]`))
-	if err == nil || !strings.Contains(err.Error(), "duplicate tool call") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
 func TestResponseUsage(t *testing.T) {
 	const usage = `{"input_tokens":7,"cache_read_input_tokens":30,"cache_creation_input_tokens":20,"output_tokens":11,"output_tokens_details":{"thinking_tokens":5},"extra":{"cost":0.25}}`
 	decoded, err := decodeResponse([]byte(`{"id":"msg-1","type":"message","role":"assistant","stop_reason":"end_turn","content":[],"usage":` + usage + `}`))
@@ -223,6 +214,9 @@ func TestResponseUsage(t *testing.T) {
 	if decoded.Usage.InputTokens != 57 || decoded.Usage.CachedInputTokens != 30 || decoded.Usage.CacheWriteInputTokens != 20 ||
 		decoded.Usage.OutputTokens != 11 || decoded.Usage.ReasoningTokens != 5 || string(decoded.Usage.Raw) != usage {
 		t.Fatalf("usage = %#v", decoded.Usage)
+	}
+	if len(decoded.Usage.ByModel) != 1 || decoded.Usage.ByModel[""] != decoded.Usage.TokenUsage {
+		t.Fatalf("usage without model = %#v", decoded.Usage.ByModel)
 	}
 	withoutCache := responseUsage(anthropicapi.Usage{InputTokens: 7, OutputTokens: 11})
 	if withoutCache.InputTokens != 7 || withoutCache.OutputTokens != 11 || withoutCache.CachedInputTokens != 0 || withoutCache.CacheWriteInputTokens != 0 {
@@ -257,6 +251,9 @@ func TestResponseOptionalUsage(t *testing.T) {
 		var want llm.Usage
 		if usage != "" {
 			want.Raw = jsontext.Value(usage)
+		}
+		if usage == "{}" {
+			want.ByModel = map[string]llm.TokenUsage{"": {}}
 		}
 		if !reflect.DeepEqual(decoded.Usage, want) {
 			t.Fatalf("usage = %#v, want %#v", decoded.Usage, want)

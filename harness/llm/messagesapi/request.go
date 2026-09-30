@@ -16,12 +16,24 @@ import (
 
 const defaultMaxOutputTokens = 128_000
 
-func requestBody(request llm.Request) ([]byte, error) {
+func requestBody(request llm.Request, fallback bool) ([]byte, error) {
 	params, err := requestParams(request)
 	if err != nil {
 		return nil, err
 	}
 	body, err := apijson.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("encode messages request: %w", err)
+	}
+	if !fallback {
+		return body, nil
+	}
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, fmt.Errorf("decode messages request: %w", err)
+	}
+	fields["fallbacks"] = jsontext.Value(`"default"`)
+	body, err = apijson.Marshal(fields)
 	if err != nil {
 		return nil, fmt.Errorf("encode messages request: %w", err)
 	}

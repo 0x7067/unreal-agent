@@ -61,10 +61,20 @@ func (message *messageBuilder) startBlock(index int, raw jsontext.Value) error {
 
 func (message *messageBuilder) build() ([]byte, error) {
 	content := make([]map[string]any, 0, len(message.blocks))
-	for _, index := range slices.Sorted(maps.Keys(message.blocks)) {
+	superseded := false
+	for _, index := range slices.Backward(slices.Sorted(maps.Keys(message.blocks))) {
 		builder := message.blocks[index]
 		if !builder.finalized {
 			continue
+		}
+		if builder.kind == "fallback" {
+			superseded = true
+		}
+		if superseded {
+			switch builder.kind {
+			case "thinking", "redacted_thinking", "tool_use":
+				continue
+			}
 		}
 		block, err := builder.build()
 		if err != nil {
@@ -72,6 +82,7 @@ func (message *messageBuilder) build() ([]byte, error) {
 		}
 		content = append(content, block)
 	}
+	slices.Reverse(content)
 	message.fields["content"] = content
 	return apijson.Marshal(message.fields)
 }

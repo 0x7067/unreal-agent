@@ -25,6 +25,7 @@ func TestNewClientRequiresBaseURL(t *testing.T) {
 
 func TestClientCallsResponsesAPI(t *testing.T) {
 	const cacheKey = "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b"
+	const usage = `{"input_tokens":17,"output_tokens":31,"total_tokens":48,"input_tokens_details":{"cached_tokens":0}}`
 	requestSeen := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/responses" {
@@ -53,7 +54,7 @@ func TestClientCallsResponsesAPI(t *testing.T) {
 		}
 		requestSeen <- struct{}{}
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = writer.Write([]byte("data: {\"type\":\"response.completed\",\"response\":" + `{"id":"resp-1","status":"completed","output":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":5}}}` + "}\n\n"))
+		_, _ = writer.Write([]byte("data: {\"type\":\"response.completed\",\"response\":" + `{"id":"resp-1","model":"served-model","status":"completed","output":[],"usage":` + usage + "}}\n\n"))
 	}))
 	defer server.Close()
 
@@ -78,9 +79,14 @@ func TestClientCallsResponsesAPI(t *testing.T) {
 		t.Fatalf("respond: %v", err)
 	}
 	<-requestSeen
-	if response.ID != "resp-1" || response.Stop != llm.StopComplete ||
-		response.Usage.InputTokens != 11 || response.Usage.CachedInputTokens != 3 ||
-		response.Usage.OutputTokens != 7 || response.Usage.ReasoningTokens != 5 {
+	if response.ID != "resp-1" || response.Stop != llm.StopComplete {
 		t.Fatalf("response = %#v", response)
+	}
+	want := llm.TokenUsage{InputTokens: 17, OutputTokens: 31}
+	if response.Usage.TokenUsage != want || string(response.Usage.Raw) != usage {
+		t.Fatalf("usage = %#v", response.Usage)
+	}
+	if len(response.Usage.ByModel) != 1 || response.Usage.ByModel["served-model"] != want {
+		t.Fatalf("usage by model = %#v", response.Usage.ByModel)
 	}
 }

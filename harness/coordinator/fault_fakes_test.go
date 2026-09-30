@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -211,6 +212,7 @@ func cloneFaultItem(item sessionstore.Item) sessionstore.Item {
 		item.Data = value
 	case sessionstore.ModelResponse:
 		value.Response.Usage.Raw = value.Response.Usage.Raw.Clone()
+		value.Response.Usage.ByModel = maps.Clone(value.Response.Usage.ByModel)
 		value.Response.Output = slices.Clone(value.Response.Output)
 		item.Data = value
 	case sessionstore.ToolCallStatus:

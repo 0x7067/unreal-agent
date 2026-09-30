@@ -73,7 +73,12 @@ func TestStorePersistsTypedHistoryAndPagination(t *testing.T) {
 				}},
 			},
 			Usage: llm.Usage{
-				InputTokens: 10, OutputTokens: 4, Raw: jsontext.Value(`{"provider":14}`),
+				TokenUsage: llm.TokenUsage{InputTokens: 10, OutputTokens: 4},
+				ByModel: map[string]llm.TokenUsage{
+					"primary":  {InputTokens: 8, OutputTokens: 2},
+					"fallback": {InputTokens: 10, CachedInputTokens: 3, CacheWriteInputTokens: 2, OutputTokens: 4, ReasoningTokens: 1},
+				},
+				Raw: jsontext.Value(`{"provider":14}`),
 			},
 		},
 	}

@@ -17,16 +17,32 @@ func decodeResponse(body []byte) (llm.Response, error) {
 	if err := apijson.Unmarshal(body, &envelope); err != nil {
 		return llm.Response{}, fmt.Errorf("decode messages response: %w", err)
 	}
+	var usage struct {
+		anthropicapi.Usage
+		Iterations []struct {
+			anthropicapi.Usage
+			Model string `json:"model"`
+		} `json:"iterations"`
+	}
 	if len(envelope.Usage) != 0 {
-		if err := apijson.Unmarshal(envelope.Usage, &envelope.Message.Usage); err != nil {
+		if err := apijson.Unmarshal(envelope.Usage, &usage); err != nil {
 			return llm.Response{}, fmt.Errorf("decode messages response usage: %w", err)
 		}
 	}
+	envelope.Message.Usage = usage.Usage
 	converted, err := response(envelope.Message)
 	if err != nil {
 		return llm.Response{}, err
 	}
 	converted.Usage.Raw = envelope.Usage
+	if len(usage.Iterations) != 0 {
+		converted.Usage.ByModel = make(map[string]llm.TokenUsage)
+		for _, iteration := range usage.Iterations {
+			converted.Usage.ByModel[iteration.Model] = converted.Usage.ByModel[iteration.Model].Add(responseUsage(iteration.Usage))
+		}
+	} else if len(envelope.Usage) != 0 && envelope.Usage.Kind() != jsontext.KindNull {
+		converted.Usage.ByModel = map[string]llm.TokenUsage{envelope.Model: converted.Usage.TokenUsage}
+	}
 	return converted, nil
 }
 
@@ -38,9 +54,8 @@ func response(source anthropicapi.Message) (llm.Response, error) {
 		return llm.Response{}, fmt.Errorf("response must have a stop reason")
 	}
 	converted := llm.Response{
-		ID:     source.Id,
-		Output: make([]llm.Item, 0, len(source.Content)),
-		Usage:  responseUsage(source.Usage),
+		ID:    source.Id,
+		Usage: llm.Usage{TokenUsage: responseUsage(source.Usage)},
 	}
 	switch *source.StopReason {
 	case "end_turn", "tool_use", "stop_sequence":
@@ -54,22 +69,25 @@ func response(source anthropicapi.Message) (llm.Response, error) {
 	default:
 		return llm.Response{}, fmt.Errorf("unsupported stop reason %q", *source.StopReason)
 	}
-	calls := make(map[string]bool)
-	for index, block := range source.Content {
-		item, err := responseOutputItem(block)
+	var err error
+	converted.Output, err = responseOutput(source.Content)
+	return converted, err
+}
+
+func responseOutput(content []anthropicapi.ContentBlock) ([]llm.Item, error) {
+	output := make([]llm.Item, 0, len(content))
+	for index, block := range content {
+		kind, err := block.Discriminator()
 		if err != nil {
-			return llm.Response{}, fmt.Errorf("output block %d: %w", index, err)
+			return nil, fmt.Errorf("output block %d: decode output block type: %w", index, err)
 		}
-		if item.Type == llm.ItemToolCall {
-			id := item.Data.(llm.ToolCall).CallID
-			if calls[id] {
-				return llm.Response{}, fmt.Errorf("output block %d: duplicate tool call %q", index, id)
-			}
-			calls[id] = true
+		item, err := responseOutputItem(block, kind)
+		if err != nil {
+			return nil, fmt.Errorf("output block %d: %w", index, err)
 		}
-		converted.Output = append(converted.Output, item)
+		output = append(output, item)
 	}
-	return converted, nil
+	return output, nil
 }
 
 func responseRefusal(details *anthropicapi.RefusalStopDetails) llm.Failure {
@@ -85,11 +103,12 @@ func responseRefusal(details *anthropicapi.RefusalStopDetails) llm.Failure {
 	return failure
 }
 
-func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
-	kind, err := source.Discriminator()
+func responseOutputItem(source anthropicapi.ContentBlock, kind string) (llm.Item, error) {
+	raw, err := source.MarshalJSON()
 	if err != nil {
-		return llm.Item{}, fmt.Errorf("decode output block type: %w", err)
+		return llm.Item{}, err
 	}
+	provider := llm.ProviderItem{Type: kind, Raw: raw}
 	switch kind {
 	case "text":
 		block, err := source.AsResponseTextBlock()
@@ -101,10 +120,6 @@ func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
 		}
 		return llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: block.Text}}, nil
 	case "tool_use":
-		raw, err := source.MarshalJSON()
-		if err != nil {
-			return llm.Item{}, err
-		}
 		var block struct {
 			anthropicapi.ResponseToolUseBlock
 			Input jsontext.Value `json:"input"`
@@ -136,40 +151,48 @@ func responseOutputItem(source anthropicapi.ContentBlock) (llm.Item, error) {
 			Type:       llm.ItemToolCall,
 			Data:       llm.ToolCall{CallID: block.Id, Name: block.Name, Arguments: string(block.Input)},
 		}, nil
-	case "thinking", "redacted_thinking":
-		raw, err := source.MarshalJSON()
+	case "thinking":
+		block, err := source.AsResponseThinkingBlock()
 		if err != nil {
 			return llm.Item{}, err
 		}
-		provider := llm.ProviderItem{Type: kind, Raw: raw}
-		if kind == "thinking" {
-			block, err := source.AsResponseThinkingBlock()
-			if err != nil {
-				return llm.Item{}, err
-			}
-			if block.Signature == "" {
-				return llm.Item{}, fmt.Errorf("thinking block must have a signature")
-			}
-			if block.Thinking != "" {
-				provider.Display = &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: block.Thinking}
-			}
-		} else {
-			block, err := source.AsResponseRedactedThinkingBlock()
-			if err != nil {
-				return llm.Item{}, err
-			}
-			if block.Data == "" {
-				return llm.Item{}, fmt.Errorf("redacted thinking block must have data")
-			}
+		if block.Signature == "" {
+			return llm.Item{}, fmt.Errorf("thinking block must have a signature")
 		}
-		return llm.Item{Type: llm.ItemProvider, Data: provider}, nil
+		if block.Thinking != "" {
+			provider.Display = &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: block.Thinking}
+		}
+	case "redacted_thinking":
+		block, err := source.AsResponseRedactedThinkingBlock()
+		if err != nil {
+			return llm.Item{}, err
+		}
+		if block.Data == "" {
+			return llm.Item{}, fmt.Errorf("redacted thinking block must have data")
+		}
+	case "fallback":
+		var boundary struct {
+			From struct {
+				Model string `json:"model"`
+			} `json:"from"`
+			To struct {
+				Model string `json:"model"`
+			} `json:"to"`
+		}
+		if err := apijson.Unmarshal(raw, &boundary); err != nil {
+			return llm.Item{}, err
+		}
+		if boundary.From.Model == "" || boundary.To.Model == "" {
+			return llm.Item{}, fmt.Errorf("fallback block must have from and to models")
+		}
 	default:
 		return llm.Item{}, fmt.Errorf("unsupported output block type %q", kind)
 	}
+	return llm.Item{Type: llm.ItemProvider, Data: provider}, nil
 }
 
-func responseUsage(source anthropicapi.Usage) llm.Usage {
-	usage := llm.Usage{InputTokens: int64(source.InputTokens), OutputTokens: int64(source.OutputTokens)}
+func responseUsage(source anthropicapi.Usage) llm.TokenUsage {
+	usage := llm.TokenUsage{InputTokens: int64(source.InputTokens), OutputTokens: int64(source.OutputTokens)}
 	if source.CacheReadInputTokens != nil {
 		usage.CachedInputTokens = int64(*source.CacheReadInputTokens)
 	}
