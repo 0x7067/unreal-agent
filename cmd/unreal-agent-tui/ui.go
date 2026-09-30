@@ -46,14 +46,15 @@ const mascot = `⠀⠀⠀⠀⠀⢀⣤⡶⠟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠉⠛⠻⠿⠿⠟⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀`
 
 var (
-	sendKey    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "send"))
-	focusKey   = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "tools"))
-	quitKey    = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("Ctrl+C", "exit"))
-	newlineKey = key.NewBinding(key.WithKeys("shift+enter", "ctrl+j"), key.WithHelp("Shift+Enter/Ctrl+J", "newline"))
-	scrollKey  = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("PgUp/PgDn", "scroll"))
-	selectKey  = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "tools"))
-	backKey    = key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "tools"))
-	mouseKey   = key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "select text"))
+	sendKey      = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "send"))
+	focusKey     = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "tools"))
+	quitKey      = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("Ctrl+C", "exit"))
+	newlineKey   = key.NewBinding(key.WithKeys("shift+enter", "ctrl+j"), key.WithHelp("Shift+Enter/Ctrl+J", "newline"))
+	scrollKey    = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("PgUp/PgDn", "scroll"))
+	selectKey    = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "tools"))
+	backKey      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "tools"))
+	mouseKey     = key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "select text"))
+	reasoningKey = key.NewBinding(key.WithKeys("f3"), key.WithHelp("F3", "hide reasoning"))
 )
 
 type submitted struct {
@@ -90,6 +91,7 @@ type model struct {
 	toolsFocused                        bool
 	toolsCollapsed                      bool
 	selectText                          bool
+	hideReasoning                       bool
 	spinner                             spinner.Model
 	workTimer                           stopwatch.Model
 	mascotTop                           int
@@ -244,6 +246,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case tea.KeyPressMsg:
+		if key.Matches(msg, reasoningKey) {
+			follow := m.conversation.AtBottom()
+			m.hideReasoning = !m.hideReasoning
+			m.renderConversation()
+			if follow {
+				m.conversation.GotoBottom()
+			}
+			return m, nil
+		}
 		if key.Matches(msg, mouseKey) {
 			m.selectText = !m.selectText
 			return m, nil
@@ -365,7 +376,7 @@ func (m model) needsAnimation() bool {
 
 func (m *model) append(label, text string) {
 	text = terminaltext.Clean(text)
-	if label == "Agent" && strings.TrimSpace(text) == "" {
+	if (label == "Agent" || label == "Reasoning" || label == "Provider") && strings.TrimSpace(text) == "" {
 		return
 	}
 	follow := m.conversation.AtBottom()
@@ -388,14 +399,24 @@ func (m *model) apply(item sessionstore.Item) {
 	case session.Turn:
 		m.turn, m.responding = data.ID, true
 	case sessionstore.ModelResponse:
-		lineCount := len(m.lines)
+		answered := false
 		if data.TurnID == m.turn {
 			m.responding = false
 		}
 		for _, output := range data.Response.Output {
 			switch value := output.Data.(type) {
 			case llm.Message:
+				before := len(m.lines)
 				m.append("Agent", value.Text)
+				answered = answered || len(m.lines) > before
+			case llm.ProviderItem:
+				if value.Display != nil {
+					label := "Provider"
+					if value.Display.Kind == llm.ProviderDisplayReasoning {
+						label = "Reasoning"
+					}
+					m.append(label, value.Display.Text)
+				}
 			case llm.ToolCall:
 				card := m.card(callKey{data.TurnID, value.CallID})
 				card.name, card.arguments = value.Name, value.Arguments
@@ -404,7 +425,7 @@ func (m *model) apply(item sessionstore.Item) {
 		}
 		if data.Response.Failure != nil {
 			m.append("Model failed", data.Response.Failure.Message)
-		} else if data.Response.Stop == llm.StopRefused && len(m.lines) == lineCount {
+		} else if data.Response.Stop == llm.StopRefused && !answered {
 			m.append("Agent", "Model refused the request.")
 		} else if data.Response.Stop == llm.StopMaxOutputTokens {
 			m.append("Response truncated", "Model reached its output limit.")
@@ -460,8 +481,14 @@ func (m *model) renderConversation() {
 	blocks := []string{intro}
 	row := lipgloss.Height(intro) + 1
 	renderer, renderErr := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)))
+	reasoningStyle := m.theme.markdownStyles()
+	reasoningStyle.Document.Color = &m.theme.Hint
+	reasoningRenderer, reasoningErr := glamour.NewTermRenderer(glamour.WithStyles(reasoningStyle), glamour.WithWordWrap(max(1, width-5)))
 	for i := range m.lines {
 		entry := &m.lines[i]
+		if m.hideReasoning && entry.label == "Reasoning" {
+			continue
+		}
 		color := m.theme.Muted
 		style := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2)
 		switch entry.label {
@@ -474,23 +501,41 @@ func (m *model) renderConversation() {
 			style = style.Foreground(lipgloss.Color(m.theme.Muted))
 		}
 		content := entry.text
-		if entry.label == "Agent" && renderErr == nil {
+		markdown, err := renderer, renderErr
+		if entry.label == "Reasoning" {
+			markdown, err = reasoningRenderer, reasoningErr
+		}
+		if (entry.label == "Agent" || entry.label == "Reasoning") && err == nil {
 			if entry.width != width {
 				entry.rendered = entry.text
-				if rendered, err := renderer.Render(entry.text); err == nil {
+				if rendered, err := markdown.Render(entry.text); err == nil {
 					entry.rendered = strings.Trim(terminaltext.CleanStyled(rendered), "\n")
 				}
 				entry.width = width
 			}
 			content = entry.rendered
 		}
-		if entry.label != "You" && entry.label != "Agent" {
+		if entry.label != "You" && entry.label != "Agent" && entry.label != "Reasoning" {
 			content = textStyle(color).Bold(true).Render(entry.label) + "\n" + content
+		}
+		if entry.label == "Reasoning" {
+			style = style.Foreground(lipgloss.Color(m.theme.Hint))
+			content = lipgloss.JoinHorizontal(lipgloss.Top, textStyle(m.theme.Hint).Render("• "), content)
 		}
 		block := renderSurface(style, content)
 		entry.row, entry.height = row, lipgloss.Height(block)
-		row += entry.height + 1
-		blocks = append(blocks, block)
+		if entry.label == "Reasoning" && i > 0 && m.lines[i-1].label == "Reasoning" {
+			entry.row--
+			row += entry.height
+			blocks[len(blocks)-1] += "\n" + block
+		} else {
+			if entry.label == "Reasoning" {
+				block = renderSurface(style.Bold(true), "Thinking") + "\n" + block
+				entry.row++
+			}
+			row += lipgloss.Height(block) + 1
+			blocks = append(blocks, block)
+		}
 	}
 	m.conversation.SetContent(strings.Join(blocks, "\n\n"))
 }
@@ -592,6 +637,12 @@ func (m model) View() tea.View {
 	x, y := m.padding()
 	width := m.width - x
 	fit := func(s string) string { return ansi.Truncate(s, width-2, "…") }
+	statusWidth := m.width - x - 2
+	toolsVisible := !m.detailsOpen && (m.width >= 90 && !m.toolsCollapsed || m.toolsFocused)
+	indicators := ""
+	if !toolsVisible {
+		indicators = m.toolIndicators(statusWidth / 2)
+	}
 	pending := slices.ContainsFunc(m.tools, func(card toolCard) bool { return card.status == awaiting })
 	status, color := "Idle", m.theme.Muted
 	if pending {
@@ -628,8 +679,6 @@ func (m model) View() tea.View {
 	} else if m.toolsFocused {
 		body = m.toolPane(width, m.conversation.Height()+2)
 	}
-	statusWidth := m.width - x - 2
-	indicators := m.toolIndicators(statusWidth / 2)
 	status = ansi.Truncate(status, statusWidth-ansi.StringWidth(indicators)-1, "…")
 	status += strings.Repeat(" ", statusWidth-ansi.StringWidth(status)-ansi.StringWidth(indicators)) + indicators
 	statusRow := renderSurface(textStyle(m.theme.Muted).Background(lipgloss.Color(m.theme.Status)).
@@ -672,7 +721,11 @@ func (m model) helpView(width int) string {
 	if m.selectText {
 		mouse.SetHelp("F2", "mouse scroll")
 	}
-	bindings := []key.Binding{enter, tab, mouse, quitKey, newlineKey, scrollKey}
+	reasoning := reasoningKey
+	if m.hideReasoning {
+		reasoning.SetHelp("F3", "show reasoning")
+	}
+	bindings := []key.Binding{enter, tab, mouse, reasoning, quitKey, newlineKey, scrollKey}
 	if m.toolsFocused {
 		enter.SetHelp("Enter", "view")
 		tab.SetHelp("Tab", "input")
