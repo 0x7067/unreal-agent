@@ -386,13 +386,19 @@ func (current *coordinator) handleInboxInput(ctx context.Context, input inbox.In
 	if err := current.storeItemInSessionStore(ctx, item); err != nil {
 		return err
 	}
-	if input.Kind == inbox.InputControl {
+	switch input.Kind {
+	case inbox.InputExternal:
+		current.state.callModel = true
+	case inbox.InputControl:
 		request, err := input.DecodeControlMessage()
 		if err != nil {
 			return err
 		}
 		switch request.Mode {
 		case inbox.UpdateSettings:
+			if current.cancelModel != nil {
+				current.state.callModel = true
+			}
 			return nil
 		case inbox.StopHard, inbox.StopWhenIdle:
 			current.acceptStop(request)
@@ -406,9 +412,6 @@ func (current *coordinator) handleInboxInputs(ctx context.Context, inputs []inbo
 	for _, input := range inputs {
 		if err := current.handleInboxInput(ctx, input); err != nil {
 			return err
-		}
-		if input.Kind == inbox.InputExternal {
-			current.state.callModel = true
 		}
 	}
 	return nil

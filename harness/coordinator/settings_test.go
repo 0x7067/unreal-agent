@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"encoding/json/v2"
 	"errors"
 	"reflect"
@@ -14,7 +15,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
-func TestCoordinatorSettingsDoNotWakeOrInterruptModel(t *testing.T) {
+func TestCoordinatorSettingsDoNotWakeIdleModelAndRestartActiveRequest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		run := newStopTestRun(t, 0)
 		run.start(t)
@@ -30,19 +31,59 @@ func TestCoordinatorSettingsDoNotWakeOrInterruptModel(t *testing.T) {
 			t.Fatal("next turn did not use settings")
 		}
 		run.input(t, settingsInput(t, "next", inbox.Settings{Model: "next", ReasoningEffort: llm.ReasoningEffortHigh}))
-		if run.requestCount() != 1 || run.calls[0].ctx.Err() != nil || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) {
-			t.Fatal("settings interrupted or altered the active request")
+		if run.requestCount() != 2 || !errors.Is(run.calls[0].ctx.Err(), context.Canceled) || run.calls[1].ctx.Err() != nil {
+			t.Fatal("settings did not restart the active request")
 		}
-		run.respond(t, 0, textResponse("Hello."))
-		if run.requestCount() != 1 || run.current.pendingInputs() != 0 {
+		nextModel := llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}
+		want := run.calls[0].request
+		want.Model = nextModel
+		if !reflect.DeepEqual(run.calls[1].request, want) || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) {
+			t.Fatal("restart did not preserve context and apply updated settings")
+		}
+		nextLimit := int64(4096)
+		run.input(t, settingsInput(t, "limit", inbox.Settings{MaxOutputTokens: &nextLimit}))
+		if run.requestCount() != 3 || !errors.Is(run.calls[1].ctx.Err(), context.Canceled) || run.calls[2].ctx.Err() != nil {
+			t.Fatal("output token limit did not restart the active request")
+		}
+		nextModel.MaxOutputTokens = &nextLimit
+		want.Model = nextModel
+		if !reflect.DeepEqual(run.calls[2].request, want) {
+			t.Fatal("restart did not preserve context and apply the output token limit")
+		}
+		run.respond(t, 2, textResponse("Hello."))
+		if run.requestCount() != 3 || run.current.pendingInputs() != 0 {
 			t.Fatal("settings caused an extra turn after the response")
 		}
 		run.input(t, externalEvent(t, 1, "follow-up", "continue"))
-		if run.requestCount() != 2 || !reflect.DeepEqual(run.calls[1].request.Model, llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) {
+		if run.requestCount() != 4 || !reflect.DeepEqual(run.calls[3].request.Model, nextModel) {
 			t.Fatal("following turn did not use updated model settings")
 		}
-		run.respond(t, 1, textResponse("Done."))
+		run.respond(t, 3, textResponse("Done."))
 		run.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
+		run.assertStopped(t)
+	})
+}
+
+func TestCoordinatorSettingsRestartWithoutWaitingForCanceledResponse(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newStopTestRun(t, 0)
+		run.current.dependencies.LLM = &fakeAdapter{respond: func(ctx context.Context, request llm.Request) (llm.Response, error) {
+			call := stopTestCall{ctx: ctx, request: request, response: make(chan llm.Response)}
+			run.calls = append(run.calls, call)
+			return <-call.response, nil
+		}}
+		run.start(t)
+		run.input(t, externalEvent(t, 0, "prompt", "hello"))
+		run.input(t, settingsInput(t, "settings", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh}))
+		if run.requestCount() != 2 || !errors.Is(run.calls[0].ctx.Err(), context.Canceled) {
+			t.Fatal("restart waited for the canceled request to return")
+		}
+		run.respond(t, 0, textResponse("Stale response."))
+		if len(run.store.appendedResponses) != 0 || run.current.pendingInputs() != 1 || run.calls[1].ctx.Err() != nil {
+			t.Fatal("canceled response affected the replacement request")
+		}
+		run.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
+		run.respond(t, 1, textResponse("Done."))
 		run.assertStopped(t)
 	})
 }
@@ -83,6 +124,17 @@ func TestCoordinatorSettingsFollowInboxOrderAndDeduplicate(t *testing.T) {
 		run.input(t, externalEvent(t, 0, "prompt", "hello"))
 		if !reflect.DeepEqual(run.calls[0].request.Model, llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) {
 			t.Fatal("duplicate rolled back the latest settings")
+		}
+		run.input(t, first, last, repeated)
+		if run.requestCount() != 1 || run.calls[0].ctx.Err() != nil {
+			t.Fatal("duplicate settings restarted the active request")
+		}
+		run.input(t,
+			settingsInput(t, "new-first", inbox.Settings{Model: "final", ReasoningEffort: llm.ReasoningEffortLow}),
+			settingsInput(t, "new-last", inbox.Settings{ReasoningEffort: llm.ReasoningEffortMax}),
+		)
+		if run.requestCount() != 2 || !reflect.DeepEqual(run.calls[1].request.Model, llm.Model{ID: "final", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortMax}) {
+			t.Fatal("restart did not apply batched settings in inbox order")
 		}
 	})
 }
