@@ -51,13 +51,10 @@ func TestBuilderSettingsApplySuppliedFields(t *testing.T) {
 		name     string
 		settings inbox.Settings
 		model    llm.Model
-		prompt   string
 	}{
-		{"omitted", inbox.Settings{}, initialModel, "initial prompt"},
-		{"model", inbox.Settings{Model: "next"}, llm.Model{ID: "next", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}, "initial prompt"},
-		{"prompt", inbox.Settings{SystemPrompt: new("next prompt")}, initialModel, "next prompt"},
-		{"clear prompt", inbox.Settings{SystemPrompt: new("")}, initialModel, ""},
-		{"limit", inbox.Settings{MaxOutputTokens: &nextLimit}, llm.Model{ID: "initial", MaxOutputTokens: &nextLimit, ReasoningEffort: llm.ReasoningEffortHigh}, "initial prompt"},
+		{"omitted", inbox.Settings{}, initialModel},
+		{"model", inbox.Settings{Model: "next"}, llm.Model{ID: "next", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"limit", inbox.Settings{MaxOutputTokens: &nextLimit}, llm.Model{ID: "initial", MaxOutputTokens: &nextLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			builder := NewBuilder()
@@ -78,12 +75,6 @@ func TestBuilderSettingsApplySuppliedFields(t *testing.T) {
 			}
 			want := original
 			want.Request.Model = test.model
-			want.Request.Input = append([]llm.Item(nil), original.Request.Input...)
-			prompt := preamble
-			if test.prompt != "" {
-				prompt += "\n\n" + test.prompt
-			}
-			want.Request.Input[0].Data = llm.Message{Role: llm.RoleSystem, Text: prompt}
 			if !reflect.DeepEqual(built, want) {
 				t.Fatalf("request = %#v, want %#v", built, want)
 			}

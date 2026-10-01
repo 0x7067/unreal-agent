@@ -62,6 +62,9 @@ func TestInboxRejectsInvalidControlMessages(t *testing.T) {
 		`{"Mode":"settings","Parameters":{"Model":" "}}`,
 		`{"Mode":"settings","Parameters":{"MaxOutputTokens":0}}`,
 		`{"Mode":"settings","Parameters":{"MaxOutputTokens":-1}}`,
+		`{"Mode":"settings","Parameters":{"SystemPrompt":"be concise"}}`,
+		`{"Mode":"settings","Parameters":{"SystemPrompt":""}}`,
+		`{"Mode":"settings","Parameters":{"Model":"model","SystemPrompt":"be concise"}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"high","extra":true}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"high"},"extra":true}`,
 		`{"Mode":"hard","Parameters":{"ReasoningEffort":"high"}}`,
@@ -86,10 +89,8 @@ func TestInboxPartialSettingsControls(t *testing.T) {
 	for _, settings := range []inbox.Settings{
 		{},
 		{Model: "model"},
-		{SystemPrompt: new("be concise")},
-		{SystemPrompt: new("")},
 		{MaxOutputTokens: &limit},
-		{Model: "model", SystemPrompt: new("be concise"), MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh},
+		{Model: "model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh},
 	} {
 		want := inbox.ControlMessage{Mode: inbox.UpdateSettings, Parameters: settings}
 		payload, err := json.Marshal(want)

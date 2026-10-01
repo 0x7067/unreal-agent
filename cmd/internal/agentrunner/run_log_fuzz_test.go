@@ -232,7 +232,7 @@ func assertExecutionLog(t *testing.T, items []sessionstore.Item, returned []llm.
 					stops++
 				case inbox.UpdateSettings:
 					settings++
-					if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "journal-model", SystemPrompt: new(defaultSystemPrompt), ReasoningEffort: llm.ReasoningEffortHigh}) {
+					if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "journal-model", ReasoningEffort: llm.ReasoningEffortHigh}) {
 						t.Fatalf("logged settings differ from the runner request: %#v", control.Parameters)
 					}
 				default:

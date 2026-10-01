@@ -56,7 +56,6 @@ const (
 )
 
 type Settings struct {
-	SystemPrompt    *string             `json:",omitzero"`
 	Model           string              `json:",omitzero"`
 	MaxOutputTokens *int64              `json:",omitzero"`
 	ReasoningEffort llm.ReasoningEffort `json:",omitzero"`

@@ -68,9 +68,6 @@ func (current *builder) AddControlMessage(request inbox.ControlMessage) {
 	switch request.Mode {
 	case inbox.UpdateSettings:
 		settings := request.Parameters.(inbox.Settings)
-		if settings.SystemPrompt != nil {
-			current.SetSystemPrompt(*settings.SystemPrompt)
-		}
 		if settings.Model != "" {
 			current.request.Model.ID = settings.Model
 		}

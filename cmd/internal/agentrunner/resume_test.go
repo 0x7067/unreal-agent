@@ -102,12 +102,13 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			workspace, sessions := t.TempDir(), t.TempDir()
 			model, effort := "initial-model", llm.ReasoningEffortLow
+			systemPrompt := "initial prompt"
 			messageID := "69621f8d-4f4d-49a5-8f7d-3b24fd855c01"
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			run := func(client providers.Client) (int, string, string) {
 				var stdout, stderr bytes.Buffer
-				request := fmt.Sprintf(`{"model":%q,"thinking_level":%q,"session_id":"resume-delivery","messages":[{"role":"user","content":"run it","message_id":%q}]}`, model, effort, messageID)
+				request := fmt.Sprintf(`{"model":%q,"thinking_level":%q,"system_prompt":%q,"session_id":"resume-delivery","messages":[{"role":"user","content":"run it","message_id":%q}]}`, model, effort, systemPrompt, messageID)
 				code := RunMain(ctx, []string{"-workspace", workspace, "-session-directory", sessions},
 					func(name string) string {
 						switch name {
@@ -139,6 +140,9 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 				if request.Model.ID != model || request.Model.ReasoningEffort != effort {
 					return llm.Response{}, fmt.Errorf("initial settings = %#v", request.Model)
 				}
+				if !strings.HasSuffix(request.Input[0].Data.(llm.Message).Text, "\n\n"+systemPrompt) {
+					return llm.Response{}, errors.New("initial request did not use the caller's system prompt")
+				}
 				if withTool && interrupted.calls == 1 {
 					return llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 						CallID: "call-1", Name: "Bash", Arguments: `{"command":"printf hello"}`,
@@ -158,11 +162,15 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 				t.Fatalf("first run: exit=%d, calls=%d, stderr=%s", code, interrupted.calls, stderr)
 			}
 			model, effort = "resumed-model", llm.ReasoningEffortMax
+			systemPrompt = "resumed prompt"
 			resumed := &fakeClient{}
 			resumed.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
 				resumed.calls++
 				if request.Model.ID != model || request.Model.ReasoningEffort != effort {
 					return llm.Response{}, fmt.Errorf("recovered request settings = %#v", request.Model)
+				}
+				if !strings.HasSuffix(request.Input[0].Data.(llm.Message).Text, "\n\n"+systemPrompt) {
+					return llm.Response{}, errors.New("recovered request did not use the caller's system prompt")
 				}
 				if withTool && !hasResult(request) {
 					return llm.Response{}, errors.New("missing restored result")
@@ -186,7 +194,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 					}
 					if control.Mode == inbox.UpdateSettings {
 						settings++
-						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, SystemPrompt: new(defaultSystemPrompt), ReasoningEffort: effort}) {
+						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, ReasoningEffort: effort}) {
 							t.Fatalf("recorded settings = %#v", control.Parameters)
 						}
 					}
