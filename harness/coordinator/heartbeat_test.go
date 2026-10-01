@@ -110,6 +110,7 @@ func TestCoordinatorHeartbeatYieldsToSteeringAndResults(t *testing.T) {
 		run.respond(t, 0, textResponse("Waiting."))
 		advanceHeartbeatTime(30 * time.Second)
 		run.update(t, 0, operation.StatusCompleted)
+		advanceHeartbeatTime(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 		if run.requestCount() != 2 {
 			t.Fatal("result waited for a heartbeat")
 		}

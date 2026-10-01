@@ -176,6 +176,7 @@ func TestCoordinatorRunDefersCompletionsUntilModelFinishes(t *testing.T) {
 						synctest.Sleep(2 * slurpIdleTimeout)
 					} else {
 						finishOperation(0)
+						synctest.Sleep(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 						firstPending = 1
 					}
 					if len(calls) != 1 {

@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"encoding/json/jsontext"
+	"fmt"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -43,7 +44,7 @@ func TestCoordinatorToolGraceBatchesCompletionsUntilAllCallsFinish(t *testing.T)
 	}
 }
 
-func TestCoordinatorToolGraceWaitsOnlyForLatestTurn(t *testing.T) {
+func TestCoordinatorToolGraceRetainsSurvivingSiblings(t *testing.T) {
 	for _, endGrace := range []string{"steering", "expiry"} {
 		t.Run(endGrace, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -55,7 +56,8 @@ func TestCoordinatorToolGraceWaitsOnlyForLatestTurn(t *testing.T) {
 				if endGrace == "steering" {
 					run.input(t, externalEvent(t, 1, "steering", "run two more tools"))
 				} else {
-					synctest.Sleep(toolCallRunGracePeriod)
+					synctest.Sleep(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
+					synctest.Wait()
 				}
 				run.respond(t, 1, toolGraceResponse("D", "E"))
 				deadline := time.Now().Add(toolCallRunGracePeriod)
@@ -68,42 +70,41 @@ func TestCoordinatorToolGraceWaitsOnlyForLatestTurn(t *testing.T) {
 					t.Fatal("partial completion ended the new turn's grace period")
 				}
 				updateToolGraceCall(t, run, "E", operation.StatusCompleted)
-				if run.requestCount() != 3 || !time.Now().Before(deadline) {
-					t.Fatal("older running call prevented the new turn's grace period from ending early")
+				if run.requestCount() != 2 {
+					t.Fatal("new turn's completions discarded an older surviving sibling")
 				}
-				for _, callID := range []string{"A", "B", "D", "E"} {
+				updateToolGraceCall(t, run, "C", operation.StatusCompleted)
+				if run.requestCount() != 3 || !time.Now().Before(deadline) {
+					t.Fatal("last surviving sibling did not end grace early")
+				}
+				for _, callID := range []string{"A", "B", "C", "D", "E"} {
 					assertStopResult(t, run.calls[2].request, callID, string(operation.StatusCompleted))
 				}
-				assertStopResult(t, run.calls[2].request, "C", contextbuilder.ToolCallRunningPayload)
-				run.respond(t, 2, textResponse("Waiting for C."))
-				updateToolGraceCall(t, run, "C", operation.StatusCompleted)
-				if run.requestCount() != 4 {
-					t.Fatal("older completion was deferred after the new turn's grace period ended")
-				}
-				assertStopResult(t, run.calls[3].request, "C", string(operation.StatusCompleted))
 			})
 		})
 	}
 }
 
-func TestCoordinatorToolGraceDeadlineDoesNotResetOnCompletion(t *testing.T) {
+func TestCoordinatorToolGraceResetsOnCompletionOnly(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		run := newToolGraceTestRun(t)
 		run.start(t)
 		run.input(t, externalEvent(t, 0, "input", "run three tools"))
 		run.respond(t, 0, toolGraceResponse("A", "B", "C"))
-		deadline := time.Now().Add(time.Second)
 		synctest.Sleep(100 * time.Millisecond)
 		updateToolGraceCall(t, run, "A", operation.StatusCompleted)
+		firstDeadline := time.Now().Add(toolCallCompletionGracePeriod)
 		synctest.Sleep(400 * time.Millisecond)
 		updateToolGraceCall(t, run, "B", operation.StatusCompleted)
-		synctest.Sleep(time.Until(deadline) - time.Nanosecond)
+		deadline := time.Now().Add(toolCallCompletionGracePeriod)
+		synctest.Sleep(time.Until(firstDeadline) + (2 * slurpIdleTimeout))
 		if run.requestCount() != 1 {
-			t.Fatal("partial completions started a turn before the grace deadline")
+			t.Fatal("another completion did not replace the previous grace deadline")
 		}
-		synctest.Sleep(time.Nanosecond)
+		updateToolGraceCall(t, run, "C", operation.StatusAwaiting)
+		synctest.Sleep(time.Until(deadline) + (2 * slurpIdleTimeout))
 		if run.requestCount() != 2 {
-			t.Fatal("pending results were not delivered at the original grace deadline")
+			t.Fatal("progress update extended grace without a tool completion")
 		}
 		assertStopResult(t, run.calls[1].request, "A", string(operation.StatusCompleted))
 		assertStopResult(t, run.calls[1].request, "B", string(operation.StatusCompleted))
@@ -112,6 +113,33 @@ func TestCoordinatorToolGraceDeadlineDoesNotResetOnCompletion(t *testing.T) {
 		if run.requestCount() != 2 || run.calls[1].ctx.Err() != nil {
 			t.Fatal("grace deadline repeated or interrupted the continuation")
 		}
+	})
+}
+
+func TestCoordinatorUnrelatedCompletionPreservesGraceDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newToolGraceTestRun(t)
+		run.start(t)
+		run.input(t, externalEvent(t, 0, "first", "run both tools"))
+		run.respond(t, 0, toolGraceResponse("A", "B"))
+		run.input(t, externalEvent(t, 1, "second", "run an unrelated tool"))
+		run.respond(t, 1, toolGraceResponse("C"))
+		synctest.Sleep(2 * toolCallRunGracePeriod)
+		updateToolGraceCall(t, run, "A", operation.StatusCompleted)
+		deadline := time.Now().Add(toolCallCompletionGracePeriod)
+		synctest.Sleep(toolCallCompletionGracePeriod / 2)
+		updateToolGraceCall(t, run, "C", operation.StatusCompleted)
+		if run.requestCount() != 2 {
+			t.Fatal("unrelated completion ended the existing grace period early")
+		}
+		synctest.Sleep(time.Until(deadline) + (2 * slurpIdleTimeout))
+		synctest.Wait()
+		if run.requestCount() != 3 {
+			t.Fatal("unrelated completion extended the existing grace deadline")
+		}
+		assertStopResult(t, run.calls[2].request, "A", string(operation.StatusCompleted))
+		assertStopResult(t, run.calls[2].request, "B", contextbuilder.ToolCallRunningPayload)
+		assertStopResult(t, run.calls[2].request, "C", string(operation.StatusCompleted))
 	})
 }
 
@@ -126,12 +154,48 @@ func TestCoordinatorToolGraceExpiryWithoutResultsDoesNotStartTurn(t *testing.T) 
 			t.Fatal("grace expiry started a turn without pending inputs")
 		}
 		updateToolGraceCall(t, run, "A", operation.StatusCompleted)
+		if run.requestCount() != 1 {
+			t.Fatal("completion after run grace expiry did not wait for its sibling")
+		}
+		updateToolGraceCall(t, run, "B", operation.StatusCompleted)
 		if run.requestCount() != 2 {
-			t.Fatal("completion after grace expiry was deferred")
+			t.Fatal("last sibling completion did not end the completion grace period")
 		}
 		assertStopResult(t, run.calls[1].request, "A", string(operation.StatusCompleted))
-		assertStopResult(t, run.calls[1].request, "B", contextbuilder.ToolCallRunningPayload)
+		assertStopResult(t, run.calls[1].request, "B", string(operation.StatusCompleted))
 	})
+}
+
+func TestCoordinatorCompletionGraceWaitsOnlyForSameTurn(t *testing.T) {
+	for _, siblings := range []bool{false, true} {
+		t.Run(fmt.Sprintf("siblings=%t", siblings), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				run := newToolGraceTestRun(t)
+				run.start(t)
+				run.input(t, externalEvent(t, 0, "first", "run tools"))
+				response := toolGraceResponse("A")
+				if siblings {
+					response = toolGraceResponse("A", "B")
+				}
+				run.respond(t, 0, response)
+				run.input(t, externalEvent(t, 1, "second", "run an unrelated tool"))
+				run.respond(t, 1, toolGraceResponse("C"))
+				synctest.Sleep(2 * toolCallRunGracePeriod)
+				updateToolGraceCall(t, run, "A", operation.StatusCompleted)
+				if siblings {
+					if run.requestCount() != 2 {
+						t.Fatal("completion did not wait for its surviving sibling")
+					}
+					updateToolGraceCall(t, run, "B", operation.StatusCompleted)
+				}
+				if run.requestCount() != 3 {
+					t.Fatal("completion waited for a call from another turn")
+				}
+				assertStopResult(t, run.calls[2].request, "A", string(operation.StatusCompleted))
+				assertStopResult(t, run.calls[2].request, "C", contextbuilder.ToolCallRunningPayload)
+			})
+		})
+	}
 }
 
 func TestCoordinatorInboxEndsToolGracePeriod(t *testing.T) {
@@ -174,8 +238,8 @@ func TestCoordinatorToolGraceDiscardsPreviousDeadline(t *testing.T) {
 		synctest.Sleep(250 * time.Millisecond)
 		run.input(t, externalEvent(t, 1, "steering", "run another tool"))
 		run.respond(t, 1, toolGraceResponse("C"))
-		newDeadline := time.Now().Add(time.Second)
 		updateToolGraceCall(t, run, "A", operation.StatusCompleted)
+		newDeadline := time.Now().Add(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 		synctest.Sleep(time.Until(oldDeadline) + time.Nanosecond)
 		if run.requestCount() != 2 {
 			t.Fatal("previous deadline ended the new grace period")
@@ -223,7 +287,7 @@ func TestCoordinatorStopDuringToolGracePeriod(t *testing.T) {
 				run := newToolGraceTestRun(t)
 				run.start(t)
 				run.input(t, externalEvent(t, 0, "input", "run tool"))
-				run.respond(t, 0, toolGraceResponse("A"))
+				run.respond(t, 0, toolGraceResponse("A", "B"))
 				run.input(t, stopInput(t, "stop", mode))
 				terminal := operation.StatusCanceled
 				if mode == inbox.StopWhenIdle {
@@ -231,18 +295,23 @@ func TestCoordinatorStopDuringToolGracePeriod(t *testing.T) {
 					if len(run.operations.cancels) != 0 {
 						t.Fatal("when-idle stop canceled pending work")
 					}
-				} else if len(run.operations.cancels) != 1 {
+				} else if len(run.operations.cancels) != 2 {
 					t.Fatal("stop waited for grace expiry before canceling work")
 				}
 				if run.requestCount() != 1 {
 					t.Fatal("stop started a turn before the operation finished")
 				}
 				updateToolGraceCall(t, run, "A", terminal)
+				if run.requestCount() != 1 {
+					t.Fatal("partial completion did not wait for its sibling")
+				}
+				updateToolGraceCall(t, run, "B", terminal)
 				if mode != inbox.StopHard {
 					if run.requestCount() != 2 {
 						t.Fatal("when_idle waited for grace expiry before delivering the result")
 					}
 					assertStopResult(t, run.calls[1].request, "A", string(terminal))
+					assertStopResult(t, run.calls[1].request, "B", string(terminal))
 					run.respond(t, 1, textResponse("Done."))
 				} else if run.requestCount() != 1 {
 					t.Fatal("hard stop started a final turn")

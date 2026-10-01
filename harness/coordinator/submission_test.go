@@ -31,8 +31,9 @@ func TestCoordinatorSubmissionBoundarySurvivesRecovery(t *testing.T) {
 				go func() { run.done <- run.current.Run(ctx) }()
 				synctest.Wait()
 				run.update(t, 1, operation.StatusCompleted)
+				synctest.Sleep(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 				if len(run.calls) != 1 || run.current.state.currentTurnInputs != 1 {
-					t.Fatal("completion before submission was not included immediately")
+					t.Fatal("completion before submission was not included after grace expiry")
 				}
 				sent := run.calls[0].request
 				original := append([]llm.Item(nil), sent.Input...)
@@ -192,6 +193,7 @@ func TestCoordinatorRecoversPendingResultsAfterInputWriteFailure(t *testing.T) {
 				restoreTestRun(t, run, faults)
 				run.start(t)
 				run.update(t, 1, operation.StatusCompleted)
+				synctest.Sleep(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 				want := run.calls[0].request
 				run.update(t, 0, operation.StatusCompleted)
 				want.Input = append(append([]llm.Item(nil), want.Input...), llm.Item{
@@ -250,6 +252,7 @@ func TestCoordinatorStartsNewToolWhileDeliveringPreviousCompletion(t *testing.T)
 		go func() { run.done <- run.current.Run(ctx) }()
 		synctest.Wait()
 		run.update(t, 1, operation.StatusCompleted)
+		synctest.Sleep(toolCallCompletionGracePeriod + (2 * slurpIdleTimeout))
 		first := run.calls[0].request
 		run.update(t, 0, operation.StatusCompleted)
 		dispatches := len(run.operations.adds)

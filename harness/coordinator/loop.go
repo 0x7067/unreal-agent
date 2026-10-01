@@ -25,7 +25,10 @@ const (
 	slurpMaxItems    = 100
 )
 
-const toolCallRunGracePeriod = time.Second
+const (
+	toolCallRunGracePeriod        = time.Second
+	toolCallCompletionGracePeriod = time.Second
+)
 
 type coordinator struct {
 	dependencies Dependencies
@@ -191,8 +194,23 @@ func (current *coordinator) processEvents(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	if _, err := current.reconcileToolCalls(ctx); err != nil {
+	completed, err := current.reconcileToolCalls(ctx)
+	if err != nil {
 		return false, err
+	}
+	if len(completed) > 0 {
+		hasPendingSiblings := false
+		for _, status := range completed {
+			for key := range current.state.toolCalls {
+				if key.turnID == status.TurnID {
+					current.state.graceToolCalls[key] = struct{}{}
+					hasPendingSiblings = true
+				}
+			}
+		}
+		if hasPendingSiblings {
+			current.state.grace = time.After(toolCallCompletionGracePeriod)
+		}
 	}
 	return current.state.callModel || (current.pendingInputs() > 0 && current.cancelModel == nil && len(current.state.graceToolCalls) == 0), nil
 }
