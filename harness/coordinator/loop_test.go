@@ -2110,42 +2110,6 @@ func TestCoordinatorRunReturnsOperationDispatchError(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRunReturnsUnsupportedRecoveredOperation(t *testing.T) {
-	store := emptyFakeStore()
-	store.resume.Operations = []operation.Operation{
-		{ID: "unsupported", Type: "remote", Version: 1, Status: operation.StatusReady},
-		{ID: "supported", Type: operation.TypeShell, Version: 1, Status: operation.StatusReady},
-	}
-	inboxContext, cancelInbox := context.WithCancel(t.Context())
-	cancelInbox()
-	inputs, inboxErr := inbox.New(inboxContext, nil)
-	if inboxErr != nil {
-		t.Fatal(inboxErr)
-	}
-	operations := newFakeOperationManager()
-	operations.addError = func(value operation.Operation) error {
-		if value.ID == "unsupported" {
-			return fmt.Errorf("manager does not support %q: %w", value.Type, operation.ErrUnsupported)
-		}
-		return nil
-	}
-	current := newTestCoordinator(
-		store,
-		inputs,
-		operations,
-		contextbuilder.NewBuilder(),
-		tool.NewRegistry(tool.StaticTranslators{}),
-	)
-
-	err := current.Run(t.Context())
-	if !errors.Is(err, operation.ErrUnsupported) {
-		t.Fatalf("Run error = %v, want unsupported operation", err)
-	}
-	if _, ok := current.state.operations["unsupported"]; !ok {
-		t.Fatal("unsupported operation was not retained")
-	}
-}
-
 func TestCoordinatorClonesOperationDataBeforeDispatch(t *testing.T) {
 	operations := newFakeOperationManager()
 	operations.mutateAdds = true

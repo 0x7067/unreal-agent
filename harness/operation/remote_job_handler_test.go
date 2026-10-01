@@ -121,9 +121,11 @@ func TestLocalOperationManagerRejectsInvalidRemoteJobUpdates(t *testing.T) {
 func TestLocalOperationManagerSelectsRemoteJobHandler(t *testing.T) {
 	t.Run("unsupported plan", func(t *testing.T) {
 		manager := operation.NewLocalOperationManager(t.Context())
-		err := manager.Add(newTestRemoteJobOperation(t, "unsupported"))
-		if !errors.Is(err, operation.ErrUnsupported) {
-			t.Fatalf("Add() error = %v, want ErrUnsupported", err)
+		if err := manager.Add(newTestRemoteJobOperation(t, "unsupported")); err != nil {
+			t.Fatal(err)
+		}
+		if update := receiveRemoteJobUpdate(t, manager.Updates()); update.Status != operation.StatusUnsupported {
+			t.Fatalf("status = %q, want unsupported", update.Status)
 		}
 	})
 
@@ -131,9 +133,16 @@ func TestLocalOperationManagerSelectsRemoteJobHandler(t *testing.T) {
 		first := newTestRemoteJobHandler()
 		second := newTestRemoteJobHandler()
 		manager := operation.NewLocalOperationManager(t.Context(), first, second)
-		err := manager.Add(newTestRemoteJobOperation(t, "ambiguous"))
-		if err == nil || !strings.Contains(err.Error(), "multiple handlers") {
-			t.Fatalf("Add() error = %v", err)
+		if err := manager.Add(newTestRemoteJobOperation(t, "ambiguous")); err != nil {
+			t.Fatal(err)
+		}
+		update := receiveRemoteJobUpdate(t, manager.Updates())
+		state, err := operation.DecodeRemoteJobState(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update.Status != operation.StatusFailed || !strings.Contains(state.TerminalError, "multiple handlers") {
+			t.Fatalf("operation = %#v, state = %#v", update, state)
 		}
 	})
 
@@ -141,23 +150,47 @@ func TestLocalOperationManagerSelectsRemoteJobHandler(t *testing.T) {
 		handler := newTestRemoteJobHandler()
 		handler.addErr = errors.New("cannot add")
 		manager := operation.NewLocalOperationManager(t.Context(), handler)
-		if err := manager.Add(newTestRemoteJobOperation(t, "add-error")); !errors.Is(err, handler.addErr) {
-			t.Fatalf("Add() error = %v", err)
+		if err := manager.Add(newTestRemoteJobOperation(t, "add-error")); err != nil {
+			t.Fatal(err)
+		}
+		update := receiveRemoteJobUpdate(t, manager.Updates())
+		state, err := operation.DecodeRemoteJobState(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update.Status != operation.StatusFailed || state.TerminalError != handler.addErr.Error() {
+			t.Fatalf("operation = %#v, state = %#v", update, state)
 		}
 	})
 }
 
 func TestLocalOperationManagerPropagatesRemoteCancellationError(t *testing.T) {
-	handler := newTestRemoteJobHandler()
-	handler.cancelErr = errors.New("cannot cancel")
-	manager := operation.NewLocalOperationManager(t.Context(), handler)
-	current := newTestRemoteJobOperation(t, "cancel-error")
-	if err := manager.Add(current); err != nil {
-		t.Fatal(err)
-	}
-	<-handler.adds
-	if err := manager.Cancel(current.ID, "requested"); !errors.Is(err, handler.cancelErr) {
-		t.Fatalf("Cancel() error = %v", err)
+	for _, cause := range []error{errors.New("cannot cancel"), operation.ErrUnsupported} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			handler := newTestRemoteJobHandler()
+			handler.cancelErr = cause
+			manager := operation.NewLocalOperationManager(t.Context(), handler)
+			current := newTestRemoteJobOperation(t, "cancel-error")
+			if err := manager.Add(current); err != nil {
+				t.Fatal(err)
+			}
+			<-handler.adds
+			if err := manager.Cancel(current.ID, "requested"); err != nil {
+				t.Fatal(err)
+			}
+			update := receiveRemoteJobUpdate(t, manager.Updates())
+			state, err := operation.DecodeRemoteJobState(update)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "remote job outcome is unknown because cancellation failed: " + cause.Error()
+			if update.Status != operation.StatusFailed || state.TerminalError != want {
+				t.Fatalf("operation = %#v, state = %#v", update, state)
+			}
+			if err := manager.Cancel(current.ID, "repeat"); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -181,8 +214,17 @@ func TestLocalOperationManagerFailsJobsWhenRemoteHandlerStops(t *testing.T) {
 		t.Fatalf("operation = %#v, state = %#v", failed, state)
 	}
 	later := newTestRemoteJobOperation(t, "handler-already-stopped")
-	if err := manager.Add(later); err == nil || !strings.Contains(err.Error(), "remote job handler 0 stopped") {
-		t.Fatalf("Add() error = %v", err)
+	if err := manager.Add(later); err != nil {
+		t.Fatal(err)
+	}
+	update := receiveRemoteJobUpdate(t, manager.Updates())
+	state, err = operation.DecodeRemoteJobState(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.ID != later.ID || update.Status != operation.StatusFailed ||
+		!strings.Contains(state.TerminalError, "remote job handler 0 stopped") {
+		t.Fatalf("operation = %#v, state = %#v", update, state)
 	}
 	select {
 	case added := <-handler.adds:
@@ -368,7 +410,7 @@ func TestLocalOperationManagerRejectsRemoteJobStatusRegression(t *testing.T) {
 
 func TestLocalOperationManagerReportsRemoteCancellationFailureAfterInvalidUpdate(t *testing.T) {
 	handler := newTestRemoteJobHandler()
-	handler.cancelErr = errors.New("cannot cancel")
+	handler.cancelErr = operation.ErrUnsupported
 	manager := operation.NewLocalOperationManager(t.Context(), handler)
 	current := newTestRemoteJobOperation(t, "invalid-cancel-error")
 	if err := manager.Add(current); err != nil {
@@ -387,7 +429,8 @@ func TestLocalOperationManagerReportsRemoteCancellationFailureAfterInvalidUpdate
 	}
 	if failed.Status != operation.StatusFailed ||
 		!strings.Contains(state.TerminalError, "validate remote job handler update") ||
-		!strings.Contains(state.TerminalError, "cannot cancel") {
+		!strings.Contains(state.TerminalError, "outcome is unknown") ||
+		!strings.Contains(state.TerminalError, handler.cancelErr.Error()) {
 		t.Fatalf("operation = %#v, state = %#v", failed, state)
 	}
 }
@@ -403,6 +446,10 @@ func TestLocalOperationManagerAddsRemoteJobOnce(t *testing.T) {
 	if err := manager.Add(current); err != nil {
 		t.Fatal(err)
 	}
+	if err := manager.Cancel(current.ID, "barrier"); err != nil {
+		t.Fatal(err)
+	}
+	<-handler.cancellations
 	select {
 	case duplicate := <-handler.adds:
 		t.Fatalf("duplicate add = %#v", duplicate)

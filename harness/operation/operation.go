@@ -19,12 +19,13 @@ type ID string
 type Status string
 
 const (
-	StatusReady     Status = "ready"
-	StatusAwaiting  Status = "awaiting"
-	StatusCanceling Status = "canceling"
-	StatusCompleted Status = "completed"
-	StatusFailed    Status = "failed"
-	StatusCanceled  Status = "canceled"
+	StatusReady       Status = "ready"
+	StatusAwaiting    Status = "awaiting"
+	StatusCanceling   Status = "canceling"
+	StatusCompleted   Status = "completed"
+	StatusFailed      Status = "failed"
+	StatusCanceled    Status = "canceled"
+	StatusUnsupported Status = ""
 )
 
 type Spec struct {
@@ -58,7 +59,6 @@ type Step struct {
 
 type Manager interface {
 	// Add starts an operation at most once for each ID during the manager's lifetime.
-	// It returns ErrUnsupported when the operation type or version cannot be handled.
 	Add(Operation) error
 	Cancel(ID, string) error
 	Updates() <-chan Operation

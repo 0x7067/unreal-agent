@@ -2,11 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -230,24 +230,52 @@ func TestCoordinatorResumesUnansweredInput(t *testing.T) {
 	}
 }
 
-func TestCoordinatorStopRejectsUnsupportedOperation(t *testing.T) {
-	for _, mode := range []inbox.ControlMode{inbox.StopHard, inbox.StopWhenIdle} {
-		t.Run(string(mode), func(t *testing.T) {
+func TestCoordinatorRunRejectsUnsupportedOperation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mode inbox.ControlMode
+	}{
+		{name: "resume"},
+		{name: "hard", mode: inbox.StopHard},
+		{name: "when_idle", mode: inbox.StopWhenIdle},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				run := newStopTestRun(t, 1)
-				run.current.dependencies.Operations = operation.NewLocalOperationManager(t.Context())
-				submitTestInput(t, run.inputs, stopInput(t, "stop", mode))
-				run.start(t)
-				select {
-				case err := <-run.done:
-					if !errors.Is(err, operation.ErrUnsupported) {
-						t.Fatalf("Run error = %v, want unsupported operation", err)
-					}
-				default:
-					t.Fatal("Run is waiting for an unsupported operation")
+				store := persistTestRun(t, run)
+				if err := store.AppendInput(t.Context(), "session-1", externalEvent(t, 0, "pending", "check progress")); err != nil {
+					t.Fatal(err)
 				}
-				if len(run.store.savedOperations) != 0 || len(run.calls) != 0 {
-					t.Fatal("unsupported operation changed state or started a model request")
+				restoreTestRun(t, run, store)
+				ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+				defer cancel()
+				run.current.dependencies.Operations = operation.NewLocalOperationManager(ctx)
+				if test.mode != "" {
+					submitTestInput(t, run.inputs, stopInput(t, "stop", test.mode))
+				}
+				err := run.current.Run(ctx)
+				if err == nil || !strings.Contains(err.Error(), `store operation "operation-0": operation "operation-0" has unsupported status ""`) {
+					t.Fatalf("Run error = %v, want unsupported status rejected by store", err)
+				}
+				after, err := store.Resume(t.Context(), "session-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(after.Operations, run.current.dependencies.Restored.Operations) {
+					t.Fatal("unsupported operation changed the checkpoint")
+				}
+				history, err := store.Items(t.Context(), "session-1", sessionstore.BeforeFirst, 100)
+				if err != nil {
+					t.Fatal(err)
+				}
+				turns := 0
+				for _, item := range history.Items {
+					if item.Kind == sessionstore.ItemTurn {
+						turns++
+					}
+				}
+				if turns != 1 {
+					t.Fatal("unsupported operation started a model turn with an unanswered input")
 				}
 			})
 		})

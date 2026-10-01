@@ -20,13 +20,11 @@ type LocalOperationManager struct {
 
 type localAddRequest struct {
 	operation Operation
-	result    chan error
 }
 
 type localCancelRequest struct {
 	id     ID
 	reason string
-	result chan error
 }
 
 type localRunningOperation struct {
@@ -75,32 +73,20 @@ func NewLocalOperationManager(ctx context.Context, remoteJobHandlers ...RemoteJo
 }
 
 func (manager *LocalOperationManager) Add(operation Operation) error {
-	result := make(chan error, 1)
-	request := localAddRequest{operation: operation, result: result}
+	request := localAddRequest{operation: operation}
 	select {
 	case manager.adds <- request:
-	case <-manager.ctx.Done():
-		return manager.ctx.Err()
-	}
-	select {
-	case err := <-result:
-		return err
+		return nil
 	case <-manager.ctx.Done():
 		return manager.ctx.Err()
 	}
 }
 
 func (manager *LocalOperationManager) Cancel(id ID, reason string) error {
-	result := make(chan error, 1)
-	request := localCancelRequest{id: id, reason: reason, result: result}
+	request := localCancelRequest{id: id, reason: reason}
 	select {
 	case manager.cancellations <- request:
-	case <-manager.ctx.Done():
-		return manager.ctx.Err()
-	}
-	select {
-	case err := <-result:
-		return err
+		return nil
 	case <-manager.ctx.Done():
 		return manager.ctx.Err()
 	}
@@ -132,9 +118,9 @@ func (manager *LocalOperationManager) run() {
 
 		case request := <-manager.adds:
 			if _, exists := accepted[request.operation.ID]; exists {
-				request.result <- nil
 				continue
 			}
+			accepted[request.operation.ID] = struct{}{}
 			ctx, cancel := context.WithCancel(manager.ctx)
 			current := &localRunningOperation{
 				ctx:                   ctx,
@@ -145,48 +131,42 @@ func (manager *LocalOperationManager) run() {
 			if request.operation.Type == TypeRemoteJob {
 				handlerIndex, err := manager.remoteJobs.add(request.operation)
 				if err != nil {
-					cancel()
-					request.result <- err
+					manager.failLocalOperation(operations, current, err)
 					continue
 				}
 				current.remoteJobHandlerIndex = handlerIndex
-				accepted[request.operation.ID] = struct{}{}
 				operations[request.operation.ID] = current
-				request.result <- nil
 				continue
 			}
 			if err := current.initialize(); err != nil {
-				cancel()
-				request.result <- err
+				manager.failLocalOperation(operations, current, err)
 				continue
 			}
 			step, err := current.handle(nil)
 			if err != nil {
-				cancel()
-				request.result <- err
+				manager.failLocalOperation(operations, current, err)
 				continue
 			}
-			accepted[request.operation.ID] = struct{}{}
 			operations[request.operation.ID] = current
 			activePrimitives += manager.acceptLocalStep(operations, current, step)
-			request.result <- nil
 
 		case request := <-manager.cancellations:
 			current, exists := operations[request.id]
 			if !exists {
-				request.result <- nil
 				continue
 			}
 			if current.remoteJobHandlerIndex >= 0 {
-				request.result <- manager.remoteJobs.cancel(
+				if err := manager.remoteJobs.cancel(
 					current.remoteJobHandlerIndex,
 					request.id,
 					request.reason,
-				)
+				); err != nil {
+					manager.failLocalOperation(operations, current,
+						fmt.Errorf("remote job outcome is unknown because cancellation failed: %v", err))
+				}
 				continue
 			}
 			current.cancel()
-			request.result <- nil
 
 		case update := <-manager.remoteJobs.updates:
 			if update.closed {
@@ -309,7 +289,7 @@ func (manager *LocalOperationManager) failRemoteJobOperation(
 		current.operation.ID,
 		cause.Error(),
 	); err != nil {
-		cause = errors.Join(cause, fmt.Errorf("cancel rejected remote job: %w", err))
+		cause = errors.Join(cause, fmt.Errorf("remote job outcome is unknown because cancellation failed: %v", err))
 	}
 	manager.failLocalOperation(operations, current, cause)
 }
@@ -345,6 +325,10 @@ func advanceLocalOperation(current Operation, event *primitives.PrimitiveEvent) 
 }
 
 func failLocalOperation(current Operation, err error) Operation {
+	if errors.Is(err, ErrUnsupported) {
+		current.Status = StatusUnsupported
+		return current
+	}
 	switch current.Type {
 	case TypeSkillUse:
 		state, stateErr := skillUseOperationState(current)
@@ -364,18 +348,16 @@ func failLocalOperation(current Operation, err error) Operation {
 		}
 	case TypeViewImage:
 		step, stateErr := failViewImage(current, err)
-		if stateErr != nil {
-			panic(fmt.Errorf("fail validated view-image operation %q: %w", current.ID, stateErr))
+		if stateErr == nil {
+			return *step.Operation
 		}
-		return *step.Operation
 	case TypeRemoteJob:
 		step, stateErr := FailRemoteJob(current, err)
-		if stateErr != nil {
-			panic(fmt.Errorf("fail validated remote job operation %q: %w", current.ID, stateErr))
+		if stateErr == nil {
+			return *step.Operation
 		}
-		return *step.Operation
 	}
-	current.Status = StatusFailed
+	current.Status = StatusUnsupported
 	return current
 }
 

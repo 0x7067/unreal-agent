@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -391,32 +392,29 @@ func TestLocalOperationManagerRejectsInvalidOperations(t *testing.T) {
 	manager := operation.NewLocalOperationManager(t.Context())
 	valid := newShellOperation(t, "local-valid", operation.ShellInput{
 		Shell: testShellPath,
-	}, t.TempDir(), 1)
+	}, t.TempDir(), 64)
 	unsupportedVersion := valid
 	unsupportedVersion.ID = "local-version"
 	unsupportedVersion.Version++
-	terminal := valid
-	terminal.ID = "local-terminal"
-	terminal.Status = operation.StatusCompleted
 	tests := []struct {
 		name    string
 		current operation.Operation
-		want    string
 	}{
 		{name: "unsupported type", current: operation.Operation{
 			ID: "local-unsupported", Type: "unknown", Status: operation.StatusReady,
-		}, want: `does not support type "unknown"`},
-		{name: "unsupported version", current: unsupportedVersion, want: "unsupported version"},
-		{name: "terminal", current: terminal, want: "terminal status"},
+		}},
+		{name: "unsupported version", current: unsupportedVersion},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := manager.Add(test.current)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want substring %q", err, test.want)
+			if err := manager.Add(test.current); err != nil {
+				t.Fatal(err)
 			}
-			if test.name != "terminal" && !errors.Is(err, operation.ErrUnsupported) {
-				t.Fatalf("error = %v, want ErrUnsupported", err)
+			update := receiveTerminalOperation(t, manager.Updates(), test.current.ID)
+			want := test.current
+			want.Status = operation.StatusUnsupported
+			if !reflect.DeepEqual(update, want) {
+				t.Fatalf("unsupported update = %#v, want %#v", update, want)
 			}
 		})
 	}
@@ -429,6 +427,71 @@ func TestLocalOperationManagerRejectsInvalidOperations(t *testing.T) {
 	}
 	if err := manager.Cancel("unknown", "test"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLocalOperationManagerRejectsUndecodableState(t *testing.T) {
+	for _, test := range []struct {
+		operationType operation.Type
+		version       operation.Version
+	}{
+		{operation.TypeShell, operation.VersionShell},
+		{operation.TypeViewImage, operation.VersionViewImage},
+		{operation.TypeRemoteJob, operation.VersionRemoteJob},
+		{operation.TypeSkillUse, operation.VersionSkillUse},
+		{operation.TypeValue, operation.VersionValue},
+	} {
+		t.Run(string(test.operationType), func(t *testing.T) {
+			manager := operation.NewLocalOperationManager(t.Context())
+			current := operation.Operation{
+				ID: "invalid-state", Type: test.operationType, Version: test.version, Status: operation.StatusReady,
+				MaxOutputLength: 64, State: []byte(`{`), Idempotency: []byte(`{"attempt":1}`),
+			}
+			if err := manager.Add(current); err != nil {
+				t.Fatal(err)
+			}
+			update := receiveTerminalOperation(t, manager.Updates(), current.ID)
+			current.Status = operation.StatusUnsupported
+			if !reflect.DeepEqual(update, current) {
+				t.Fatalf("update = %#v, want original checkpoint marked unsupported: %#v", update, current)
+			}
+		})
+	}
+}
+
+func TestLocalOperationManagerDoesNotRetryRejectedOperation(t *testing.T) {
+	manager := operation.NewLocalOperationManager(t.Context())
+	current := operation.Operation{ID: "rejected", Type: "unknown", Version: 1, Status: operation.StatusReady}
+	if err := manager.Add(current); err != nil {
+		t.Fatal(err)
+	}
+	if update := receiveTerminalOperation(t, manager.Updates(), current.ID); update.Status != operation.StatusUnsupported {
+		t.Fatalf("status = %q, want unsupported", update.Status)
+	}
+	if err := manager.Add(current); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := operation.NewValueSpec([]byte(`"barrier"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier := operation.Operation{
+		ID: "barrier", Type: spec.Type, Version: spec.Version, State: spec.State, Status: operation.StatusReady,
+	}
+	if err := manager.Add(barrier); err != nil {
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+	select {
+	case update := <-manager.Updates():
+		if update.ID != barrier.ID || update.Status != operation.StatusCompleted {
+			t.Fatalf("update = %#v, want completed barrier", update)
+		}
+	case <-timer.C:
+		t.Fatal("timed out waiting for barrier operation")
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
 	}
 }
 
@@ -484,7 +547,7 @@ func receiveTerminalOperation(
 	t.Helper()
 	return receiveOperation(t, updates, id, func(current operation.Operation) bool {
 		switch current.Status {
-		case operation.StatusCompleted, operation.StatusFailed, operation.StatusCanceled:
+		case operation.StatusCompleted, operation.StatusFailed, operation.StatusCanceled, operation.StatusUnsupported:
 			return true
 		default:
 			return false
