@@ -36,10 +36,14 @@ import (
 
 type options struct {
 	provider, model, effort, baseURL string
-	version                          bool
+	version, setup                   bool
+	modelExplicit, effortExplicit    bool
 	maxAttempts                      int
 	theme                            theme
 }
+
+const defaultTheme = "turbo-vision"
+const defaultCodexModel = "gpt-6.1-sol"
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
 	var opts options
@@ -47,12 +51,13 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags := flag.NewFlagSet("unreal-agent", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.BoolVar(&opts.version, "version", false, "print version")
-	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default openai)")
-	flags.StringVar(&opts.model, "model", getenv("UNREAL_HARNESS_LLM_MODEL"), "model ID (required)")
-	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), strings.Join(reasoning.Choices(), ", ")+" (default medium)")
+	flags.BoolVar(&opts.setup, "setup", false, "choose and remember Codex model and reasoning settings")
+	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default use saved choice or discover Codex subscription)")
+	flags.StringVar(&opts.model, "model", getenv("UNREAL_HARNESS_LLM_MODEL"), "model ID (Codex default "+defaultCodexModel+")")
+	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), strings.Join(reasoning.Choices(), ", ")+" (default high for Codex, medium otherwise)")
 	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "API endpoint override")
 	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, fmt.Sprintf("request attempts (default %d)", responsesapi.DefaultMaxAttempts))
-	flags.StringVar(&themeName, "theme", "default", "palette name or JSON path")
+	flags.StringVar(&themeName, "theme", defaultTheme, "palette name or JSON path (default "+defaultTheme+")")
 	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
 		return opts, err
@@ -63,13 +68,40 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	if flags.NArg() != 0 {
 		return opts, errors.New("unexpected positional arguments; send prompts inside the TUI")
 	}
+	opts.modelExplicit = strings.TrimSpace(opts.model) != ""
+	opts.effortExplicit = strings.TrimSpace(opts.effort) != ""
+	flags.Visit(func(option *flag.Flag) {
+		switch option.Name {
+		case "model":
+			opts.modelExplicit = true
+		case "effort":
+			opts.effortExplicit = true
+		}
+	})
 	opts.provider = strings.ToLower(strings.TrimSpace(opts.provider))
-	if opts.provider == "" {
-		opts.provider = "openai"
+	if opts.setup && opts.provider != "" && opts.provider != "openai-codex" {
+		return opts, errors.New("-setup requires the openai-codex provider; omit -provider or use -provider openai-codex")
+	}
+	providerName := opts.provider
+	if providerName == "" {
+		providerName = "openai-codex"
+	}
+	provider, err := providers.Find(providers.Default(), providerName)
+	if err != nil {
+		return opts, err
 	}
 	opts.model, opts.baseURL = strings.TrimSpace(opts.model), strings.TrimSpace(opts.baseURL)
 	if opts.model == "" {
-		return opts, errors.New("set -model or UNREAL_HARNESS_LLM_MODEL")
+		opts.model = provider.DefaultModel
+		if providerName == "openai-codex" {
+			opts.model = defaultCodexModel
+		}
+		if opts.model == "" {
+			return opts, fmt.Errorf("provider %q requires -model or UNREAL_HARNESS_LLM_MODEL\n\n%s", providerName, launchExamples)
+		}
+	}
+	if providerName == "openai-codex" && (strings.TrimSpace(opts.effort) == "" || strings.EqualFold(strings.TrimSpace(opts.effort), "default")) {
+		opts.effort = "high"
 	}
 	effort, err := reasoning.Parse(opts.effort)
 	if err != nil {
@@ -92,6 +124,19 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		_, err := fmt.Fprintf(output, "unreal-agent %s (commit %s, built %s)\n", version, commit, date)
 		return err
 	}
+	configDirectory, err := xdgpath.Directory(getenv)
+	if err != nil {
+		return fmt.Errorf("resolve settings directory: %w", err)
+	}
+	var preferences startupPreferences
+	if opts.provider == "" || opts.provider == "openai-codex" {
+		preferences, err = loadStartupPreferences(filepath.Join(configDirectory, "preferences.json"))
+		if err != nil && !opts.setup {
+			return err
+		}
+	}
+	discoverSubscription := opts.provider == "" || opts.setup
+	opts, showSubscriptionDialog := startupSelection(opts, preferences)
 	provider, err := providers.Find(providers.Default(), opts.provider)
 	if err != nil {
 		return err
@@ -111,19 +156,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	}
 	client, err := provider.NewClient(key, opts.baseURL, opts.maxAttempts, getenv)
 	if err != nil {
+		if discoverSubscription {
+			return fmt.Errorf("no usable Codex subscription login found: %w\n\n%s", err, launchExamples)
+		}
 		return err
 	}
 	defer func() { _ = client.Close() }()
-	selectedModel := llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)}
-	configDirectory, err := xdgpath.Directory(getenv)
-	if err != nil {
-		return fmt.Errorf("resolve settings directory: %w", err)
-	}
 	modelSettings, err := settings.Load(filepath.Join(configDirectory, "settings.json"))
 	if err != nil {
 		return fmt.Errorf("load model settings: %w", err)
 	}
-	selectedModel.CompactionThreshold = modelSettings.Model(provider.Name, selectedModel.ID).CompactionThreshold
 	input, outputTTY, err := tea.OpenTTY()
 	if err != nil {
 		return fmt.Errorf("open terminal: %w", err)
@@ -134,6 +176,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 			_ = outputTTY.Close()
 		}
 	}()
+	if showSubscriptionDialog {
+		chosen, accepted, err := confirmSubscription(ctx, opts, modelSettings, input, outputTTY)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			_, err := fmt.Fprintln(output, launchExamples)
+			return err
+		}
+		opts = chosen
+		if err := saveStartupPreferences(filepath.Join(configDirectory, "preferences.json"), startupPreferences{
+			Provider: opts.provider, Model: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort),
+		}); err != nil {
+			return err
+		}
+	}
+	selectedModel := llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort),
+		CompactionThreshold: modelSettings.Model(provider.Name, opts.model).CompactionThreshold}
 	workspace, err := os.Getwd()
 	if err != nil {
 		return err

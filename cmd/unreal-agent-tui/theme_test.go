@@ -74,7 +74,7 @@ func TestThemeRejectsInvalidPanelColor(t *testing.T) {
 }
 
 func TestLegacyThemeColors(t *testing.T) {
-	data, err := themeFiles.ReadFile("themes/default.json")
+	data, err := themeFiles.ReadFile("themes/lite.json")
 	if err != nil {
 		t.Fatal(err)
 	}

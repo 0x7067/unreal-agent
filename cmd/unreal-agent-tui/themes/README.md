@@ -1,6 +1,7 @@
 # Palettes
 
-`default.json` preserves the original Lite palette. Each JSON file is a complete theme.
+`turbo-vision` is the default theme. `-theme lite` selects the original Lite
+palette from `lite.json`. Each JSON file is a complete theme.
 
 Adapted from [Dracula Classic / Alucard](https://draculatheme.com/spec),
 [Catppuccin Mocha / Latte](https://catppuccin.com/palette/), and

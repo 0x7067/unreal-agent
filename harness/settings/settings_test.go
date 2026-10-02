@@ -18,12 +18,20 @@ func TestLoad(t *testing.T) {
 			Models: []Model{{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", ContextWindow: 1_000_000, CompactionThreshold: 500_000}},
 		},
 		"openai": {
-			Info:   ProviderInfo{ID: "openai", Name: "OpenAI"},
-			Models: []Model{{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800}},
+			Info: ProviderInfo{ID: "openai", Name: "OpenAI"},
+			Models: []Model{
+				{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			},
 		},
 		"openai-codex": {
-			Info:   ProviderInfo{ID: "openai-codex", Name: "OpenAI Codex"},
-			Models: []Model{{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800}},
+			Info: ProviderInfo{ID: "openai-codex", Name: "OpenAI Codex"},
+			Models: []Model{
+				{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			},
 		},
 	}}
 	configured, err := Load(path)
@@ -44,6 +52,8 @@ func TestLoad(t *testing.T) {
 		Info: ProviderInfo{ID: "openai", Name: "OpenAI"},
 		Models: []Model{
 			{ID: "gpt-6-astra", Name: "Custom Astra", ContextWindow: 200_000, CompactionThreshold: 150_000},
+			{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 			{ID: "custom", Name: "Custom model", ContextWindow: 150_000, CompactionThreshold: 75_000},
 			{ID: "zero", Name: "Zero threshold", ContextWindow: 100_000, CompactionThreshold: 50_000},
 		},
@@ -136,6 +146,10 @@ func TestLoadMergesModelsWithinProviders(t *testing.T) {
 	}{
 		{provider: "openai", model: "gpt-6-astra", threshold: 244_800},
 		{provider: "openai-codex", model: "gpt-6-astra", threshold: 244_800},
+		{provider: "openai", model: "gpt-6.1-sol", threshold: 244_800},
+		{provider: "openai-codex", model: "gpt-6.1-sol", threshold: 244_800},
+		{provider: "openai", model: "gpt-6-luna", threshold: 244_800},
+		{provider: "openai-codex", model: "gpt-6-luna", threshold: 244_800},
 		{provider: "other", model: "gpt-6-astra", threshold: 50_000},
 		{provider: "openai", model: "custom", threshold: 100_000},
 		{provider: "other", model: "custom", threshold: 40_000},

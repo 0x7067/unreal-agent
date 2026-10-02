@@ -11,14 +11,14 @@ import (
 )
 
 func printHelp(flags *flag.FlagSet, output io.Writer) {
-	palette, err := loadTheme("default")
+	palette, err := loadTheme(defaultTheme)
 	if err != nil {
 		_, _ = fmt.Fprintln(output, err)
 		return
 	}
 	heading := textStyle(palette.Accent).Bold(true)
 	var help strings.Builder
-	fmt.Fprintf(&help, "%s\n  unreal-agent -model MODEL [flags]\n\nRun in your workspace.\n\n%s\n",
+	fmt.Fprintf(&help, "%s\n  unreal-agent [flags]\n\nRun in your workspace. Reuse your saved choice, or discover a Codex subscription and ask before using it.\nUse -setup to change your saved model and reasoning settings.\n\n%s\n",
 		heading.Render("Unreal Agent"), heading.Render("Options"))
 	flags.VisitAll(func(option *flag.Flag) {
 		value, usage := flag.UnquoteUsage(option)
@@ -34,9 +34,9 @@ func printHelp(flags *flag.FlagSet, output io.Writer) {
 		_, _ = fmt.Fprintln(output, err)
 		return
 	}
-	names := []string{"default"}
+	names := []string{defaultTheme}
 	for _, entry := range entries {
-		if entry.Name() != "default.json" && strings.HasSuffix(entry.Name(), ".json") {
+		if entry.Name() != defaultTheme+".json" && strings.HasSuffix(entry.Name(), ".json") {
 			names = append(names, strings.TrimSuffix(entry.Name(), ".json"))
 		}
 	}
@@ -56,7 +56,7 @@ func printHelp(flags *flag.FlagSet, output io.Writer) {
 		}
 		help.WriteString(name + "\n")
 	}
-	fmt.Fprintf(&help, "\n%s\n  unreal-agent -provider openai-codex -model gpt-5.6-luna\n  unreal-agent -provider openai-codex -model gpt-5.6-luna -theme catppuccin-dark\n\nSessions: $XDG_STATE_HOME/unreal-agent/sessions (default ~/.local/state/unreal-agent/sessions)\n\nCodex login: codex -c 'cli_auth_credentials_store=\"file\"' login\nAPI key: UNREAL_HARNESS_LLM_API_KEY\n",
+	fmt.Fprintf(&help, "\n%s\n  unreal-agent\n  unreal-agent -provider openai-codex\n  unreal-agent -provider ollama -model qwen3.8:27b\n  unreal-agent -provider openai -model gpt-6.1-sol -theme catppuccin-dark\n\nSessions: $XDG_STATE_HOME/unreal-agent/sessions (default ~/.local/state/unreal-agent/sessions)\n\nCodex login: codex -c 'cli_auth_credentials_store=\"file\"' login\nAPI key: UNREAL_HARNESS_LLM_API_KEY\n",
 		heading.Render("Examples"))
 	_, _ = io.WriteString(writer, help.String())
 }
