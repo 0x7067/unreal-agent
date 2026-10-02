@@ -12,9 +12,21 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
+	"github.com/unreallabsai/unreal-agent/internal/anthropicapi"
 )
 
 const DefaultMaxAttempts = primitives.DefaultRemoteMaxAttempts
+
+type CacheTTL string
+
+const (
+	CacheTTL5m CacheTTL = "5m"
+	CacheTTL1h CacheTTL = "1h"
+)
+
+func (ttl CacheTTL) Valid() bool {
+	return ttl == "" || anthropicapi.CacheControlEphemeralTtl(ttl).Valid()
+}
 
 type APIError struct {
 	StatusCode int
@@ -39,7 +51,9 @@ type Exchange struct {
 type Config struct {
 	Endpoint string
 	Headers  map[string][]string
-	Fallback bool
+	// Nil enables server-side fallback.
+	Fallback *bool
+	CacheTTL CacheTTL
 	// Nil uses DefaultMaxAttempts.
 	MaxAttempts *int
 	// Trace borrows read-only bodies: request JSON and assembled response JSON or provider error.
@@ -52,6 +66,7 @@ type adapter struct {
 	headers     http.Header
 	maxAttempts int
 	fallback    bool
+	cacheTTL    CacheTTL
 	trace       func(Exchange)
 }
 
@@ -64,12 +79,19 @@ func NewAdapter(remote *primitives.RemoteClient, config Config) (llm.Adapter, er
 	if strings.TrimSpace(config.Endpoint) == "" {
 		return nil, errors.New("messages API endpoint must be set")
 	}
+	if !config.CacheTTL.Valid() {
+		return nil, fmt.Errorf("unsupported cache TTL %q", config.CacheTTL)
+	}
 	maxAttempts := DefaultMaxAttempts
 	if config.MaxAttempts != nil {
 		maxAttempts = *config.MaxAttempts
 	}
 	if maxAttempts <= 0 {
 		return nil, errors.New("max attempts must be positive")
+	}
+	fallback := true
+	if config.Fallback != nil {
+		fallback = *config.Fallback
 	}
 	headers := make(http.Header, len(config.Headers)+1)
 	for name, values := range config.Headers {
@@ -78,14 +100,17 @@ func NewAdapter(remote *primitives.RemoteClient, config Config) (llm.Adapter, er
 		}
 	}
 	headers.Set("Accept", "text/event-stream")
-	if config.Fallback {
+	if fallback {
 		headers.Add("Anthropic-Beta", "server-side-fallback-2026-07-01")
 	}
-	return &adapter{remote: remote, endpoint: config.Endpoint, headers: headers, maxAttempts: maxAttempts, fallback: config.Fallback, trace: config.Trace}, nil
+	return &adapter{
+		remote: remote, endpoint: config.Endpoint, headers: headers, maxAttempts: maxAttempts,
+		fallback: fallback, cacheTTL: config.CacheTTL, trace: config.Trace,
+	}, nil
 }
 
 func (adapter *adapter) Respond(ctx context.Context, request llm.Request, _ llm.RequestOptions) (llm.Response, error) {
-	body, err := requestBody(request, adapter.fallback)
+	body, err := requestBody(request, adapter.fallback, adapter.cacheTTL)
 	if err != nil {
 		return llm.Response{}, err
 	}

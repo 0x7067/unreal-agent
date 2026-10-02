@@ -12,6 +12,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openai"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openaicodex"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter"
+	"github.com/unreallabsai/unreal-agent/harness/llm/messagesapi"
 )
 
 type Client interface {
@@ -81,17 +82,21 @@ func Default() []Provider {
 			DefaultModel:      "claude-opus-5-5",
 			APIKeyEnvironment: "ANTHROPIC_API_KEY",
 			NewClient: func(apiKey, baseURL string, maxAttempts int, getenv func(string) string) (Client, error) {
-				fallback := false
+				cacheTTL := messagesapi.CacheTTL(getenv("ANTHROPIC_CACHE_TTL"))
+				if !cacheTTL.Valid() {
+					return nil, fmt.Errorf("ANTHROPIC_CACHE_TTL must be 5m or 1h, got %q", cacheTTL)
+				}
+				var fallback *bool
 				if value := getenv("ANTHROPIC_FALLBACK"); value != "" {
-					var err error
-					fallback, err = strconv.ParseBool(value)
+					enabled, err := strconv.ParseBool(value)
 					if err != nil {
 						return nil, fmt.Errorf("parse ANTHROPIC_FALLBACK: %w", err)
 					}
+					fallback = &enabled
 				}
 				return anthropic.NewClient(anthropic.Config{
 					APIKey: apiKey, BaseURL: baseURL, MaxAttempts: &maxAttempts,
-					Fallback: fallback,
+					Fallback: fallback, CacheTTL: cacheTTL,
 				})
 			},
 		},

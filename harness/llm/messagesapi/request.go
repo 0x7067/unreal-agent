@@ -16,8 +16,8 @@ import (
 
 const defaultMaxOutputTokens = 128_000
 
-func requestBody(request llm.Request, fallback bool) ([]byte, error) {
-	params, err := requestParams(request)
+func requestBody(request llm.Request, fallback bool, cacheTTL CacheTTL) ([]byte, error) {
+	params, err := requestParams(request, cacheTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func requestBody(request llm.Request, fallback bool) ([]byte, error) {
 	return body, nil
 }
 
-func requestParams(request llm.Request) (anthropicapi.CreateMessageParams, error) {
+func requestParams(request llm.Request, cacheTTL CacheTTL) (anthropicapi.CreateMessageParams, error) {
 	var params anthropicapi.CreateMessageParams
 	if strings.TrimSpace(request.Model.ID) == "" {
 		return params, fmt.Errorf("model must be set")
@@ -55,8 +55,12 @@ func requestParams(request llm.Request) (anthropicapi.CreateMessageParams, error
 		params.MaxTokens = int(value)
 	}
 	params.Stream = new(true)
+	cacheControl := anthropicapi.CacheControlEphemeral{Type: "ephemeral"}
+	if cacheTTL != "" {
+		cacheControl.Ttl = new(anthropicapi.CacheControlEphemeralTtl(cacheTTL))
+	}
 	params.CacheControl = new(anthropicapi.CreateMessageParams_CacheControl)
-	if err := setUnion(params.CacheControl, anthropicapi.CacheControlEphemeral{Type: "ephemeral"}); err != nil {
+	if err := setUnion(params.CacheControl, cacheControl); err != nil {
 		return params, err
 	}
 	if request.Model.ReasoningEffort != "" {

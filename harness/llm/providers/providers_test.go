@@ -15,12 +15,106 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
+func TestAnthropicCacheTTLConfiguration(t *testing.T) {
+	provider, err := providers.Find(providers.Default(), "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, value string
+		want        string
+	}{
+		{name: "unset"},
+		{name: "5m", value: "5m", want: "5m"},
+		{name: "1h", value: "1h", want: "1h"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					CacheControl map[string]any `json:"cache_control"`
+				}
+				if err := json.UnmarshalRead(r.Body, &request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request.CacheControl["type"] != "ephemeral" {
+					t.Errorf("cache control type = %v", request.CacheControl["type"])
+				}
+				requests <- request.CacheControl
+				w.Header().Set("Content-Type", "text/event-stream")
+				const stream = `data: {"type":"message_start","message":{"id":"cache-ttl","type":"message","role":"assistant","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}
+
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":0}}
+
+data: {"type":"message_stop"}
+
+`
+				if _, err := fmt.Fprint(w, stream); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			client, err := provider.NewClient("test-key", server.URL, 1, func(name string) string {
+				if name == "ANTHROPIC_CACHE_TTL" {
+					return test.value
+				}
+				return ""
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := client.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			request := llm.Request{
+				Model: llm.Model{ID: "claude-test"},
+				Input: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "Hello"}}},
+			}
+			if _, err := client.Respond(t.Context(), request, llm.RequestOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			cacheControl := <-requests
+			ttl, present := cacheControl["ttl"]
+			if present != (test.want != "") || present && ttl != test.want {
+				t.Fatalf("cache control = %#v, want TTL %q", cacheControl, test.want)
+			}
+		})
+	}
+}
+
+func TestAnthropicRejectsInvalidCacheTTLConfiguration(t *testing.T) {
+	provider, err := providers.Find(providers.Default(), "anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"default", "10m"} {
+		client, err := provider.NewClient("test-key", provider.BaseURL, 1, func(name string) string {
+			if name == "ANTHROPIC_CACHE_TTL" {
+				return value
+			}
+			return ""
+		})
+		if client != nil {
+			if err := client.Close(); err != nil {
+				t.Error(err)
+			}
+			t.Fatal("invalid cache TTL configuration created a client")
+		}
+		if err == nil || !strings.Contains(err.Error(), "ANTHROPIC_CACHE_TTL") {
+			t.Fatalf("value %q: error = %v, want invalid ANTHROPIC_CACHE_TTL", value, err)
+		}
+	}
+}
+
 func TestAnthropicFallbackConfigurationAndContinuation(t *testing.T) {
 	for _, test := range []struct {
 		name, value string
 		enabled     bool
 	}{
-		{name: "disabled"},
+		{name: "default_enabled", enabled: true},
 		{name: "disabled_zero", value: "0"},
 		{name: "disabled_false", value: "false"},
 		{name: "enabled_one", value: "1", enabled: true},
@@ -48,7 +142,7 @@ func TestAnthropicFallbackConfigurationAndContinuation(t *testing.T) {
 				}
 				if !enabled {
 					if len(request.Fallbacks) != 0 || r.Header.Get("Anthropic-Beta") != "" {
-						t.Error("fallback enabled without configuration")
+						t.Error("fallback enabled despite explicit opt-out")
 					}
 				} else {
 					if string(request.Fallbacks) != `"default"` || r.Header.Get("Anthropic-Beta") != "server-side-fallback-2026-07-01" {

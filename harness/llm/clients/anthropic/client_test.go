@@ -15,7 +15,11 @@ import (
 )
 
 func TestClientConfiguration(t *testing.T) {
-	for _, config := range []Config{{APIKey: " "}, {APIKey: "test-key", MaxAttempts: new(0)}} {
+	for _, config := range []Config{
+		{APIKey: " "},
+		{APIKey: "test-key", MaxAttempts: new(0)},
+		{APIKey: "test-key", CacheTTL: "10m"},
+	} {
 		client, err := NewClient(config)
 		if client != nil || err == nil {
 			t.Fatalf("client=%v error=%v", client, err)
@@ -53,18 +57,27 @@ data: {"type":"message_stop"}
 `
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.Path != "/v1/messages" || r.Header.Get("X-Api-Key") != "test-key" ||
-			r.Header.Get("Anthropic-Version") != "2023-06-01" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Accept") != "text/event-stream" {
+			r.Header.Get("Anthropic-Version") != "2023-06-01" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Accept") != "text/event-stream" ||
+			r.Header.Get("Anthropic-Beta") != "server-side-fallback-2026-07-01" {
 			t.Error("incorrect Messages API request or headers")
 		}
 		var body struct {
-			Model  string `json:"model"`
-			Stream bool   `json:"stream"`
+			Model        string `json:"model"`
+			Stream       bool   `json:"stream"`
+			Fallbacks    string `json:"fallbacks"`
+			CacheControl struct {
+				Type string `json:"type"`
+				TTL  string `json:"ttl"`
+			} `json:"cache_control"`
 		}
 		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
-		if body.Model != "claude-test" || !body.Stream {
+		if body.Model != "claude-test" || !body.Stream || body.Fallbacks != "default" {
 			t.Errorf("body=%#v", body)
+		}
+		if body.CacheControl.Type != "ephemeral" || body.CacheControl.TTL != "1h" {
+			t.Errorf("cache control = %#v", body.CacheControl)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if _, err := fmt.Fprint(w, stream); err != nil {
@@ -73,7 +86,10 @@ data: {"type":"message_stop"}
 	}))
 	defer server.Close()
 	var exchange Exchange
-	client, err := NewClient(Config{APIKey: "test-key", BaseURL: server.URL + "/v1/", Trace: func(value Exchange) { exchange = value }})
+	client, err := NewClient(Config{
+		APIKey: "test-key", BaseURL: server.URL + "/v1/", CacheTTL: messagesapi.CacheTTL1h,
+		Trace: func(value Exchange) { exchange = value },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

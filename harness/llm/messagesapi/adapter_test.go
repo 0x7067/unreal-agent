@@ -3,6 +3,7 @@ package messagesapi
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -49,10 +50,38 @@ func TestAdapterValidatesConfiguration(t *testing.T) {
 		{},
 		{Endpoint: "http://example.invalid/messages", MaxAttempts: new(0)},
 		{Endpoint: "http://example.invalid/messages", MaxAttempts: new(-1)},
+		{Endpoint: "http://example.invalid/messages", CacheTTL: "10m"},
+		{Endpoint: "http://example.invalid/messages", CacheTTL: "default"},
 	} {
 		if _, err := NewAdapter(remote, config); err == nil {
 			t.Fatalf("accepted config=%#v", config)
 		}
+	}
+}
+
+func TestAdapterAppliesCacheTTL(t *testing.T) {
+	stream := liveStream(t, "text")
+	requests := make(chan wireRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var wire wireRequest
+		if err := json.UnmarshalRead(r.Body, &wire); err != nil {
+			t.Error(err)
+			return
+		}
+		requests <- wire
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := w.Write(stream); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	adapter := newTestAdapter(t, Config{Endpoint: server.URL, CacheTTL: CacheTTL1h})
+	if _, err := adapter.Respond(t.Context(), validRequest(), llm.RequestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	wire := <-requests
+	if wire.CacheControl["type"] != "ephemeral" || wire.CacheControl["ttl"] != "1h" {
+		t.Fatalf("cache control = %#v, want TTL 1h", wire.CacheControl)
 	}
 }
 

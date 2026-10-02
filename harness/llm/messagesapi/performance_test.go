@@ -24,7 +24,7 @@ func BenchmarkRequestBody(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := requestBody(request, false); err != nil {
+				if _, err := requestBody(request, false, CacheTTL5m); err != nil {
 					b.Fatal(err)
 				}
 			}

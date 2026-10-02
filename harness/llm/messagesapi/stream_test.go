@@ -123,7 +123,7 @@ func TestStreamFixtures(t *testing.T) {
 				request.Model.ReasoningEffort = llm.ReasoningEffortHigh
 				request.Input = append(request.Input, response.Output...)
 				request.Input = append(request.Input, message(llm.RoleUser, "Continue"))
-				body, err := requestBody(request, false)
+				body, err := requestBody(request, false, CacheTTL5m)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -274,7 +274,7 @@ func TestStreamPreservesThinkingForReplay(t *testing.T) {
 	}
 	request := validRequest()
 	request.Input = append(request.Input, response.Output...)
-	replay, err := requestBody(request, false)
+	replay, err := requestBody(request, false, CacheTTL5m)
 	if err != nil || !bytes.Contains(replay, []byte(`"signature":"start-end"`)) || !bytes.Contains(replay, []byte(`9007199254740993`)) {
 		t.Fatalf("replay = %s, error = %v", replay, err)
 	}

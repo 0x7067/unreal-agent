@@ -105,7 +105,7 @@ func TestFallbackContinuationPersistsAndReplays(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			encoded, err := requestBody(built.Request, true)
+			encoded, err := requestBody(built.Request, true, CacheTTL5m)
 			if err != nil {
 				t.Fatal(err)
 			}

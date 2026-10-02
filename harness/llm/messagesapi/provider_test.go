@@ -36,7 +36,7 @@ func TestThinkingPersistsAndReplays(t *testing.T) {
 		}
 		request := validRequest()
 		request.Input = append(request.Input, restored.Output...)
-		encoded, err := requestBody(request, false)
+		encoded, err := requestBody(request, false, CacheTTL5m)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestLegacyReasoningWithoutRawCannotReplay(t *testing.T) {
 		}
 		request := validRequest()
 		request.Input = append(request.Input, item)
-		body, err := requestBody(request, false)
+		body, err := requestBody(request, false, CacheTTL5m)
 		if err == nil || !strings.Contains(err.Error(), "provider item Raw is required") || body != nil {
 			t.Fatalf("body = %s, error = %v, want missing Raw error", body, err)
 		}

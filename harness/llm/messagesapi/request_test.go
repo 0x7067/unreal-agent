@@ -56,7 +56,7 @@ func toolResult(id, text string, running bool) llm.Item {
 
 func encodeRequest(t *testing.T, request llm.Request) ([]byte, wireRequest) {
 	t.Helper()
-	body, err := requestBody(request, false)
+	body, err := requestBody(request, false, CacheTTL5m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +123,43 @@ func TestRequestDefaultsAndEfforts(t *testing.T) {
 			}
 			if _, exists := fields["tools"]; exists {
 				t.Fatal("absent tools were included")
+			}
+		})
+	}
+}
+
+func TestRequestCacheTTL(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		ttl      CacheTTL
+		fallback bool
+	}{
+		{name: "unset"},
+		{name: "5m", ttl: CacheTTL5m},
+		{name: "1h", ttl: CacheTTL1h},
+		{name: "fallback", ttl: CacheTTL5m, fallback: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := requestBody(validRequest(), test.fallback, test.ttl)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire struct {
+				CacheControl map[string]any `json:"cache_control"`
+				Fallbacks    string         `json:"fallbacks"`
+			}
+			if err := apijson.Unmarshal(body, &wire); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"type": "ephemeral"}
+			if test.ttl != "" {
+				want["ttl"] = string(test.ttl)
+			}
+			if !reflect.DeepEqual(wire.CacheControl, want) {
+				t.Fatalf("cache control = %#v, want %#v", wire.CacheControl, want)
+			}
+			if (wire.Fallbacks == "default") != test.fallback {
+				t.Fatalf("fallbacks = %q, enabled = %v", wire.Fallbacks, test.fallback)
 			}
 		})
 	}
@@ -242,7 +279,7 @@ func TestRequestRejectsUnsupportedSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			request := llm.Request{Model: llm.Model{ID: "claude-test"}, Input: []llm.Item{message(llm.RoleUser, "Hello")}}
 			modify(&request)
-			if _, err := requestBody(request, false); err == nil {
+			if _, err := requestBody(request, false, CacheTTL5m); err == nil {
 				t.Fatal("expected error")
 			}
 		})
@@ -322,7 +359,7 @@ func TestRequestReplaysOpaqueReasoning(t *testing.T) {
 			t.Fatal(err)
 		}
 		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: header.Type, Raw: jsontext.Value(raw)}})
-		body, err := requestBody(request, false)
+		body, err := requestBody(request, false, CacheTTL5m)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -354,7 +391,7 @@ func TestRequestRejectsMalformedReasoningJSON(t *testing.T) {
 	} {
 		request := validRequest()
 		request.Input = append(request.Input, llm.Item{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "thinking", Raw: jsontext.Value(raw)}})
-		if _, err := requestBody(request, false); err == nil {
+		if _, err := requestBody(request, false, CacheTTL5m); err == nil {
 			t.Fatalf("accepted malformed reasoning JSON: %s", raw)
 		}
 	}
