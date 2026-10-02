@@ -37,6 +37,20 @@ Turbo Vision is the default theme. Use `-theme lite` for the original Lite palet
 
 Workspace skills are loaded from `.harness/skills/*/SKILL.md`.
 
+Type `@` in a message to search workspace filenames. Matching is case-insensitive
+and fuzzy, using [sahilm/fuzzy](https://github.com/sahilm/fuzzy).
+Filename matches rank ahead of directory matches;
+include `/` to search a path. For example, `@uig` can find
+`cmd/unreal-agent-tui/ui.go`. Up/Down selects
+a result, Enter or Tab replaces the `@` query with its workspace-relative path,
+and Esc dismisses the picker. Paths containing spaces are quoted. The next Enter
+sends the message.
+The picker scans files when opened, including hidden and untracked files, respects
+workspace and nested `.gitignore` files, and skips version-control metadata
+directories and directory symlinks. Scanning and searching run in process;
+they do not launch Git, a shell, or other subprocesses.
+File references insert paths into the message; file contents are not attached.
+
 ## ChatGPT subscription
 
 Sign in with Codex using file credentials:

@@ -70,6 +70,7 @@ type model struct {
 	ctx                                 context.Context
 	inputs                              inbox.Writer
 	composer                            textarea.Model
+	files                               filePicker
 	conversation                        viewport.Model
 	details                             viewport.Model
 	detailsOpen                         bool
@@ -92,7 +93,7 @@ type model struct {
 func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, workspace, directory string, opts options) model {
 	composer := textarea.New()
 	composer.Prompt = ""
-	composer.Placeholder = "Send a message, including while tools are active"
+	composer.Placeholder = "Send a message · @ to find files"
 	composer.ShowLineNumbers = false
 	composer.SetVirtualCursor(false)
 	composer.DynamicHeight = true
@@ -109,6 +110,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 		workspace: singleLine(workspace), directory: singleLine(directory),
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
+	m.files.root = workspace
 	m.workTimer = stopwatch.New(stopwatch.WithInterval(time.Second))
 	m.details.SoftWrap, m.details.FillHeight = true, true
 	m.resize()
@@ -159,6 +161,18 @@ func filterMouseWheel(current tea.Model, msg tea.Msg) tea.Msg {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case fileIndexReady:
+		if !m.files.open || msg.id != m.files.scanID {
+			return m, nil
+		}
+		m.files.scanning = false
+		m.files.index, m.files.err = msg.index, msg.err
+		cmd = m.searchFiles()
+	case fileMatchesReady:
+		if !m.files.open || msg.id != m.files.searchID {
+			return m, nil
+		}
+		m.files.searching, m.files.matches = false, msg.matches
 	case stopwatch.TickMsg, stopwatch.StartStopMsg:
 		if m.ended || !m.responding {
 			return m, nil
@@ -210,6 +224,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case tea.KeyPressMsg:
+		if m.filePickerKey(msg) {
+			return m, nil
+		}
 		if key.Matches(msg, reasoningKey) {
 			follow := m.conversation.AtBottom()
 			m.hideReasoning = !m.hideReasoning
@@ -238,6 +255,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				cmd = m.composer.Focus()
 			}
+			cmd = tea.Batch(cmd, m.syncFilePicker())
 			m.resize()
 			return m, cmd
 		}
@@ -253,6 +271,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				m.details, cmd = m.details.Update(msg)
 			}
+			cmd = tea.Batch(cmd, m.syncFilePicker())
 			m.resize()
 			return m, cmd
 		}
@@ -265,6 +284,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				cmd = m.composer.Focus()
 			}
+			cmd = tea.Batch(cmd, m.syncFilePicker())
 			m.resize()
 			return m, cmd
 		}
@@ -290,6 +310,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, quitKey):
+			m.closeFilePicker()
 			return m, tea.Quit
 		case key.Matches(msg, sendKey):
 			text := m.composer.Value()
@@ -317,6 +338,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		m.composer, cmd = m.composer.Update(msg)
 	}
+	cmd = tea.Batch(cmd, m.syncFilePicker())
 	m.resize()
 	return m, cmd
 }
@@ -500,7 +522,7 @@ func (m *model) resize() {
 		m.conversation.SetWidth(chatWidth)
 		m.renderConversation()
 	}
-	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-inputPadding))
+	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-inputPadding-m.filePickerHeight()))
 	detailWidth := width - 1
 	if m.theme.Delimiter != "" {
 		detailWidth--
@@ -555,8 +577,12 @@ func (m model) framedPane(label, hint, content, background string, width int) st
 }
 
 func (m model) View() tea.View {
-	if m.width < 20 || m.height < 8 {
-		v := tea.NewView(ansi.Truncate("Resize terminal", max(1, m.width), "…"))
+	if m.width < 20 || m.height < 8 || m.files.open && m.filePickerHeight() == 0 {
+		hint := "Resize terminal"
+		if m.files.open {
+			hint = "Resize · Esc cancel"
+		}
+		v := tea.NewView(ansi.Truncate(hint, max(1, m.width), "…"))
 		v.AltScreen = true
 		v.BackgroundColor, v.ForegroundColor = lipgloss.Color(m.theme.Background), lipgloss.Color(m.theme.Foreground)
 		return v
@@ -618,6 +644,9 @@ func (m model) View() tea.View {
 		Width(m.width).Padding(0, 1, 0, x+1), ansi.Truncate(status, m.width-x-2, "…"))
 	leftInset := lipgloss.NewStyle().Background(lipgloss.Color(m.theme.Background)).PaddingLeft(x)
 	parts := []string{leftInset.Render(body), statusRow}
+	if picker := m.filePickerView(width); picker != "" {
+		parts = append(parts, leftInset.Render(picker))
+	}
 	input := renderSurface(textStyle(m.theme.SurfaceForeground).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).Padding(y, 2), m.composer.View())
 	if m.theme.Delimiter != "" {
 		input = leftInset.Render(m.framedPane("Message", "", renderSurface(textStyle(m.theme.SurfaceForeground).
@@ -644,7 +673,7 @@ func (m model) View() tea.View {
 			view.Cursor.X += x
 			inputTop = 1
 		}
-		view.Cursor.Y += 3 + inputTop + m.conversation.Height()
+		view.Cursor.Y += 3 + inputTop + m.conversation.Height() + m.filePickerHeight()
 	}
 	return view
 }
@@ -660,6 +689,12 @@ func (m model) helpView(width int) string {
 		reasoning.SetHelp("F3", "show reasoning")
 	}
 	bindings := []key.Binding{enter, tab, mouse, reasoning, quitKey, newlineKey, scrollKey}
+	if m.files.open {
+		selectFile := key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "files"))
+		accept := key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("Enter/Tab", "insert"))
+		cancel := key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel"))
+		bindings = []key.Binding{selectFile, accept, cancel, quitKey}
+	}
 	if m.toolsFocused {
 		enter.SetHelp("Enter", "view")
 		tab.SetHelp("Tab", "input")
