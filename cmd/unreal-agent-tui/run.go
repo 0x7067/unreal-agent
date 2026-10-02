@@ -39,13 +39,11 @@ type options struct {
 	version                          bool
 	maxAttempts                      int
 	theme                            theme
-	animations                       bool
 }
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
 	var opts options
 	var themeName string
-	var noAnimations bool
 	flags := flag.NewFlagSet("unreal-agent", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.BoolVar(&opts.version, "version", false, "print version")
@@ -55,7 +53,6 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "API endpoint override")
 	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, fmt.Sprintf("request attempts (default %d)", responsesapi.DefaultMaxAttempts))
 	flags.StringVar(&themeName, "theme", "default", "palette name or JSON path")
-	flags.BoolVar(&noAnimations, "no-animations", false, "disable reveal and background animations")
 	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
 		return opts, err
@@ -63,7 +60,6 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	if opts.version {
 		return opts, nil
 	}
-	opts.animations = !noAnimations
 	if flags.NArg() != 0 {
 		return opts, errors.New("unexpected positional arguments; send prompts inside the TUI")
 	}
@@ -215,7 +211,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	for _, err := range skillErrors {
 		ui.append("Skill error", err.Error())
 	}
-	ui.entranceStarted = time.Now()
 	program := tea.NewProgram(ui,
 		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(filterMouseWheel))
 	observer := store.AddObserver(func(_ session.ID, item sessionstore.Item) { program.Send(item) })

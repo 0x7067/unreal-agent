@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json/v2"
-	"fmt"
-	"image/color"
 	"math"
 	"slices"
 	"strings"
@@ -13,7 +11,6 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/stopwatch"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
@@ -30,9 +27,6 @@ import (
 )
 
 type runEnded struct{ err error }
-
-const revealDuration = 250 * time.Millisecond
-const revealGlyphs = "01/<>_#"
 
 const mascot = `⠀⠀⠀⠀⠀⢀⣤⡶⠟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⣀⣤⣴⣶⠿⠟⠛⠛⠛⠻⠶⣦⣄⠀⠀⠀⠀⠀⠀
@@ -69,8 +63,6 @@ type callKey struct {
 type message struct {
 	label, text, rendered string
 	width                 int
-	row, height           int
-	created               time.Time
 }
 
 type model struct {
@@ -92,17 +84,7 @@ type model struct {
 	toolsCollapsed                      bool
 	selectText                          bool
 	hideReasoning                       bool
-	spinner                             spinner.Model
 	workTimer                           stopwatch.Model
-	mascotTop                           int
-	entranceStarted                     time.Time
-	animations                          bool
-	animationRunning                    bool
-	animationFrame                      int
-	toolPulseFrame                      int
-	statusColors                        []color.Color
-	toolColors                          []color.Color
-	userColors, userTextColors          []color.Color
 	responding, sending, ended          bool
 	turn                                session.TurnID
 }
@@ -122,32 +104,29 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	composer.Focus()
 	conversation := viewport.New(viewport.WithWidth(80), viewport.WithHeight(17))
 	conversation.FillHeight = true
-	loading := spinner.Spinner{Frames: []string{"●"}, FPS: time.Second / 30}
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
-		width: 80, height: 24, spinner: spinner.New(spinner.WithSpinner(loading)), details: viewport.New(),
-		theme: opts.theme, animations: opts.animations, animationRunning: true,
+		width: 80, height: 24, details: viewport.New(), theme: opts.theme,
 		workspace: singleLine(workspace), directory: singleLine(directory),
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
-	m.statusColors = lipgloss.Blend1D(36, lipgloss.Color(m.theme.Status), lipgloss.Color(m.theme.StatusActive), lipgloss.Color(m.theme.Status))
 	m.workTimer = stopwatch.New(stopwatch.WithInterval(time.Second))
-	m.toolColors = lipgloss.Blend1D(24, lipgloss.Color(m.theme.PendingBright), lipgloss.Color(m.theme.PendingDim), lipgloss.Color(m.theme.PendingBright))
-	m.userColors = lipgloss.Blend1D(12, lipgloss.Color(m.theme.Background), lipgloss.Color(m.theme.User))
-	m.userTextColors = lipgloss.Blend1D(12, lipgloss.Color(m.theme.Background), lipgloss.Color(m.theme.Foreground))
 	m.details.SoftWrap, m.details.FillHeight = true, true
 	m.resize()
 	return m
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(m.composer.Focus(), m.spinner.Tick) }
+func (m model) Init() tea.Cmd { return m.composer.Focus() }
 
 func (m *model) mouseViewport(msg tea.MouseWheelMsg) *viewport.Model {
 	x, _ := m.padding()
+	if m.theme.Delimiter != "" {
+		x++
+	}
 	if m.width < 20 || m.height < 8 || msg.X < x || msg.X >= m.width || msg.Y < 1 {
 		return nil
 	}
 	if m.detailsOpen {
-		if msg.Y <= m.details.Height() {
+		if msg.X < x+m.details.Width() && msg.Y <= m.details.Height() {
 			return &m.details
 		}
 	} else if (m.width >= 90 || !m.toolsFocused) && msg.X < x+m.conversation.Width() && msg.Y <= m.conversation.Height() {
@@ -179,27 +158,12 @@ func filterMouseWheel(current tea.Model, msg tea.Msg) tea.Msg {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	switch msg.(type) {
-	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseWheelMsg:
-		m.entranceStarted = time.Time{}
-	}
 	switch msg := msg.(type) {
 	case stopwatch.TickMsg, stopwatch.StartStopMsg:
 		if m.ended || !m.responding {
 			return m, nil
 		}
 		m.workTimer, cmd = m.workTimer.Update(msg)
-		return m, cmd
-	case spinner.TickMsg:
-		if !m.needsAnimation() {
-			m.animationRunning = false
-			return m, nil
-		}
-		m.spinner, cmd = m.spinner.Update(msg)
-		if cmd != nil {
-			m.animationFrame = (m.animationFrame + 1) % len(m.statusColors)
-			m.toolPulseFrame = (m.toolPulseFrame + 1) % len(m.toolColors)
-		}
 		return m, cmd
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 && msg.Height > 0 {
@@ -354,24 +318,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.composer, cmd = m.composer.Update(msg)
 	}
 	m.resize()
-	if !m.animationRunning && m.needsAnimation() {
-		m.animationRunning = true
-		cmd = tea.Batch(cmd, m.spinner.Tick)
-	}
 	return m, cmd
-}
-
-func (m model) needsAnimation() bool {
-	now := time.Now()
-	if !m.ended && (m.responding || m.sending || m.animations &&
-		(now.Sub(m.entranceStarted) < entranceDuration ||
-			len(m.lines) > 0 && now.Sub(m.lines[len(m.lines)-1].created) < revealDuration)) {
-		return true
-	}
-	return slices.ContainsFunc(m.tools, func(card toolCard) bool {
-		return now.Sub(card.completed) < toolStatusLinger ||
-			!m.ended && (card.status == awaiting || m.animations && now.Sub(card.created) < revealDuration)
-	})
 }
 
 func (m *model) append(label, text string) {
@@ -380,7 +327,7 @@ func (m *model) append(label, text string) {
 		return
 	}
 	follow := m.conversation.AtBottom()
-	m.lines = append(m.lines, message{label: terminaltext.Clean(label), text: text, created: time.Now()})
+	m.lines = append(m.lines, message{label: terminaltext.Clean(label), text: text})
 	m.renderConversation()
 	if follow {
 		m.conversation.GotoBottom()
@@ -432,11 +379,7 @@ func (m *model) apply(item sessionstore.Item) {
 		}
 	case sessionstore.ToolCallStatus:
 		card := m.card(callKey{data.TurnID, data.CallID})
-		wasAwaiting := card.status == awaiting
 		result := m.readToolResult(card, data)
-		if wasAwaiting && card.status != awaiting {
-			card.completed = time.Now()
-		}
 		card.output, card.paths = resultText(result)
 		if card.output == "" {
 			card.output = boundedDetail(card.failure, 32000)
@@ -472,18 +415,15 @@ func (m *model) renderConversation() {
 	logo := textStyle(m.theme.Accent).MaxWidth(max(1, width-3)).Render(mascot)
 	info := lipgloss.NewStyle().Width(textWidth).Render(title + "\n\n" + paths)
 	content := logo + "\n\n" + info
-	m.mascotTop = 0
 	if offset > 0 {
-		m.mascotTop = max(0, (lipgloss.Height(info)-lipgloss.Height(logo)+1)/2)
 		content = lipgloss.JoinHorizontal(lipgloss.Center, lipgloss.NewStyle().Width(offset).Render(logo), info)
 	}
 	intro := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2), content)
 	blocks := []string{intro}
-	row := lipgloss.Height(intro) + 1
-	renderer, renderErr := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)))
+	renderer, renderErr := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)), glamour.WithChromaFormatter("terminal16m"))
 	reasoningStyle := m.theme.markdownStyles()
 	reasoningStyle.Document.Color = &m.theme.Hint
-	reasoningRenderer, reasoningErr := glamour.NewTermRenderer(glamour.WithStyles(reasoningStyle), glamour.WithWordWrap(max(1, width-5)))
+	reasoningRenderer, reasoningErr := glamour.NewTermRenderer(glamour.WithStyles(reasoningStyle), glamour.WithWordWrap(max(1, width-5)), glamour.WithChromaFormatter("terminal16m"))
 	for i := range m.lines {
 		entry := &m.lines[i]
 		if m.hideReasoning && entry.label == "Reasoning" {
@@ -493,7 +433,7 @@ func (m *model) renderConversation() {
 		style := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2)
 		switch entry.label {
 		case "You":
-			style = style.Background(lipgloss.Color(m.theme.User)).Padding(1, 1, 1, 2)
+			style = style.Foreground(lipgloss.Color(m.theme.UserForeground)).Background(lipgloss.Color(m.theme.User)).Padding(1, 1, 1, 2)
 		case "Agent":
 		case "Run failed", "Model failed", "Send failed", "Skill error":
 			color = m.theme.Error
@@ -523,77 +463,36 @@ func (m *model) renderConversation() {
 			content = lipgloss.JoinHorizontal(lipgloss.Top, textStyle(m.theme.Hint).Render("• "), content)
 		}
 		block := renderSurface(style, content)
-		entry.row, entry.height = row, lipgloss.Height(block)
 		if entry.label == "Reasoning" && i > 0 && m.lines[i-1].label == "Reasoning" {
-			entry.row--
-			row += entry.height
 			blocks[len(blocks)-1] += "\n" + block
 		} else {
 			if entry.label == "Reasoning" {
 				block = renderSurface(style.Bold(true), "Thinking") + "\n" + block
-				entry.row++
 			}
-			row += lipgloss.Height(block) + 1
 			blocks = append(blocks, block)
 		}
 	}
 	m.conversation.SetContent(strings.Join(blocks, "\n\n"))
 }
 
-func (m model) conversationView(now time.Time) string {
-	view := m.conversation.View()
-	if !m.animations || m.ended || m.detailsOpen || m.width < 90 && m.toolsFocused {
-		return view
-	}
-	width, height := m.conversation.Width(), m.conversation.Height()
-	var canvas *lipgloss.Canvas
-	for _, entry := range slices.Backward(m.lines) {
-		elapsed := now.Sub(entry.created)
-		if elapsed >= revealDuration {
-			break
-		}
-		top := entry.row - m.conversation.YOffset()
-		if entry.label != "You" && entry.label != "Agent" || top >= height || top+entry.height <= 0 {
-			continue
-		}
-		if canvas == nil {
-			canvas = lipgloss.NewCanvas(width, height).Compose(lipgloss.NewLayer(view))
-		}
-		front := float64(max(0, elapsed)) / float64(revealDuration) * 1.15
-		for row := max(0, top); row < min(height, top+entry.height); row++ {
-			for column := range width {
-				position := (float64(column)/float64(max(1, width-1)) + float64(row-top)/float64(max(1, entry.height-1))) / 2
-				cell := canvas.CellAt(column, row)
-				if entry.label == "Agent" {
-					if front <= position {
-						cell.Style.Fg = cell.Style.Bg
-						if cell.Style.Fg == nil {
-							cell.Style.Fg = lipgloss.Color(m.theme.Background)
-						}
-					}
-					continue
-				}
-				shade := max(0, min(len(m.userColors)-1, int((front-position)/0.15*float64(len(m.userColors)-1))))
-				cell.Style.Bg = m.userColors[shade]
-				cell.Style.Fg = m.userTextColors[shade]
-			}
-		}
-	}
-	if canvas != nil {
-		return canvas.Render()
-	}
-	return view
-}
-
 func (m *model) resize() {
 	follow := m.conversation.AtBottom()
 	x, y := m.padding()
 	width := max(1, m.width-x)
-	m.composer.MaxHeight = max(1, min(8, m.height/3, m.height-7-2*y))
-	m.composer.SetWidth(max(1, m.width-4))
+	inputPadding := 2 * y
+	inputWidth := m.width
+	if m.theme.Delimiter != "" {
+		inputPadding = 2
+		inputWidth = width
+	}
+	m.composer.MaxHeight = max(1, min(8, m.height/3, m.height-7-inputPadding))
+	m.composer.SetWidth(max(1, inputWidth-4))
 	// Refresh wrapped content before the textarea repositions its cursor.
 	m.composer, _ = m.composer.Update(nil)
 	chatWidth := width - 1
+	if m.theme.Delimiter != "" {
+		chatWidth--
+	}
 	if m.width >= 90 && !m.toolsCollapsed {
 		chatWidth -= m.sidebarWidth()
 	}
@@ -601,12 +500,20 @@ func (m *model) resize() {
 		m.conversation.SetWidth(chatWidth)
 		m.renderConversation()
 	}
-	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-2*y))
-	if detailWidth := max(1, width-1); detailWidth != m.details.Width() {
+	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-inputPadding))
+	detailWidth := width - 1
+	if m.theme.Delimiter != "" {
+		detailWidth--
+	}
+	if detailWidth = max(1, detailWidth); detailWidth != m.details.Width() {
 		m.details.SetWidth(detailWidth)
 		m.refreshDetails()
 	}
-	m.details.SetHeight(m.conversation.Height() + 1)
+	detailHeight := m.conversation.Height() + 1
+	if m.theme.Delimiter != "" {
+		detailHeight--
+	}
+	m.details.SetHeight(detailHeight)
 	if follow {
 		m.conversation.GotoBottom()
 	}
@@ -614,7 +521,7 @@ func (m *model) resize() {
 
 func (m model) sidebarWidth() int { return min(42, m.width/3) }
 
-func (m model) heading(label, hint, background string, width int) string {
+func (m model) heading(label, hint, background, foreground, hintColor string, width int) string {
 	innerWidth := max(1, width-4)
 	hint = ansi.Truncate(hint, innerWidth, "…")
 	labelWidth := innerWidth
@@ -623,8 +530,28 @@ func (m model) heading(label, hint, background string, width int) string {
 	}
 	label = ansi.Truncate(label, labelWidth, "…")
 	gap := strings.Repeat(" ", max(0, innerWidth-ansi.StringWidth(label)-ansi.StringWidth(hint)))
-	return renderSurface(textStyle(m.theme.Accent).Background(lipgloss.Color(background)).Width(width).Padding(0, 2),
-		textStyle(m.theme.Accent).Bold(true).Render(label)+gap+textStyle(m.theme.Hint).Render(hint))
+	return renderSurface(textStyle(foreground).Background(lipgloss.Color(background)).Width(width).Padding(0, 2),
+		textStyle(foreground).Bold(true).Render(label)+gap+textStyle(hintColor).Render(hint))
+}
+
+func (m model) framedPane(label, hint, content, background string, width int) string {
+	innerWidth := max(0, width-2)
+	label = " " + ansi.Truncate(label, max(0, innerWidth-2), "…") + " "
+	hint = ansi.Truncate(hint, max(0, innerWidth-ansi.StringWidth(label)-2), "…")
+	if hint != "" {
+		hint = " " + hint + " "
+	}
+	border := textStyle(m.theme.Delimiter).Background(lipgloss.Color(background))
+	rule := strings.Repeat("═", max(0, innerWidth-ansi.StringWidth(label)-ansi.StringWidth(hint)))
+	top := border.Render("╔") + textStyle(m.theme.Accent).Background(lipgloss.Color(background)).Render(label) +
+		border.Render(rule+hint+"╗")
+	rows := []string{top}
+	inside := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(background)).Width(innerWidth), content)
+	for line := range strings.SplitSeq(inside, "\n") {
+		rows = append(rows, border.Render("║")+line+border.Render("║"))
+	}
+	rows = append(rows, border.Render("╚"+strings.Repeat("═", innerWidth)+"╝"))
+	return strings.Join(rows, "\n")
 }
 
 func (m model) View() tea.View {
@@ -644,21 +571,21 @@ func (m model) View() tea.View {
 		indicators = m.toolIndicators(statusWidth / 2)
 	}
 	pending := slices.ContainsFunc(m.tools, func(card toolCard) bool { return card.status == awaiting })
-	status, color := "Idle", m.theme.Muted
+	status, color := "Idle", m.theme.StatusForeground
 	if pending {
 		status = "Waiting for tools"
 	}
 	if m.responding {
-		status, color = fmt.Sprintf("Working%-3s · %s", strings.Repeat(".", 1+m.animationFrame/3%3), m.workTimer.View()), m.theme.Accent
+		status, color = "Working · "+m.workTimer.View(), m.theme.StatusAccent
 	}
 	if m.sending {
-		status, color = "Sending message", m.theme.Accent
+		status, color = "Sending message", m.theme.StatusAccent
 	}
 	status = textStyle(color).Render(status)
 	if m.ended {
-		status = textStyle(m.theme.Muted).Render("Run ended · Ctrl+C to exit")
+		status = textStyle(m.theme.StatusForeground).Render("Run ended · Ctrl+C to exit")
 		if m.runError != "" {
-			status = textStyle(m.theme.Error).Render("Run failed · " + m.runError)
+			status = textStyle(m.theme.StatusError).Render("Run failed · " + m.runError)
 		}
 	}
 	chatWidth := width
@@ -669,11 +596,17 @@ func (m model) View() tea.View {
 	if m.toolsCollapsed || m.width < 90 {
 		hint = "Tools · Shift+Tab ‹"
 	}
-	header := m.heading("", hint, m.theme.Background, chatWidth)
+	header := m.heading("", hint, m.theme.Background, m.theme.Accent, m.theme.Hint, chatWidth)
 	pane := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Padding(0, 1)
-	body := header + "\n" + renderSurface(pane.PaddingLeft(0).PaddingBottom(1), m.conversationView(time.Now()))
+	body := header + "\n" + renderSurface(pane.PaddingLeft(0).PaddingBottom(1), m.conversation.View())
+	if m.theme.Delimiter != "" {
+		body = m.framedPane("Conversation", hint, m.conversation.View(), m.theme.Background, chatWidth)
+	}
 	if m.detailsOpen {
 		body = strings.Repeat(" ", width) + "\n" + renderSurface(pane.PaddingLeft(0), m.details.View())
+		if m.theme.Delimiter != "" {
+			body = m.framedPane("Tool details", "Esc back · Tab input", m.details.View(), m.theme.Background, width)
+		}
 	} else if m.width >= 90 && !m.toolsCollapsed {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.toolPane(m.sidebarWidth(), m.conversation.Height()+2))
 	} else if m.toolsFocused {
@@ -681,21 +614,17 @@ func (m model) View() tea.View {
 	}
 	status = ansi.Truncate(status, statusWidth-ansi.StringWidth(indicators)-1, "…")
 	status += strings.Repeat(" ", statusWidth-ansi.StringWidth(status)-ansi.StringWidth(indicators)) + indicators
-	statusRow := renderSurface(textStyle(m.theme.Muted).Background(lipgloss.Color(m.theme.Status)).
+	statusRow := renderSurface(textStyle(m.theme.StatusForeground).Background(lipgloss.Color(m.theme.Status)).
 		Width(m.width).Padding(0, 1, 0, x+1), ansi.Truncate(status, m.width-x-2, "…"))
-	if m.animations && !m.ended && (m.responding || m.sending || pending) {
-		canvas := lipgloss.NewCanvas(m.width, 1).Compose(lipgloss.NewLayer(statusRow))
-		for column := range m.width {
-			phase := (column*len(m.statusColors)/m.width - m.animationFrame + len(m.statusColors)) % len(m.statusColors)
-			canvas.CellAt(column, 0).Style.Bg = m.statusColors[phase]
-		}
-		statusRow = canvas.Render()
-	}
 	leftInset := lipgloss.NewStyle().Background(lipgloss.Color(m.theme.Background)).PaddingLeft(x)
 	parts := []string{leftInset.Render(body), statusRow}
-	input := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).Padding(y, 2), m.composer.View())
+	input := renderSurface(textStyle(m.theme.SurfaceForeground).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).Padding(y, 2), m.composer.View())
+	if m.theme.Delimiter != "" {
+		input = leftInset.Render(m.framedPane("Message", "", renderSurface(textStyle(m.theme.SurfaceForeground).
+			Background(lipgloss.Color(m.theme.Surface)).Width(width-2).Padding(0, 1), m.composer.View()), m.theme.Surface, width))
+	}
 	parts = append(parts, input,
-		renderSurface(textStyle(m.theme.Hint).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).
+		renderSurface(textStyle(m.theme.SurfaceHint).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).
 			Padding(0, 1, 0, x+1), fit(m.helpView(width-2))))
 	view := tea.NewView(strings.Join(parts, "\n"))
 	view.BackgroundColor = lipgloss.Color(m.theme.Surface)
@@ -710,9 +639,14 @@ func (m model) View() tea.View {
 	}
 	if view.Cursor != nil {
 		view.Cursor.X += 2
-		view.Cursor.Y += 3 + y + m.conversation.Height()
+		inputTop := y
+		if m.theme.Delimiter != "" {
+			view.Cursor.X += x
+			inputTop = 1
+		}
+		view.Cursor.Y += 3 + inputTop + m.conversation.Height()
 	}
-	return m.entranceView(view, time.Now())
+	return view
 }
 
 func (m model) helpView(width int) string {
@@ -737,8 +671,8 @@ func (m model) helpView(width int) string {
 	hints := help.New()
 	hints.SetWidth(width)
 	hints.ShortSeparator = " · "
-	muted := textStyle(m.theme.Hint)
-	hints.Styles.ShortKey, hints.Styles.ShortDesc = muted, muted
+	muted := textStyle(m.theme.SurfaceHint)
+	hints.Styles.ShortKey, hints.Styles.ShortDesc = textStyle(m.theme.SurfaceKey), muted
 	hints.Styles.ShortSeparator, hints.Styles.Ellipsis = muted, muted
 	return hints.ShortHelpView(bindings)
 }

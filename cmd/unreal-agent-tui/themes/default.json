@@ -4,14 +4,11 @@
   "muted": "#a3adba",
   "hint": "#697585",
   "status": "#252f3c",
-  "status_active": "#405473",
   "surface": "#1b2029",
   "user": "#252f3c",
   "selection": "#344357",
   "accent": "#84b9ff",
   "success": "#8ccb9e",
-  "pending_dim": "#705016",
-  "pending_bright": "#ffe28a",
   "warning": "#e6ba73",
   "error": "#ff8f91"
 }
