@@ -56,9 +56,10 @@ const (
 )
 
 type Settings struct {
-	Model           string              `json:",omitzero"`
-	MaxOutputTokens *int64              `json:",omitzero"`
-	ReasoningEffort llm.ReasoningEffort `json:",omitzero"`
+	Model               string              `json:",omitzero"`
+	CompactionThreshold *int64              `json:",omitzero"`
+	MaxOutputTokens     *int64              `json:",omitzero"`
+	ReasoningEffort     llm.ReasoningEffort `json:",omitzero"`
 }
 
 type ControlMessage struct {
@@ -102,6 +103,9 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 		}
 		if settings.Model != "" && strings.TrimSpace(settings.Model) == "" {
 			return ControlMessage{}, fmt.Errorf("model ID is empty")
+		}
+		if settings.CompactionThreshold != nil && *settings.CompactionThreshold < 0 {
+			return ControlMessage{}, fmt.Errorf("compaction threshold must not be negative")
 		}
 		if settings.MaxOutputTokens != nil && *settings.MaxOutputTokens <= 0 {
 			return ControlMessage{}, fmt.Errorf("max output tokens must be positive")

@@ -39,5 +39,8 @@ type Builder interface {
 	AddTool(llm.Tool)
 	AddToolResult(string, []llm.ToolResultOutput, bool)
 	Commit()
+	NeedsCompaction() bool
+	BuildCompaction() (Result, error)
+	Compact(llm.Response) (Builder, bool)
 	Build() (Result, error)
 }

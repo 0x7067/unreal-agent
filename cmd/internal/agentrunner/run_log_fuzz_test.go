@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,7 +34,11 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 		synctest.Test(t, func(t *testing.T) {
 			text = strings.ToValidUTF8(text, "\uFFFD")
 			usage := fuzzLogUsage(t, text, input, cached, written, output, reasoning)
-			workspace, sessions := t.TempDir(), t.TempDir()
+			if usage.InputTokens+usage.OutputTokens == math.MaxInt64 {
+				t.Skip("token count reaches the fixture's compaction threshold")
+			}
+			workspace, sessions, configHome := t.TempDir(), t.TempDir(), t.TempDir()
+			writeUserSettings(t, configHome, fmt.Sprintf(`{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"journal-model","name":"Journal model","context_window":%d,"compaction_threshold":%d}]}}}`, math.MaxInt64, math.MaxInt64))
 			skillPath := filepath.Join(workspace, ".harness", "skills", "journal", "SKILL.md")
 			if err := os.MkdirAll(filepath.Dir(skillPath), 0o700); err != nil {
 				t.Fatal(err)
@@ -117,6 +122,9 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 				}
 				err := Run(ctx, []string{"-workspace", workspace, "-session-directory", sessions, "-log-directory", logDirectory, "-tool-heartbeat-interval", "0"},
 					func(name string) string {
+						if name == "XDG_CONFIG_HOME" {
+							return configHome
+						}
 						if name == llmAPIKeyEnvironment {
 							return "secret"
 						}
@@ -232,7 +240,7 @@ func assertExecutionLog(t *testing.T, items []sessionstore.Item, returned []llm.
 					stops++
 				case inbox.UpdateSettings:
 					settings++
-					if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "journal-model", ReasoningEffort: llm.ReasoningEffortHigh}) {
+					if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "journal-model", CompactionThreshold: new(int64(math.MaxInt64)), ReasoningEffort: llm.ReasoningEffortHigh}) {
 						t.Fatalf("logged settings differ from the runner request: %#v", control.Parameters)
 					}
 				default:

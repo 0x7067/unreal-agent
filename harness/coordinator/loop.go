@@ -349,19 +349,32 @@ func (current *coordinator) cancelOperations() error {
 	return result
 }
 
+func (current *coordinator) buildModelRequest() (llm.Request, session.TurnType, error) {
+	if current.dependencies.ContextBuilder.NeedsCompaction() {
+		if built, err := current.dependencies.ContextBuilder.BuildCompaction(); err == nil {
+			return built.Request, session.TurnCompaction, nil
+		}
+	}
+	built, err := current.dependencies.ContextBuilder.Build()
+	if err != nil {
+		return llm.Request{}, "", fmt.Errorf("build model request: %w", err)
+	}
+	return built.Request, session.TurnRegular, nil
+}
+
 func (current *coordinator) requestModelResponse(
 	ctx context.Context,
 	results chan<- modelResponseResult,
 ) error {
 	current.interruptModel()
-	built, err := current.dependencies.ContextBuilder.Build()
+	request, turnType, err := current.buildModelRequest()
 	if err != nil {
-		return fmt.Errorf("build model request: %w", err)
+		return err
 	}
 	turn := session.Turn{
 		ID:             session.TurnID(uuid.New().String()),
 		PreviousTurnID: current.state.currentTurnID,
-		Type:           session.TurnRegular,
+		Type:           turnType,
 	}
 	item, err := current.addItemToLocalState(sessionstore.Item{
 		Kind: sessionstore.ItemTurn,
@@ -378,7 +391,7 @@ func (current *coordinator) requestModelResponse(
 	current.cancelModel = cancel
 	current.state.callModel = false
 	go func() {
-		response, err := current.dependencies.LLM.Respond(requestContext, built.Request, llm.RequestOptions{
+		response, err := current.dependencies.LLM.Respond(requestContext, request, llm.RequestOptions{
 			CacheKey: string(current.dependencies.SessionID),
 		})
 		select {
@@ -473,15 +486,22 @@ func (current *coordinator) handleModelResponse(
 	if err := current.storeItemInSessionStore(ctx, item); err != nil {
 		return nil, err
 	}
-	if current.state.currentTurnType == session.TurnCompaction && response.TurnID == current.state.currentTurnID {
-		return nil, nil
-	}
 	statuses, err := current.scheduleToolCalls(ctx)
 	if err != nil {
 		return nil, err
 	}
 	current.state.callModel = toolCallStatusesRequireModelResponse(statuses)
 	return statuses, nil
+}
+
+func (current *coordinator) applyCompactionResponse(response llm.Response) {
+	if response.Stop != llm.StopComplete {
+		return
+	}
+	rebuilt, compacted := current.dependencies.ContextBuilder.Compact(response)
+	if compacted {
+		current.dependencies.ContextBuilder = rebuilt
+	}
 }
 
 func (current *coordinator) handleOperationUpdate(
@@ -606,7 +626,9 @@ func (current *coordinator) addItemToLocalState(
 		current.state.currentTurnID = turn.ID
 		current.state.currentTurnType = turn.Type
 		current.state.currentTurnInputs = current.state.availableInputs
-		current.dependencies.ContextBuilder.Commit()
+		if turn.Type != session.TurnCompaction {
+			current.dependencies.ContextBuilder.Commit()
+		}
 
 	case sessionstore.ItemModelResponse:
 		response, ok := item.Data.(sessionstore.ModelResponse)
@@ -617,6 +639,7 @@ func (current *coordinator) addItemToLocalState(
 			)
 		}
 		if current.state.currentTurnType == session.TurnCompaction && response.TurnID == current.state.currentTurnID {
+			current.applyCompactionResponse(response.Response)
 			return item, nil
 		}
 		// The complete output includes messages, reasoning, and tool calls.

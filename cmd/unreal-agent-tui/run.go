@@ -159,7 +159,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	}
 	settingsPayload, err := json.Marshal(inbox.ControlMessage{
 		Mode:       inbox.UpdateSettings,
-		Parameters: inbox.Settings{Model: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort)},
+		Parameters: inbox.Settings{Model: opts.model, CompactionThreshold: new(selectedModel.CompactionThreshold), ReasoningEffort: llm.ReasoningEffort(opts.effort)},
 	})
 	if err != nil {
 		return err

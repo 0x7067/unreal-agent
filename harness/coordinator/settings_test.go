@@ -20,8 +20,8 @@ func TestCoordinatorSettingsDoNotWakeIdleModelAndRestartActiveRequest(t *testing
 		run := newStopTestRun(t, 0)
 		run.start(t)
 		limit := int64(2048)
-		initialModel := llm.Model{ID: "initial", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}
-		run.input(t, settingsInput(t, "initial", inbox.Settings{Model: initialModel.ID, MaxOutputTokens: &limit, ReasoningEffort: initialModel.ReasoningEffort}))
+		initialModel := llm.Model{ID: "initial", CompactionThreshold: 200_000, MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}
+		run.input(t, settingsInput(t, "initial", inbox.Settings{Model: initialModel.ID, CompactionThreshold: new(initialModel.CompactionThreshold), MaxOutputTokens: &limit, ReasoningEffort: initialModel.ReasoningEffort}))
 		if run.requestCount() != 0 || run.current.pendingInputs() != 0 {
 			t.Fatal("settings woke an idle model")
 		}
@@ -30,11 +30,11 @@ func TestCoordinatorSettingsDoNotWakeIdleModelAndRestartActiveRequest(t *testing
 		if run.requestCount() != 1 || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) {
 			t.Fatal("next turn did not use settings")
 		}
-		run.input(t, settingsInput(t, "next", inbox.Settings{Model: "next", ReasoningEffort: llm.ReasoningEffortHigh}))
+		run.input(t, settingsInput(t, "next", inbox.Settings{Model: "next", CompactionThreshold: new(int64(80_000)), ReasoningEffort: llm.ReasoningEffortHigh}))
 		if run.requestCount() != 2 || !errors.Is(run.calls[0].ctx.Err(), context.Canceled) || run.calls[1].ctx.Err() != nil {
 			t.Fatal("settings did not restart the active request")
 		}
-		nextModel := llm.Model{ID: "next", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}
+		nextModel := llm.Model{ID: "next", CompactionThreshold: 80_000, MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}
 		want := run.calls[0].request
 		want.Model = nextModel
 		if !reflect.DeepEqual(run.calls[1].request, want) || !reflect.DeepEqual(run.calls[0].request.Model, initialModel) {
@@ -84,6 +84,48 @@ func TestCoordinatorSettingsRestartWithoutWaitingForCanceledResponse(t *testing.
 		}
 		run.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
 		run.respond(t, 1, textResponse("Done."))
+		run.assertStopped(t)
+	})
+}
+
+func TestCoordinatorModelSwitchDiscardsPreviousUsage(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newCompactionRun(t)
+		run.current.dependencies.ContextBuilder.SetModel(llm.Model{ID: "initial", CompactionThreshold: 100_000})
+		run.current.dependencies.LLM = &fakeAdapter{respond: func(ctx context.Context, request llm.Request) (llm.Response, error) {
+			call := stopTestCall{ctx: ctx, request: request, response: make(chan llm.Response)}
+			run.calls = append(run.calls, call)
+			return <-call.response, nil
+		}}
+		run.start(t)
+		run.input(t, externalEvent(t, 0, "prompt", "continue"))
+		assertCompactionTurn(t, run, 1, session.TurnRegular)
+		run.input(t, settingsInput(t, "settings", inbox.Settings{Model: "next", CompactionThreshold: new(int64(25_000))}))
+		assertCompactionTurn(t, run, 2, session.TurnRegular)
+		if !errors.Is(run.calls[0].ctx.Err(), context.Canceled) || run.calls[1].request.Model.ID != "next" {
+			t.Fatal("model switch did not replace the active request")
+		}
+		stale := textResponse("Old model response")
+		stale.Usage = llm.Usage{InputTokens: 90_000}
+		run.respond(t, 0, stale)
+		if run.current.dependencies.ContextBuilder.NeedsCompaction() {
+			t.Fatal("old model usage survived the model switch")
+		}
+		replayed := newStopTestRun(t, 0).current
+		replayed.dependencies.Sessions = run.current.dependencies.Sessions
+		if err := replayed.loadHistory(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if replayed.dependencies.ContextBuilder.NeedsCompaction() {
+			t.Fatal("replay restored checkpoints from the old model")
+		}
+		fresh := textResponse("New model response")
+		fresh.Usage = llm.Usage{InputTokens: 30_000}
+		run.respond(t, 1, fresh)
+		if !run.current.dependencies.ContextBuilder.NeedsCompaction() {
+			t.Fatal("new model response did not establish measured usage")
+		}
+		run.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
 		run.assertStopped(t)
 	})
 }
@@ -198,9 +240,10 @@ func TestCoordinatorSettingsReplayOnResumeAndFork(t *testing.T) {
 				store := persistTestRun(t, parent)
 				limit := int64(123)
 				for _, input := range []inbox.Input{
-					settingsInput(t, "first", inbox.Settings{Model: "initial-model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}),
+					settingsInput(t, "first", inbox.Settings{Model: "initial-model", CompactionThreshold: new(int64(200_000)), MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortLow}),
 					settingsInput(t, "effort", inbox.Settings{ReasoningEffort: llm.ReasoningEffortHigh}),
 					settingsInput(t, "model", inbox.Settings{Model: "saved-model"}),
+					settingsInput(t, "threshold", inbox.Settings{CompactionThreshold: new(int64(80_000))}),
 				} {
 					if err := store.AppendInput(t.Context(), "session-1", input); err != nil {
 						t.Fatal(err)
@@ -228,13 +271,13 @@ func TestCoordinatorSettingsReplayOnResumeAndFork(t *testing.T) {
 				run.current.dependencies.SessionID = id
 				run.current.dependencies.Sessions = store
 				run.current.dependencies.Restored = restored
-				run.current.dependencies.ContextBuilder.SetModel(llm.Model{ID: "model", ReasoningEffort: llm.ReasoningEffortMedium})
+				run.current.dependencies.ContextBuilder.SetModel(llm.Model{ID: "model", CompactionThreshold: 250_000, ReasoningEffort: llm.ReasoningEffortMedium})
 				run.start(t)
 				if run.requestCount() != 0 {
 					t.Fatal("replayed settings started a turn")
 				}
 				run.input(t, externalEvent(t, 0, "prompt", "continue"))
-				if !reflect.DeepEqual(run.calls[0].request.Model, llm.Model{ID: "saved-model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) {
+				if !reflect.DeepEqual(run.calls[0].request.Model, llm.Model{ID: "saved-model", CompactionThreshold: 80_000, MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh}) {
 					t.Fatal("latest recorded settings did not override initial configuration")
 				}
 			})

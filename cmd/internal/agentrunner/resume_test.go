@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -194,7 +195,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 					}
 					if control.Mode == inbox.UpdateSettings {
 						settings++
-						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, ReasoningEffort: effort}) {
+						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, CompactionThreshold: new(int64(0)), ReasoningEffort: effort}) {
 							t.Fatalf("recorded settings = %#v", control.Parameters)
 						}
 					}
@@ -234,42 +235,44 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 }
 
 func TestRunResumesSessionWithoutRecordedSettings(t *testing.T) {
-	workspace, sessions := t.TempDir(), t.TempDir()
-	store, err := localfile.New(sessions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Create(t.Context(), "legacy"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AppendInput(t.Context(), "legacy", inbox.Input{
-		ID: "69621f8d-4f4d-49a5-8f7d-3b24fd855c01", Kind: inbox.InputExternal, Payload: []byte(`"hello"`),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	client := &fakeClient{}
-	client.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
-		client.calls++
-		if request.Model.ID != "selected-model" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
-			return llm.Response{}, fmt.Errorf("legacy session request settings = %#v", request.Model)
+	synctest.Test(t, func(t *testing.T) {
+		workspace, sessions := t.TempDir(), t.TempDir()
+		store, err := localfile.New(sessions)
+		if err != nil {
+			t.Fatal(err)
 		}
-		return llm.Response{}, nil
-	}
-	var output bytes.Buffer
-	err = Run(t.Context(), []string{"-workspace", workspace, "-session-directory", sessions},
-		func(name string) string {
-			if name == llmAPIKeyEnvironment {
-				return "secret"
+		if _, err := store.Create(t.Context(), "legacy"); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AppendInput(t.Context(), "legacy", inbox.Input{
+			ID: "69621f8d-4f4d-49a5-8f7d-3b24fd855c01", Kind: inbox.InputExternal, Payload: []byte(`"hello"`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		client := &fakeClient{}
+		client.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
+			client.calls++
+			if request.Model.ID != "selected-model" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
+				return llm.Response{}, fmt.Errorf("legacy session request settings = %#v", request.Model)
 			}
-			return ""
-		}, func() []string { return nil }, strings.NewReader(`{
+			return llm.Response{}, nil
+		}
+		var output bytes.Buffer
+		err = Run(t.Context(), []string{"-workspace", workspace, "-session-directory", sessions},
+			func(name string) string {
+				if name == llmAPIKeyEnvironment {
+					return "secret"
+				}
+				return ""
+			}, func() []string { return nil }, strings.NewReader(`{
 			"session_id":"legacy", "model":"selected-model", "thinking_level":"medium",
 			"messages":[{"role":"user","content":"hello","message_id":"69621f8d-4f4d-49a5-8f7d-3b24fd855c01"}]
 		}`), &output, io.Discard, testConfig(client))
-	if err != nil || client.calls != 1 {
-		t.Fatalf("legacy session: calls=%d, error=%v", client.calls, err)
-	}
-	if ids := inputIDs(t, output.String()); len(ids) != 0 {
-		t.Fatalf("legacy input was recorded again: %v", ids)
-	}
+		if err != nil || client.calls != 1 {
+			t.Fatalf("legacy session: calls=%d, error=%v", client.calls, err)
+		}
+		if ids := inputIDs(t, output.String()); len(ids) != 0 {
+			t.Fatalf("legacy input was recorded again: %v", ids)
+		}
+	})
 }

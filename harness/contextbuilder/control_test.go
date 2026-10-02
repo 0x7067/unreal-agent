@@ -46,15 +46,18 @@ func TestBuilderControlMessages(t *testing.T) {
 
 func TestBuilderSettingsApplySuppliedFields(t *testing.T) {
 	initialLimit, nextLimit := int64(123), int64(456)
-	initialModel := llm.Model{ID: "initial", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}
+	initialModel := llm.Model{ID: "initial", CompactionThreshold: 200_000, MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}
 	for _, test := range []struct {
 		name     string
 		settings inbox.Settings
 		model    llm.Model
 	}{
 		{"omitted", inbox.Settings{}, initialModel},
-		{"model", inbox.Settings{Model: "next"}, llm.Model{ID: "next", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
-		{"limit", inbox.Settings{MaxOutputTokens: &nextLimit}, llm.Model{ID: "initial", MaxOutputTokens: &nextLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"model", inbox.Settings{Model: "next", CompactionThreshold: new(int64(80_000))}, llm.Model{ID: "next", CompactionThreshold: 80_000, MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"model without threshold", inbox.Settings{Model: "next"}, llm.Model{ID: "next", CompactionThreshold: 200_000, MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"threshold without model", inbox.Settings{CompactionThreshold: new(int64(80_000))}, llm.Model{ID: "initial", CompactionThreshold: 80_000, MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"zero threshold", inbox.Settings{CompactionThreshold: new(int64(0))}, llm.Model{ID: "initial", MaxOutputTokens: &initialLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
+		{"limit", inbox.Settings{MaxOutputTokens: &nextLimit}, llm.Model{ID: "initial", CompactionThreshold: 200_000, MaxOutputTokens: &nextLimit, ReasoningEffort: llm.ReasoningEffortHigh}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			builder := NewBuilder()
@@ -88,7 +91,7 @@ func TestBuilderSettingsApplySuppliedFields(t *testing.T) {
 func TestBuilderSettingsOnlyChangeEffortInSubsequentRequests(t *testing.T) {
 	limit := int64(123)
 	builder := NewBuilder()
-	builder.SetModel(llm.Model{ID: "model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh})
+	builder.SetModel(llm.Model{ID: "model", CompactionThreshold: 200_000, MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh})
 	builder.AddTool(llm.Tool{Name: "tool"})
 	builder.AddModelResponse(llm.Response{Output: []llm.Item{{Type: llm.ItemProvider, Data: llm.ProviderItem{
 		Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`),

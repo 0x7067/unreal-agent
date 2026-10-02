@@ -370,9 +370,10 @@ func Run(
 	settingsPayload, err := json.Marshal(inbox.ControlMessage{
 		Mode: inbox.UpdateSettings,
 		Parameters: inbox.Settings{
-			Model:           model,
-			MaxOutputTokens: parsed.MaxOutputTokens,
-			ReasoningEffort: reasoningEffort(parsed.ThinkingLevel),
+			Model:               model,
+			CompactionThreshold: new(selectedModel.CompactionThreshold),
+			MaxOutputTokens:     parsed.MaxOutputTokens,
+			ReasoningEffort:     reasoningEffort(parsed.ThinkingLevel),
 		},
 	})
 	if err != nil {

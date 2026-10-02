@@ -143,7 +143,7 @@ description: Review code.
 	}
 	items := decodeLogItems(t, stdout.Bytes())
 	control, err := items[0].Data.(inbox.Input).DecodeControlMessage()
-	if err != nil || control.Mode != inbox.UpdateSettings || !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "gpt-test", MaxOutputTokens: new(int64(2048)), ReasoningEffort: llm.ReasoningEffortMedium}) {
+	if err != nil || control.Mode != inbox.UpdateSettings || !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: "gpt-test", CompactionThreshold: new(int64(64_000)), MaxOutputTokens: new(int64(2048)), ReasoningEffort: llm.ReasoningEffortMedium}) {
 		t.Fatalf("initial settings = %#v, error = %v", control, err)
 	}
 	ids := inputIDs(t, stdout.String())

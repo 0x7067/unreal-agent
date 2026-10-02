@@ -60,6 +60,8 @@ func TestInboxRejectsInvalidControlMessages(t *testing.T) {
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":"turbo"}}`,
 		`{"Mode":"settings","Parameters":{"ReasoningEffort":42}}`,
 		`{"Mode":"settings","Parameters":{"Model":" "}}`,
+		`{"Mode":"settings","Parameters":{"Model":"model","CompactionThreshold":-1}}`,
+		`{"Mode":"settings","Parameters":{"CompactionThreshold":-1}}`,
 		`{"Mode":"settings","Parameters":{"MaxOutputTokens":0}}`,
 		`{"Mode":"settings","Parameters":{"MaxOutputTokens":-1}}`,
 		`{"Mode":"settings","Parameters":{"SystemPrompt":"be concise"}}`,
@@ -89,6 +91,9 @@ func TestInboxPartialSettingsControls(t *testing.T) {
 	for _, settings := range []inbox.Settings{
 		{},
 		{Model: "model"},
+		{Model: "model", CompactionThreshold: new(int64(80_000))},
+		{CompactionThreshold: new(int64(80_000))},
+		{CompactionThreshold: new(int64(0))},
 		{MaxOutputTokens: &limit},
 		{Model: "model", MaxOutputTokens: &limit, ReasoningEffort: llm.ReasoningEffortHigh},
 	} {

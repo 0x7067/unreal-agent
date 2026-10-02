@@ -108,19 +108,22 @@ func TestCoordinatorCompactionPreservesPendingInputsOnReplay(t *testing.T) {
 	}
 	response := sessionstore.ModelResponse{TurnID: "compact", Response: textResponse("Summary")}
 	response.Response.Output = append(response.Response.Output, llm.Item{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "summary-call", Name: "unknown"}})
-	current.state.callModel = true
 	statuses, err := current.handleModelResponse(t.Context(), response)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 0 || !current.state.callModel {
-		t.Fatal("compaction response changed ordinary scheduling")
+	if len(statuses) != 0 {
+		t.Fatal("compaction response scheduled tool calls")
 	}
 	if _, err := current.addItemToLocalState(sessionstore.Item{Kind: sessionstore.ItemModelResponse, Data: response}); err != nil {
 		t.Fatal(err)
 	}
 	if current.state.currentTurnType != session.TurnCompaction || current.state.deliveredInputs != 0 || current.pendingInputs() != 3 || len(current.state.toolCalls) != 1 || len(current.state.operations) != 2 {
 		t.Fatalf("compaction changed pending work: %+v", current.state)
+	}
+	callModel, err := current.processEvents(t.Context())
+	if err != nil || !callModel {
+		t.Fatalf("pending work did not schedule continuation: callModel = %t, error = %v", callModel, err)
 	}
 	reopened, err := localfile.New(directory)
 	if err != nil {
@@ -138,10 +141,8 @@ func TestCoordinatorCompactionPreservesPendingInputsOnReplay(t *testing.T) {
 	if err := replayed.loadHistory(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	wantState := current.state
-	wantState.callModel = false
-	if !reflect.DeepEqual(replayed.state, wantState) {
-		t.Fatalf("replayed state = %+v, want %+v", replayed.state, wantState)
+	if !reflect.DeepEqual(replayed.state, current.state) {
+		t.Fatalf("replayed state = %+v, want %+v", replayed.state, current.state)
 	}
 	for _, builder := range []contextbuilder.Builder{current.dependencies.ContextBuilder, replayed.dependencies.ContextBuilder} {
 		built, err := builder.Build()

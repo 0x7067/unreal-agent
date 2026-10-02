@@ -26,6 +26,12 @@ type builder struct {
 	systemPrompt    string
 	committedPrefix []llm.Item
 	stagedSuffix    []llm.Item
+	prefixTokens    []prefixToken
+}
+
+type prefixToken struct {
+	committedPrefixIndex int // Exclusive end of the response in committedPrefix.
+	Tokens               int64
 }
 
 var _ Builder = (*builder)(nil)
@@ -35,6 +41,10 @@ func NewBuilder(skills ...tool.Skill) Builder {
 	if skillPrompt := formatSkillsForPrompt(skills); skillPrompt != "" {
 		currentPreamble += "\n\n" + skillPrompt
 	}
+	return newBuilder(currentPreamble)
+}
+
+func newBuilder(currentPreamble string) *builder {
 	current := &builder{preamble: currentPreamble, committedPrefix: make([]llm.Item, 1)}
 	current.SetSystemPrompt("")
 	return current
@@ -53,7 +63,7 @@ func (current *builder) AddExternalInput(input inbox.Input) error {
 	if err := json.Unmarshal(input.Payload, &text); err != nil {
 		return fmt.Errorf("decode external input %q: %w", input.ID, err)
 	}
-	current.stagedSuffix = append(current.stagedSuffix, llm.Item{
+	current.stageItems(llm.Item{
 		Type: llm.ItemMessage,
 		Data: llm.Message{Role: llm.RoleUser, Text: text},
 	})
@@ -68,8 +78,12 @@ func (current *builder) AddControlMessage(request inbox.ControlMessage) {
 	switch request.Mode {
 	case inbox.UpdateSettings:
 		settings := request.Parameters.(inbox.Settings)
-		if settings.Model != "" {
+		if settings.Model != "" && current.request.Model.ID != settings.Model {
 			current.request.Model.ID = settings.Model
+			current.prefixTokens = nil
+		}
+		if settings.CompactionThreshold != nil {
+			current.request.Model.CompactionThreshold = *settings.CompactionThreshold
 		}
 		if settings.MaxOutputTokens != nil {
 			current.request.Model.MaxOutputTokens = settings.MaxOutputTokens
@@ -95,6 +109,10 @@ func (current *builder) SetSystemPrompt(prompt string) {
 
 func (current *builder) AddModelResponse(response llm.Response) {
 	current.committedPrefix = append(current.committedPrefix, response.Output...)
+	current.prefixTokens = append(current.prefixTokens, prefixToken{
+		committedPrefixIndex: len(current.committedPrefix),
+		Tokens:               response.Usage.InputTokens + response.Usage.OutputTokens,
+	})
 }
 
 func (current *builder) AddTool(tool llm.Tool) {
@@ -127,6 +145,10 @@ func (current *builder) AddToolResult(
 	current.stagedSuffix = append(current.stagedSuffix, resultItem)
 }
 
+func (current *builder) stageItems(items ...llm.Item) {
+	current.stagedSuffix = append(current.stagedSuffix, items...)
+}
+
 func (current *builder) Commit() {
 	current.committedPrefix = append(current.committedPrefix, current.stagedSuffix...)
 	current.stagedSuffix = nil
@@ -136,7 +158,8 @@ func (current *builder) Build() (Result, error) {
 	request := current.request
 	input := make([]llm.Item, 0, len(current.committedPrefix)+len(current.stagedSuffix))
 	input = append(input, current.committedPrefix...)
-	request.Input = append(input, current.stagedSuffix...)
+	input = append(input, current.stagedSuffix...)
+	request.Input = input
 	request.Tools = append([]llm.Tool(nil), request.Tools...)
 	return Result{Request: request}, nil
 }

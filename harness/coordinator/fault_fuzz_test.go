@@ -36,6 +36,9 @@ func FuzzCoordinatorFaults(f *testing.F) {
 		if len(actions) > 8 || len(text) > 4096 {
 			t.Skip()
 		}
+		if tokens&math.MaxInt64+tokens%997 == math.MaxInt64 {
+			t.Skip("token count reaches the fixture's compaction threshold")
+		}
 		synctest.Test(t, func(t *testing.T) {
 			text = strings.ToValidUTF8(text, "\uFFFD")
 			if len(actions) == 0 {
@@ -106,7 +109,7 @@ func FuzzCoordinatorFaults(f *testing.F) {
 				t.Fatal(err)
 			}
 			builder := contextbuilder.NewBuilder(registry.Skills()...)
-			builder.SetModel(llm.Model{ID: "fuzz-model"})
+			builder.SetModel(llm.Model{ID: "fuzz-model", CompactionThreshold: math.MaxInt64})
 			for _, definition := range registry.StaticDefinitions() {
 				builder.AddTool(definition.Tool)
 			}

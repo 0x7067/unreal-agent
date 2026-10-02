@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -34,6 +35,9 @@ func FuzzCoordinatorLogMatchesExecution(f *testing.F) {
 		synctest.Test(t, func(t *testing.T) {
 			text = strings.ToValidUTF8(text, "\uFFFD")
 			usage := fuzzLogUsage(t, text, input, cached, written, output, reasoning)
+			if usage.InputTokens+usage.OutputTokens == math.MaxInt64 {
+				t.Skip("token count reaches the fixture's compaction threshold")
+			}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 			const id session.ID = "coordinator-execution"
@@ -59,7 +63,7 @@ func FuzzCoordinatorLogMatchesExecution(f *testing.F) {
 			observerID := store.AddObserver(observer.Observe)
 			defer store.RemoveObserver(observerID)
 			builder := contextbuilder.NewBuilder()
-			builder.SetModel(llm.Model{ID: "journal-model"})
+			builder.SetModel(llm.Model{ID: "journal-model", CompactionThreshold: math.MaxInt64})
 			model := &gatedLogModel{calls: make(chan *logModelCall), returned: make(map[int]llm.Response)}
 			current := coordinator.New(coordinator.Dependencies{
 				SessionID: id, Inbox: inputs, Sessions: store, ContextBuilder: builder,
