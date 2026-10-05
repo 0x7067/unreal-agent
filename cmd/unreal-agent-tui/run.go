@@ -258,6 +258,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		}
 	}
 	builder := contextbuilder.NewBuilder(skills...)
+	builder.SetSystemPrompt("Before starting long-running tools, give the user one brief progress update in the same response as the tool calls. Do not repeat waiting messages.")
 	builder.SetModel(selectedModel)
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
