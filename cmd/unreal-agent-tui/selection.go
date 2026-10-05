@@ -2,8 +2,6 @@ package main
 
 import (
 	"image"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -63,7 +61,6 @@ func (s *textSelection) capture(v viewport.Model) {
 func (m *model) beginSelection(mouse tea.Mouse) {
 	doubleClick := mouse == m.lastClick && time.Since(m.lastClickAt) < 400*time.Millisecond
 	m.lastClick, m.lastClickAt = mouse, time.Now()
-	m.pressedLink = m.linkAt(mouse)
 	m.selection = textSelection{}
 	m.dragComposer = false
 	m.composer.ClearSelection()
@@ -129,56 +126,15 @@ func wordColumns(line string, column int) (int, int) {
 	return column, column
 }
 
-func (m *model) endSelection(mouse tea.Mouse) tea.Cmd {
+func (m *model) endSelection(mouse tea.Mouse) {
 	if mouse.Button != tea.MouseLeft && mouse.Button != tea.MouseNone {
-		return nil
+		return
 	}
 	m.extendSelection(mouse, false)
-	link := m.pressedLink
-	clicked := m.selection.dragging && !m.hasSelection() && !m.lastClickAt.IsZero()
-	m.pressedLink = ""
 	m.selection.dragging, m.dragComposer = false, false
 	m.composer.EndSelection()
 	if !m.hasSelection() {
 		m.selection = textSelection{}
-	}
-	if clicked && link != "" && link == m.linkAt(mouse) {
-		return openLink(link)
-	}
-	return nil
-}
-
-func (m *model) linkAt(mouse tea.Mouse) string {
-	v := m.mouseViewport(mouse)
-	if v == nil {
-		return ""
-	}
-	left, _ := m.padding()
-	if m.theme.Delimiter != "" {
-		left++
-	}
-	canvas := lipgloss.NewCanvas(v.Width(), v.Height()).Compose(lipgloss.NewLayer(v.View()))
-	for x := mouse.X - left; x >= 0; x-- {
-		cell := canvas.CellAt(x, mouse.Y-1)
-		if cell == nil {
-			break
-		}
-		if cell.Width != 0 {
-			return cell.Link.URL
-		}
-	}
-	return ""
-}
-
-type linkOpened struct{ err error }
-
-func openLink(url string) tea.Cmd {
-	return func() tea.Msg {
-		command := "xdg-open"
-		if runtime.GOOS == "darwin" {
-			command = "open"
-		}
-		return linkOpened{err: exec.Command(command, url).Run()}
 	}
 }
 

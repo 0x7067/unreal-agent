@@ -86,7 +86,6 @@ type model struct {
 	selection                           textSelection
 	lastClick                           tea.Mouse
 	lastClickAt                         time.Time
-	pressedLink                         string
 	dragComposer                        bool
 	hideReasoning                       bool
 	workSpinner                         spinner.Model
@@ -214,12 +213,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.extendSelection(msg.Mouse(), true)
 		return m, nil
 	case tea.MouseReleaseMsg:
-		cmd = m.endSelection(msg.Mouse())
-		return m, cmd
-	case linkOpened:
-		if msg.err != nil {
-			m.append("Error", "Could not open link: "+msg.err.Error())
-		}
+		m.endSelection(msg.Mouse())
+		return m, nil
 	case tea.KeyPressMsg:
 		if key.Matches(msg, copyKey) {
 			if !m.hasSelection() {
