@@ -43,12 +43,11 @@ var (
 	sendKey      = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "send"))
 	focusKey     = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "tools"))
 	quitKey      = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("Ctrl+C", "exit"))
-	copyKey      = key.NewBinding(key.WithKeys("ctrl+y", "super+c", "ctrl+н", "super+с"), key.WithHelp("Ctrl+Y", "copy"))
+	copyKey      = key.NewBinding(key.WithKeys("ctrl+y", "super+c", "ctrl+н", "super+с"))
 	newlineKey   = key.NewBinding(key.WithKeys("shift+enter", "ctrl+j"), key.WithHelp("Shift+Enter/Ctrl+J", "newline"))
 	scrollKey    = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("PgUp/PgDn", "scroll"))
 	selectKey    = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "tools"))
 	backKey      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "tools"))
-	mouseKey     = key.NewBinding(key.WithKeys("mouse left"), key.WithHelp("Drag", "select"))
 	reasoningKey = key.NewBinding(key.WithKeys("f3"), key.WithHelp("F3", "hide reasoning"))
 )
 
@@ -85,6 +84,9 @@ type model struct {
 	toolsFocused                        bool
 	toolsCollapsed                      bool
 	selection                           textSelection
+	lastClick                           tea.Mouse
+	lastClickAt                         time.Time
+	pressedLink                         string
 	dragComposer                        bool
 	hideReasoning                       bool
 	workSpinner                         spinner.Model
@@ -212,8 +214,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.extendSelection(msg.Mouse(), true)
 		return m, nil
 	case tea.MouseReleaseMsg:
-		m.endSelection(msg.Mouse())
-		return m, nil
+		cmd = m.endSelection(msg.Mouse())
+		return m, cmd
+	case linkOpened:
+		if msg.err != nil {
+			m.append("Error", "Could not open link: "+msg.err.Error())
+		}
 	case tea.KeyPressMsg:
 		if key.Matches(msg, copyKey) {
 			if !m.hasSelection() {
@@ -689,15 +695,11 @@ func (m model) View() tea.View {
 
 func (m model) helpView(width int) string {
 	enter, tab := sendKey, focusKey
-	mouse := mouseKey
-	if m.hasSelection() {
-		mouse = copyKey
-	}
 	reasoning := reasoningKey
 	if m.hideReasoning {
 		reasoning.SetHelp("F3", "show reasoning")
 	}
-	bindings := []key.Binding{enter, tab, mouse, reasoning, quitKey, newlineKey, scrollKey}
+	bindings := []key.Binding{enter, tab, reasoning, quitKey, newlineKey, scrollKey}
 	if m.files.open {
 		selectFile := key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "files"))
 		accept := key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("Enter/Tab", "insert"))
@@ -707,10 +709,10 @@ func (m model) helpView(width int) string {
 	if m.toolsFocused {
 		enter.SetHelp("Enter", "view")
 		tab.SetHelp("Tab", "input")
-		bindings = []key.Binding{selectKey, enter, tab, mouse, quitKey}
+		bindings = []key.Binding{selectKey, enter, tab, quitKey}
 	}
 	if m.detailsOpen {
-		bindings = []key.Binding{scrollKey, backKey, tab, mouse, quitKey}
+		bindings = []key.Binding{scrollKey, backKey, tab, quitKey}
 	}
 	hints := help.New()
 	hints.SetWidth(width)

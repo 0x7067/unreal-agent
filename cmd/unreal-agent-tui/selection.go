@@ -2,7 +2,10 @@ package main
 
 import (
 	"image"
+	"os/exec"
+	"runtime"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -58,6 +61,9 @@ func (s *textSelection) capture(v viewport.Model) {
 }
 
 func (m *model) beginSelection(mouse tea.Mouse) {
+	doubleClick := mouse == m.lastClick && time.Since(m.lastClickAt) < 400*time.Millisecond
+	m.lastClick, m.lastClickAt = mouse, time.Now()
+	m.pressedLink = m.linkAt(mouse)
 	m.selection = textSelection{}
 	m.dragComposer = false
 	m.composer.ClearSelection()
@@ -66,6 +72,13 @@ func (m *model) beginSelection(mouse tea.Mouse) {
 		m.selection.capture(*v)
 		m.extendSelection(mouse, false)
 		m.selection.anchor = m.selection.head
+		if doubleClick {
+			line := m.selection.lines[m.selection.head.Y]
+			from, to := wordColumns(line, m.selection.head.X)
+			m.selection.anchor.X, m.selection.head.X = from, to
+			m.selection.dragging = false
+			m.lastClickAt = time.Time{}
+		}
 		return
 	}
 	p := image.Pt(mouse.X, mouse.Y).Sub(m.composerOrigin())
@@ -76,6 +89,9 @@ func (m *model) beginSelection(mouse tea.Mouse) {
 }
 
 func (m *model) extendSelection(mouse tea.Mouse, scroll bool) {
+	if mouse.X != m.lastClick.X || mouse.Y != m.lastClick.Y {
+		m.lastClickAt = time.Time{}
+	}
 	if m.dragComposer {
 		p := image.Pt(mouse.X, mouse.Y).Sub(m.composerOrigin())
 		m.composer.ExtendSelection(p.X, p.Y)
@@ -101,15 +117,68 @@ func (m *model) extendSelection(mouse tea.Mouse, scroll bool) {
 	m.selection.head = image.Pt(column, row)
 }
 
-func (m *model) endSelection(mouse tea.Mouse) {
+func wordColumns(line string, column int) (int, int) {
+	for start, state := 0, -1; line != ""; {
+		word, rest, next := uniseg.FirstWordInString(line, state)
+		end := start + ansi.StringWidth(word)
+		if column < end {
+			return start, end
+		}
+		line, start, state = rest, end, next
+	}
+	return column, column
+}
+
+func (m *model) endSelection(mouse tea.Mouse) tea.Cmd {
 	if mouse.Button != tea.MouseLeft && mouse.Button != tea.MouseNone {
-		return
+		return nil
 	}
 	m.extendSelection(mouse, false)
+	link := m.pressedLink
+	clicked := m.selection.dragging && !m.hasSelection() && !m.lastClickAt.IsZero()
+	m.pressedLink = ""
 	m.selection.dragging, m.dragComposer = false, false
 	m.composer.EndSelection()
 	if !m.hasSelection() {
 		m.selection = textSelection{}
+	}
+	if clicked && link != "" && link == m.linkAt(mouse) {
+		return openLink(link)
+	}
+	return nil
+}
+
+func (m *model) linkAt(mouse tea.Mouse) string {
+	v := m.mouseViewport(mouse)
+	if v == nil {
+		return ""
+	}
+	left, _ := m.padding()
+	if m.theme.Delimiter != "" {
+		left++
+	}
+	canvas := lipgloss.NewCanvas(v.Width(), v.Height()).Compose(lipgloss.NewLayer(v.View()))
+	for x := mouse.X - left; x >= 0; x-- {
+		cell := canvas.CellAt(x, mouse.Y-1)
+		if cell == nil {
+			break
+		}
+		if cell.Width != 0 {
+			return cell.Link.URL
+		}
+	}
+	return ""
+}
+
+type linkOpened struct{ err error }
+
+func openLink(url string) tea.Cmd {
+	return func() tea.Msg {
+		command := "xdg-open"
+		if runtime.GOOS == "darwin" {
+			command = "open"
+		}
+		return linkOpened{err: exec.Command(command, url).Run()}
 	}
 }
 

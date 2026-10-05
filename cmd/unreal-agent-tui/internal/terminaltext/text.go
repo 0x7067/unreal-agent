@@ -1,6 +1,7 @@
 package terminaltext
 
 import (
+	"net/url"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -19,7 +20,7 @@ func Clean(value string) string {
 	}, ansi.Strip(value))
 }
 
-// CleanStyled keeps SGR formatting but removes terminal commands, including
+// CleanStyled keeps SGR formatting and web links but removes terminal commands, including
 // controls that Markdown rendering can introduce by decoding HTML entities.
 func CleanStyled(value string) string {
 	var out strings.Builder
@@ -29,10 +30,30 @@ func CleanStyled(value string) string {
 		r, _ := utf8.DecodeRuneInString(sequence)
 		if !unicode.IsControl(r) || sequence == "\n" || sequence == "\t" ||
 			strings.HasPrefix(sequence, "\x1b[") && strings.HasSuffix(sequence, "m") &&
-				strings.Trim(sequence[2:len(sequence)-1], "0123456789;:") == "" {
+				strings.Trim(sequence[2:len(sequence)-1], "0123456789;:") == "" || safeHyperlink(sequence) {
 			out.WriteString(sequence)
 		}
 		value, state = value[n:], next
 	}
 	return out.String()
+}
+
+func safeHyperlink(sequence string) bool {
+	payload, ok := strings.CutPrefix(sequence, "\x1b]8;")
+	if !ok {
+		return false
+	}
+	payload, ended := strings.CutSuffix(payload, "\x1b\\")
+	if !ended {
+		payload, ended = strings.CutSuffix(payload, "\a")
+	}
+	if !ended {
+		return false
+	}
+	_, target, ok := strings.Cut(payload, ";")
+	if !ok || target == "" {
+		return ok
+	}
+	u, err := url.Parse(target)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != ""
 }

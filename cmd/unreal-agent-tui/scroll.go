@@ -46,6 +46,7 @@ func (s *mouseScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) scrollWheel(msg tea.MouseWheelMsg) {
+	m.lastClickAt = time.Time{}
 	if target := m.mouseViewport(msg.Mouse()); target != nil {
 		*target, _ = target.Update(msg)
 		if m.selection.dragging && m.selection.details == m.detailsOpen {
