@@ -11,9 +11,80 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 )
+
+func TestRunMainStdin(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		input      string
+		cancel     bool
+		readErr    error
+		wantCode   int
+		wantOutput string
+	}{
+		{name: "empty/cancel", cancel: true, wantCode: 130},
+		{name: "partial/cancel", input: `{"prompt":"hello`, cancel: true, wantCode: 130},
+		{name: "complete/cancel", input: "{\"prompt\":\"hello\"}\n", cancel: true, wantCode: 130},
+		{name: "empty/EOF", wantCode: 1, wantOutput: "empty input"},
+		{name: "invalid JSON/EOF", input: `{`, wantCode: 1, wantOutput: "invalid JSON"},
+		{name: "invalid request/EOF", input: `{"messages":[]}`, wantCode: 1, wantOutput: "messages must not be empty"},
+		{name: "read error", readErr: errors.New("broken input"), wantCode: 1, wantOutput: "read input: broken input"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			deadline, stop := context.WithTimeout(t.Context(), 5*time.Second)
+			defer stop()
+			ctx, cancel := context.WithCancel(deadline)
+			defer cancel()
+			input, writer := io.Pipe()
+			defer input.Close()
+			defer writer.Close()
+			written := make(chan error, 1)
+			go func() {
+				_, err := io.WriteString(writer, test.input)
+				written <- err
+			}()
+			var stdout, stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- RunMain(ctx, nil, func(string) string { return "" }, func() []string { return nil },
+					input, &stdout, &stderr, Config{Name: "test-runner", ParseRequest: parseTestRequest})
+			}()
+			select {
+			case err := <-written:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-deadline.Done():
+				t.Fatal("runner did not read stdin")
+			}
+			if test.cancel {
+				cancel()
+			} else if err := writer.CloseWithError(test.readErr); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case code := <-done:
+				if code != test.wantCode {
+					t.Fatalf("exit = %d, want %d; stderr: %s", code, test.wantCode, &stderr)
+				}
+			case <-deadline.Done():
+				t.Fatal("runner did not finish while waiting for stdin")
+			}
+			if test.wantOutput == "" {
+				if stdout.Len() != 0 || stderr.Len() != 0 {
+					t.Fatalf("cancellation emitted stdout: %s; stderr: %s", &stdout, &stderr)
+				}
+			} else if !strings.Contains(stdout.String(), test.wantOutput) {
+				t.Fatalf("stdout = %s, want %q", &stdout, test.wantOutput)
+			}
+		})
+	}
+}
 
 func TestRunMainRequestSources(t *testing.T) {
 	for _, test := range []struct {

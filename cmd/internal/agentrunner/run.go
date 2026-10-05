@@ -192,6 +192,12 @@ func Run(
 		input = bytes.NewReader(encoded)
 	} else if flags.NArg() == 1 {
 		input = strings.NewReader(flags.Arg(0))
+	} else {
+		raw, err := readInput(ctx, input)
+		if err != nil {
+			return fmt.Errorf("read input: %w", err)
+		}
+		input = bytes.NewReader(raw)
 	}
 	parsed, newTools, err := config.ParseRequest(input)
 	if err != nil {
@@ -363,6 +369,11 @@ func Run(
 	}
 
 	operations := operation.NewLocalOperationManager(runContext, configuredTools.RemoteJobs...)
+	defer func() {
+		cancel()
+		for range operations.Updates() {
+		}
+	}()
 	inputs, err := inbox.New(runContext, restored.InputIDs)
 	if err != nil {
 		return fmt.Errorf("open inbox: %w", err)
@@ -466,6 +477,23 @@ func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error)
 		return 0, errors.New("max attempts must be positive")
 	}
 	return maxAttempts, nil
+}
+
+func readInput(ctx context.Context, input io.Reader) ([]byte, error) {
+	var raw []byte
+	var err error
+	done := make(chan struct{})
+	// A blocked stdin read can outlive cancellation until Main exits the process.
+	go func() {
+		raw, err = io.ReadAll(input)
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-done:
+		return raw, err
+	}
 }
 
 func DecodeRequest(input io.Reader, destination any) error {
