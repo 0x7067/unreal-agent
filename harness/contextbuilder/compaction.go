@@ -34,7 +34,7 @@ func (current *builder) BuildCompaction() (Result, error) {
 	}
 	// Some providers require the last message to be a user message if there are no running tool calls.
 	// Add it without checking tool calls for consistency.
-	summarizer.stageItems(llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "Summarise"}})
+	summarizer.stageItems(llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "This is system message. You are performing context compaction. Return only the text of a handoff summary for another LLM assistant to resume the original task."}})
 	return summarizer.Build()
 }
 

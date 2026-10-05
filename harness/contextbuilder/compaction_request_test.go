@@ -31,7 +31,7 @@ func TestBuildCompactionSelectsSamePrefixAsReconstruction(t *testing.T) {
 	if len(history) != 8 {
 		t.Fatalf("history has %d items, want system, whole turns A and B, and summary instruction", len(history))
 	}
-	for index, want := range map[int]string{1: "A input", 3: "A output", 4: "B input", 6: "B output", 7: "Summarise"} {
+	for index, want := range map[int]string{1: "A input", 3: "A output", 4: "B input", 6: "B output", 7: "This is system message. You are performing context compaction. Return only the text of a handoff summary for another LLM assistant to resume the original task."} {
 		if message := history[index].Data.(llm.Message); message.Text != want {
 			t.Fatalf("history[%d] = %#v, want %q", index, message, want)
 		}
@@ -73,7 +73,7 @@ func TestBuildCompactionPreservesNativeHistory(t *testing.T) {
 	}
 	want := slices.Clone(before.Request.Input)
 	want[0] = llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleSystem, Text: strings.TrimSpace(compactionPrompt)}}
-	want = append(want, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "Summarise"}})
+	want = append(want, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "This is system message. You are performing context compaction. Return only the text of a handoff summary for another LLM assistant to resume the original task."}})
 	if !reflect.DeepEqual(result.Request.Input, want) {
 		t.Fatalf("native history changed: %#v", result.Request.Input)
 	}
@@ -111,7 +111,7 @@ func TestBuildCompactionCompletesPendingCallsAtCutoff(t *testing.T) {
 	for _, id := range []string{"z", "a"} {
 		want = append(want, llm.Item{Type: llm.ItemToolResult, Data: llm.ToolResult{CallID: id, Output: []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: ToolCallRunningPayload}}, Running: true}})
 	}
-	want = append(want, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "Summarise"}})
+	want = append(want, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "This is system message. You are performing context compaction. Return only the text of a handoff summary for another LLM assistant to resume the original task."}})
 	if !reflect.DeepEqual(result.Request.Input, want) {
 		t.Fatalf("history with pending results = %#v, want %#v", result.Request.Input, want)
 	}
