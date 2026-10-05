@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/stopwatch"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -28,16 +29,15 @@ import (
 
 type runEnded struct{ err error }
 
-const mascot = `⠀⠀⠀⠀⠀⢀⣤⡶⠟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⣀⣤⣴⣶⠿⠟⠛⠛⠛⠻⠶⣦⣄⠀⠀⠀⠀⠀⠀
-⠀⠉⣽⡟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠙⢷⣄⠀⠀⠀⠀
-⠀⣼⠏⠀⠀⢀⣀⠀⢠⣤⡀⠀⠀⠀⠀⢻⡆⠀⠀⠀
-⢸⡟⠀⠀⠀⠘⠿⠇⠘⠟⠁⠀⠀⠀⠀⠈⣿⠀⠀⠀
-⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⡀⠀⢀⣿⠀⠀⠀
-⢿⡇⠀⠀⢶⣄⡀⠀⠀⠀⣀⣼⠟⠀⠀⣼⠇⠀⠀⠀
-⠘⣿⡄⠀⠀⠉⠛⠻⠿⠛⠋⠁⠀⢠⣾⠏⠀⠀⠀⠀
-⠀⠈⠻⣦⣄⡀⠀⠀⠀⠀⢀⣠⣶⠟⠁⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠉⠛⠻⠿⠿⠟⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀`
+const mascot = `⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣀⣴⣟⣋⣀⣀⡀⠀⠀⠀⠀
+⠀⠴⢞⡿⠋⠉⠁⠀⠈⠉⠙⠳⣄⠀⠀
+⠀⢠⡟⠁⠀⢀⠀⢀⣀⠀⠀⠀⠘⣷⠀
+⠀⣿⠀⠀⠀⠿⠇⠘⠟⠀⠀⠀⠀⢸⡇
+⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⣠⡄⠀⢸⡇
+⠘⣧⠀⠀⠳⣦⣀⣀⣤⡴⠟⠀⢠⡟⠀
+⠀⠙⢧⡀⠀⠀⠉⠉⠁⠀⢀⣴⠏⠀⠀
+⠀⠀⠀⠙⠳⠶⣤⣤⠶⠾⠋⠁⠀⠀⠀`
 
 var (
 	sendKey      = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "send"))
@@ -87,7 +87,8 @@ type model struct {
 	selection                           textSelection
 	dragComposer                        bool
 	hideReasoning                       bool
-	workTimer                           stopwatch.Model
+	workSpinner                         spinner.Model
+	workStarted                         time.Time
 	responding, sending, ended          bool
 	turn                                session.TurnID
 }
@@ -114,7 +115,6 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
 	m.files.root = workspace
-	m.workTimer = stopwatch.New(stopwatch.WithInterval(time.Second))
 	m.details.FillHeight = true
 	m.details.MouseWheelDelta = 1
 	m.resize()
@@ -156,11 +156,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.files.searching, m.files.matches = false, msg.matches
-	case stopwatch.TickMsg, stopwatch.StartStopMsg:
+	case spinner.TickMsg:
 		if m.ended || !m.responding {
 			return m, nil
 		}
-		m.workTimer, cmd = m.workTimer.Update(msg)
+		m.workSpinner, cmd = m.workSpinner.Update(msg)
 		return m, cmd
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 && msg.Height > 0 {
@@ -177,10 +177,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		previousTurn := m.turn
 		m.apply(msg)
 		if m.responding && m.turn != previousTurn {
-			m.workTimer = stopwatch.New(stopwatch.WithInterval(time.Second))
-			cmd = m.workTimer.Start()
-		} else if !m.responding {
-			m.workTimer, _ = m.workTimer.Update(m.workTimer.Stop()())
+			m.workSpinner = spinner.New()
+			m.workSpinner.Spinner.FPS = 50 * time.Millisecond
+			m.workStarted = time.Now()
+			cmd = m.workSpinner.Tick
 		}
 	case submitted:
 		m.sending = false
@@ -190,7 +190,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case runEnded:
 		m.ended, m.responding = true, false
-		m.workTimer, _ = m.workTimer.Update(m.workTimer.Stop()())
 		m.refreshDetails()
 		if msg.err != nil {
 			m.runError = singleLine(msg.err.Error())
@@ -428,8 +427,8 @@ func (m model) padding() (horizontal, vertical int) {
 }
 
 func (m model) introTextOffset() int {
-	offset := lipgloss.Width(mascot) + 2
-	if m.conversation.Width()-3-offset < 24 {
+	offset := lipgloss.Width(mascot) + 3
+	if m.conversation.Width()-offset < 24 {
 		return 0
 	}
 	return offset
@@ -438,17 +437,17 @@ func (m model) introTextOffset() int {
 func (m *model) renderConversation() {
 	width := m.conversation.Width()
 	offset := m.introTextOffset()
-	textWidth := max(1, width-3-offset)
+	textWidth := max(1, width-offset)
 	paths := m.labelValue(textWidth, "Workspace", m.workspace) + "\n" + m.labelValue(textWidth, "Run Files", m.directory)
 	title := textStyle(m.theme.Accent).Bold(true).Render("Unreal Agent") +
 		textStyle(m.theme.Muted).Render(" · "+m.configuration)
-	logo := textStyle(m.theme.Accent).MaxWidth(max(1, width-3)).Render(mascot)
+	logo := textStyle(m.theme.Accent).Padding(0, 2, 1, 1).MaxWidth(max(1, width)).Render(mascot)
 	info := lipgloss.NewStyle().Width(textWidth).Render(title + "\n\n" + paths)
-	content := logo + "\n\n" + info
+	content := logo + "\n" + info
 	if offset > 0 {
-		content = lipgloss.JoinHorizontal(lipgloss.Center, lipgloss.NewStyle().Width(offset).Render(logo), info)
+		content = lipgloss.JoinHorizontal(lipgloss.Center, logo, info)
 	}
-	intro := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2), content)
+	intro := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width), content)
 	blocks := []string{intro}
 	renderer, renderErr := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)), glamour.WithChromaFormatter("terminal16m"))
 	reasoningStyle := m.theme.markdownStyles()
@@ -613,7 +612,10 @@ func (m model) View() tea.View {
 		status = "Waiting for tools"
 	}
 	if m.responding {
-		status, color = "Working · "+m.workTimer.View(), m.theme.StatusAccent
+		elapsed := time.Since(m.workStarted)
+		dots := strings.Repeat(".", int(elapsed/(300*time.Millisecond))%3+1)
+		status = fmt.Sprintf("Working%-3s · %.3fs", dots, elapsed.Seconds())
+		color = m.theme.StatusAccent
 	}
 	if m.sending {
 		status, color = "Sending message", m.theme.StatusAccent

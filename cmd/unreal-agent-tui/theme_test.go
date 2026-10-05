@@ -13,6 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/unreallabsai/unreal-agent/harness/session"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 )
 
@@ -138,7 +140,8 @@ func TestTurboVisionRendering(t *testing.T) {
 	m.toolsFocused = false
 	m.tools[0].status = awaiting
 	assertRenderedColors(t, m.View().Content, "●", "#ffff55", "#0000aa")
-	m.responding = true
+	updated, _ = m.Update(sessionstore.Item{Data: session.Turn{ID: "working"}})
+	m = updated.(model)
 	assertRenderedColors(t, m.View().Content, "Working", "#ffff55", "#0000aa")
 	m.ended, m.runError = true, "Preview failure"
 	assertRenderedColors(t, m.View().Content, "Run failed", "#ff5555", "#0000aa")
