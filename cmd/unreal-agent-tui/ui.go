@@ -43,11 +43,12 @@ var (
 	sendKey      = key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "send"))
 	focusKey     = key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "tools"))
 	quitKey      = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("Ctrl+C", "exit"))
+	copyKey      = key.NewBinding(key.WithKeys("ctrl+y", "super+c", "ctrl+н", "super+с"), key.WithHelp("Ctrl+Y", "copy"))
 	newlineKey   = key.NewBinding(key.WithKeys("shift+enter", "ctrl+j"), key.WithHelp("Shift+Enter/Ctrl+J", "newline"))
 	scrollKey    = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("PgUp/PgDn", "scroll"))
 	selectKey    = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "tools"))
 	backKey      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "tools"))
-	mouseKey     = key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "select text"))
+	mouseKey     = key.NewBinding(key.WithKeys("mouse left"), key.WithHelp("Drag", "select"))
 	reasoningKey = key.NewBinding(key.WithKeys("f3"), key.WithHelp("F3", "hide reasoning"))
 )
 
@@ -83,7 +84,8 @@ type model struct {
 	selected                            int
 	toolsFocused                        bool
 	toolsCollapsed                      bool
-	selectText                          bool
+	selection                           textSelection
+	dragComposer                        bool
 	hideReasoning                       bool
 	workTimer                           stopwatch.Model
 	responding, sending, ended          bool
@@ -105,6 +107,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	composer.Focus()
 	conversation := viewport.New(viewport.WithWidth(80), viewport.WithHeight(17))
 	conversation.FillHeight = true
+	conversation.MouseWheelDelta = 1
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
 		width: 80, height: 24, details: viewport.New(), theme: opts.theme,
 		workspace: singleLine(workspace), directory: singleLine(directory),
@@ -112,14 +115,15 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	}
 	m.files.root = workspace
 	m.workTimer = stopwatch.New(stopwatch.WithInterval(time.Second))
-	m.details.SoftWrap, m.details.FillHeight = true, true
+	m.details.FillHeight = true
+	m.details.MouseWheelDelta = 1
 	m.resize()
 	return m
 }
 
 func (m model) Init() tea.Cmd { return m.composer.Focus() }
 
-func (m *model) mouseViewport(msg tea.MouseWheelMsg) *viewport.Model {
+func (m *model) mouseViewport(msg tea.Mouse) *viewport.Model {
 	x, _ := m.padding()
 	if m.theme.Delimiter != "" {
 		x++
@@ -135,27 +139,6 @@ func (m *model) mouseViewport(msg tea.MouseWheelMsg) *viewport.Model {
 		return &m.conversation
 	}
 	return nil
-}
-
-// Bubble Tea calls View even after a no-op Update; discard wheel events at the edges before rendering.
-func filterMouseWheel(current tea.Model, msg tea.Msg) tea.Msg {
-	wheel, ok := msg.(tea.MouseWheelMsg)
-	if !ok {
-		return msg
-	}
-	m, ok := current.(model)
-	if !ok {
-		return msg
-	}
-	target := m.mouseViewport(wheel)
-	if target == nil {
-		return nil
-	}
-	if !wheel.Mod.Contains(tea.ModShift) &&
-		(wheel.Button == tea.MouseWheelDown && target.AtBottom() || wheel.Button == tea.MouseWheelUp && target.AtTop()) {
-		return nil
-	}
-	return msg
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -181,7 +164,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 && msg.Height > 0 {
-			follow := m.conversation.AtBottom()
+			follow := m.followConversation()
+			m.selection = textSelection{}
+			m.dragComposer = false
 			m.width, m.height = msg.Width, msg.Height
 			m.resize()
 			if follow {
@@ -212,23 +197,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.append("Run failed", msg.err.Error())
 		}
 	case tea.PasteMsg:
+		m.selection = textSelection{}
 		if !m.toolsFocused {
 			m.composer, cmd = m.composer.Update(msg)
 		}
 	case tea.MouseWheelMsg:
-		if m.selectText {
+		m.scrollWheel(msg)
+		return m, nil
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			m.beginSelection(msg.Mouse())
+		}
+		return m, nil
+	case tea.MouseMotionMsg:
+		m.extendSelection(msg.Mouse(), true)
+		return m, nil
+	case tea.MouseReleaseMsg:
+		m.endSelection(msg.Mouse())
+		return m, nil
+	case tea.KeyPressMsg:
+		if key.Matches(msg, copyKey) {
+			if !m.hasSelection() {
+				return m, nil
+			}
+			return m, copyText(m.selectedText())
+		}
+		if msg.String() == "esc" && len(m.selection.lines) > 0 {
+			m.selection = textSelection{}
 			return m, nil
 		}
-		if target := m.mouseViewport(msg); target != nil {
-			*target, cmd = target.Update(msg)
-		}
-		return m, cmd
-	case tea.KeyPressMsg:
 		if m.filePickerKey(msg) {
 			return m, nil
 		}
 		if key.Matches(msg, reasoningKey) {
-			follow := m.conversation.AtBottom()
+			follow := m.followConversation()
+			m.selection = textSelection{}
 			m.hideReasoning = !m.hideReasoning
 			m.renderConversation()
 			if follow {
@@ -236,11 +239,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if key.Matches(msg, mouseKey) {
-			m.selectText = !m.selectText
-			return m, nil
-		}
 		if msg.String() == "shift+tab" {
+			m.selection = textSelection{}
 			if m.width < 90 {
 				m.toolsCollapsed = m.toolsFocused || m.detailsOpen
 			} else {
@@ -262,8 +262,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detailsOpen && !key.Matches(msg, quitKey) {
 			switch {
 			case key.Matches(msg, backKey):
+				m.selection = textSelection{}
 				m.detailsOpen = false
 			case key.Matches(msg, focusKey):
+				m.selection = textSelection{}
 				m.detailsOpen, m.toolsFocused = false, false
 				cmd = m.composer.Focus()
 			case msg.String() == "ctrl+end":
@@ -276,6 +278,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if key.Matches(msg, focusKey) || key.Matches(msg, backKey) && m.toolsFocused {
+			m.selection = textSelection{}
 			m.toolsFocused = !m.toolsFocused
 			if m.toolsFocused {
 				m.selected = 0
@@ -292,6 +295,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, sendKey):
 				if len(m.tools) > 0 {
+					m.selection = textSelection{}
 					m.detailsOpen = true
 					m.refreshDetails()
 					m.details.GotoTop()
@@ -333,6 +337,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+end":
 			m.conversation.GotoBottom()
 		default:
+			if msg.Mod.Contains(tea.ModSuper) {
+				return m, nil
+			}
+			m.selection = textSelection{}
 			m.composer, cmd = m.composer.Update(msg)
 		}
 	default:
@@ -348,7 +356,7 @@ func (m *model) append(label, text string) {
 	if (label == "Agent" || label == "Reasoning" || label == "Provider") && strings.TrimSpace(text) == "" {
 		return
 	}
-	follow := m.conversation.AtBottom()
+	follow := m.followConversation()
 	m.lines = append(m.lines, message{label: terminaltext.Clean(label), text: text})
 	m.renderConversation()
 	if follow {
@@ -495,10 +503,11 @@ func (m *model) renderConversation() {
 		}
 	}
 	m.conversation.SetContent(strings.Join(blocks, "\n\n"))
+	m.syncSelection(false)
 }
 
 func (m *model) resize() {
-	follow := m.conversation.AtBottom()
+	follow := m.followConversation()
 	x, y := m.padding()
 	width := max(1, m.width-x)
 	inputPadding := 2 * y
@@ -519,6 +528,7 @@ func (m *model) resize() {
 		chatWidth -= m.sidebarWidth()
 	}
 	if chatWidth = max(1, chatWidth); chatWidth != m.conversation.Width() {
+		m.selection = textSelection{}
 		m.conversation.SetWidth(chatWidth)
 		m.renderConversation()
 	}
@@ -528,6 +538,7 @@ func (m *model) resize() {
 		detailWidth--
 	}
 	if detailWidth = max(1, detailWidth); detailWidth != m.details.Width() {
+		m.selection = textSelection{}
 		m.details.SetWidth(detailWidth)
 		m.refreshDetails()
 	}
@@ -624,14 +635,16 @@ func (m model) View() tea.View {
 	}
 	header := m.heading("", hint, m.theme.Background, m.theme.Accent, m.theme.Hint, chatWidth)
 	pane := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Padding(0, 1)
-	body := header + "\n" + renderSurface(pane.PaddingLeft(0).PaddingBottom(1), m.conversation.View())
+	conversation := m.selection.render(m.conversation, false, m.theme)
+	body := header + "\n" + renderSurface(pane.PaddingLeft(0).PaddingBottom(1), conversation)
 	if m.theme.Delimiter != "" {
-		body = m.framedPane("Conversation", hint, m.conversation.View(), m.theme.Background, chatWidth)
+		body = m.framedPane("Conversation", hint, conversation, m.theme.Background, chatWidth)
 	}
 	if m.detailsOpen {
-		body = strings.Repeat(" ", width) + "\n" + renderSurface(pane.PaddingLeft(0), m.details.View())
+		details := m.selection.render(m.details, true, m.theme)
+		body = strings.Repeat(" ", width) + "\n" + renderSurface(pane.PaddingLeft(0), details)
 		if m.theme.Delimiter != "" {
-			body = m.framedPane("Tool details", "Esc back · Tab input", m.details.View(), m.theme.Background, width)
+			body = m.framedPane("Tool details", "Esc back · Tab input", details, m.theme.Background, width)
 		}
 	} else if m.width >= 90 && !m.toolsCollapsed {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.toolPane(m.sidebarWidth(), m.conversation.Height()+2))
@@ -659,21 +672,15 @@ func (m model) View() tea.View {
 	view.BackgroundColor = lipgloss.Color(m.theme.Surface)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
-	if m.selectText {
-		view.MouseMode = tea.MouseModeNone
-	}
+	view.KeyboardEnhancements.ReportAlternateKeys = true
 	view.WindowTitle = "Unreal Agent"
 	if !m.toolsFocused {
 		view.Cursor = m.composer.Cursor()
 	}
 	if view.Cursor != nil {
-		view.Cursor.X += 2
-		inputTop := y
-		if m.theme.Delimiter != "" {
-			view.Cursor.X += x
-			inputTop = 1
-		}
-		view.Cursor.Y += 3 + inputTop + m.conversation.Height() + m.filePickerHeight()
+		origin := m.composerOrigin()
+		view.Cursor.X += origin.X
+		view.Cursor.Y += origin.Y
 	}
 	return view
 }
@@ -681,8 +688,8 @@ func (m model) View() tea.View {
 func (m model) helpView(width int) string {
 	enter, tab := sendKey, focusKey
 	mouse := mouseKey
-	if m.selectText {
-		mouse.SetHelp("F2", "mouse scroll")
+	if m.hasSelection() {
+		mouse = copyKey
 	}
 	reasoning := reasoningKey
 	if m.hideReasoning {

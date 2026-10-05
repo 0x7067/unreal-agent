@@ -271,8 +271,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	for _, err := range skillErrors {
 		ui.append("Skill error", err.Error())
 	}
-	program := tea.NewProgram(ui,
-		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(filterMouseWheel))
+	screen := &mouseScreen{model: ui}
+	program := tea.NewProgram(screen,
+		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(screen.filter))
 	observer := store.AddObserver(func(_ session.ID, item sessionstore.Item) { program.Send(item) })
 	defer store.RemoveObserver(observer)
 	done := make(chan error, 1)

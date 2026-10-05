@@ -110,10 +110,12 @@ func (m *model) refreshDetails() {
 	}
 	output = renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).
 		Width(m.details.Width()).Padding(0, 0, 1, 1), output)
-	m.details.SetContent(title + "\n\n" +
+	content := title + "\n\n" +
 		m.labelValue(m.details.Width(), "Call", singleLine(card.key.call)) + "\n" +
 		m.labelValue(m.details.Width(), "Arguments", boundedDetail(arguments, 16000)) +
-		"\n\n" + textStyle(m.theme.Foreground).Render("Result") + "\n" + output)
+		"\n\n" + textStyle(m.theme.Foreground).Render("Result") + "\n" + output
+	m.details.SetContent(ansi.Hardwrap(content, max(1, m.details.Width()), true))
+	m.syncSelection(true)
 }
 
 func (m model) toolIndicator(card toolCard) string {

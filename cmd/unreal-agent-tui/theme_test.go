@@ -196,7 +196,7 @@ func TestFramedThemeLayout(t *testing.T) {
 						(cursor.Y >= len(lines) || ansi.Cut(lines[cursor.Y], cursor.X-5, cursor.X) != "Draft") {
 						t.Fatalf("multiline composer cursor does not follow text: %+v", cursor)
 					}
-					if m.mouseViewport(tea.MouseWheelMsg{X: x, Y: 1}) != nil {
+					if m.mouseViewport(tea.Mouse{X: x, Y: 1}) != nil {
 						t.Fatal("left border captures scrolling")
 					}
 				})
