@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -18,6 +19,7 @@ type toolCard struct {
 	key                                       callKey
 	name, arguments, summary, status, failure string
 	output, paths                             string
+	shell                                     *shellDetail
 }
 
 func (m *model) card(key callKey) *toolCard {
@@ -27,6 +29,9 @@ func (m *model) card(key callKey) *toolCard {
 			m.selected++
 		} else {
 			m.selected = 0
+		}
+		if m.toolsOffset > 0 {
+			m.toolsOffset++ // keep the cards the user scrolled to in view
 		}
 		m.tools = slices.Insert(m.tools, 0, toolCard{key: key, name: "Tool", status: awaiting})
 		index = 0
@@ -100,7 +105,11 @@ func (m *model) refreshDetails() {
 	title := textStyle(m.theme.Accent).Bold(true).Render(singleLine(card.name)) +
 		textStyle(m.theme.Muted).Render(" · ") + textStyle(color).Render(status)
 	output := terminaltext.Clean(card.output)
-	if renderer, err := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, m.details.Width()-1)), glamour.WithChromaFormatter("terminal16m")); err == nil {
+	if card.name == "Bash" {
+		if card.shell != nil {
+			output = m.renderShellDetail(*card.shell)
+		}
+	} else if renderer, err := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, m.details.Width()-1)), glamour.WithChromaFormatter("terminal16m")); err == nil {
 		if rendered, err := renderer.Render(output); err == nil {
 			output = strings.Trim(terminaltext.CleanStyled(rendered), "\n")
 		}
@@ -109,7 +118,7 @@ func (m *model) refreshDetails() {
 		output += "\n\n" + textStyle(m.theme.Muted).Render(card.paths)
 	}
 	output = renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).
-		Width(m.details.Width()).Padding(0, 0, 1, 1), output)
+		Width(m.details.Width()).TabWidth(4).Padding(0, 0, 1, 1), output)
 	content := title + "\n\n" +
 		m.labelValue(m.details.Width(), "Call", singleLine(card.key.call)) + "\n" +
 		m.labelValue(m.details.Width(), "Arguments", boundedDetail(arguments, 16000)) +
@@ -149,6 +158,62 @@ func (m model) toolIndicators(width int) string {
 	return ansi.Truncate(strings.Join(indicators, " "), width, "…")
 }
 
+// toolRows is the number of cards the Tools pane shows; both layouts reserve
+// three of its conversation.Height()+2 rows for chrome.
+func (m model) toolRows() int { return max(1, m.conversation.Height()-1) }
+
+func (m model) toolStart() int { return max(0, min(m.toolsOffset, len(m.tools)-m.toolRows())) }
+
+func (m *model) scrollTools(delta int) {
+	m.toolsOffset = max(0, min(m.toolStart()+delta, len(m.tools)-m.toolRows()))
+}
+
+func (m *model) revealSelected() {
+	start, rows := m.toolStart(), m.toolRows()
+	m.toolsOffset = min(max(start, m.selected-rows+1), m.selected)
+}
+
+// toolAt reports the card under the mouse (-1 for none) and whether the mouse
+// is over the Tools pane, following the layout in View.
+func (m model) toolAt(mouse tea.Mouse) (int, bool) {
+	x, _ := m.padding()
+	left := x
+	switch {
+	case m.width < 20 || m.height < 8 || m.detailsOpen:
+		return -1, false
+	case m.width >= 90 && !m.toolsCollapsed:
+		left = m.width - m.sidebarWidth()
+	case !m.toolsFocused:
+		return -1, false
+	}
+	if mouse.X < left || mouse.X >= m.width || mouse.Y < 0 || mouse.Y > m.conversation.Height()+1 {
+		return -1, false
+	}
+	first := 3 // blank, heading, blank
+	if m.theme.Delimiter != "" {
+		first = 2 // border, blank
+	}
+	row := mouse.Y - first
+	if index := m.toolStart() + row; row >= 0 && row < m.toolRows() && index < len(m.tools) {
+		return index, true
+	}
+	return -1, true
+}
+
+// openTool focuses the Tools pane on a card and opens its details, as Tab,
+// arrows and Enter do.
+func (m *model) openTool(index int) tea.Cmd {
+	m.selection = textSelection{}
+	m.toolsFocused, m.toolsCollapsed, m.detailsOpen = true, false, true
+	m.selected = index
+	m.revealSelected()
+	m.composer.Blur()
+	m.resize()
+	m.refreshDetails()
+	m.details.GotoTop()
+	return m.syncFilePicker()
+}
+
 func (m model) toolPane(width, height int) string {
 	framed := m.theme.Delimiter != ""
 	if framed {
@@ -161,7 +226,7 @@ func (m model) toolPane(width, height int) string {
 		lines = []string{""}
 	}
 	available := max(0, height-len(lines))
-	start := max(0, m.selected-max(1, available)+1)
+	start := m.toolStart()
 	end := min(len(m.tools), start+available)
 	if len(m.tools) == 0 {
 		lines = append(lines, textStyle(m.theme.SurfaceMuted).Padding(0, 2).Render(ansi.Truncate("No tool calls yet", innerWidth, "…")))

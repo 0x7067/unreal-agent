@@ -262,6 +262,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		ToolHeartbeatInterval: 10 * time.Minute,
 	})
 	ui := newModel(runCtx, inputs, registry, workspace, directory, opts)
+	ui.review = newReviewSetup(opts, directory, string(id), append(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+opts.provider, "UNREAL_HARNESS_LLM_BASE_URL="+opts.baseURL))
 	for _, err := range skillErrors {
 		ui.append("Skill error", err.Error())
 	}
@@ -279,10 +280,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		program.Send(runEnded{err: err})
 	}()
 	_, uiErr := program.Run()
+	reviewDone := screen.reviewDone
 	stopCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stop()
 	runErr := runcontrol.Stop(stopCtx, inputs, done, "Unreal Agent exited")
 	cancel()
+	if reviewDone != nil {
+		<-reviewDone
+	}
 	for range done {
 	}
 	if ctx.Err() != nil || errors.Is(uiErr, tea.ErrProgramKilled) {

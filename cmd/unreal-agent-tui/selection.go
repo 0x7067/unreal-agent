@@ -31,7 +31,7 @@ func (m model) composerOrigin() image.Point {
 		left += x
 		y = 1
 	}
-	return image.Pt(left, 3+y+m.conversation.Height()+m.filePickerHeight())
+	return image.Pt(left, 3+y+m.conversation.Height()+m.filePickerHeight()+m.commandPickerHeight())
 }
 
 func (m *model) selectionViewport() *viewport.Model {
