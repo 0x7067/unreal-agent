@@ -210,6 +210,10 @@ func TestSubscriptionDialogSelectors(t *testing.T) {
 	}{
 		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-6-astra", effort: "high"},
 		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-6-luna", effort: "high"},
+		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-6-sol", effort: "high"},
+		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-5.6-sol", effort: "high"},
+		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-5.6-terra", effort: "high"},
+		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-5.6-luna", effort: "high"},
 		{key: tea.Key{Code: tea.KeyRight}, model: "custom-model", effort: "high"},
 		{key: tea.Key{Code: tea.KeyRight}, model: "gpt-6.1-sol", effort: "high"},
 		{key: tea.Key{Code: tea.KeyLeft}, model: "custom-model", effort: "high"},

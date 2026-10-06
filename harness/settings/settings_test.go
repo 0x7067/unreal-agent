@@ -14,8 +14,23 @@ func TestLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "models.json")
 	builtin := Settings{Providers: map[string]Provider{
 		"anthropic": {
-			Info:   ProviderInfo{ID: "anthropic", Name: "Anthropic"},
-			Models: []Model{{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", ContextWindow: 1_000_000, CompactionThreshold: 500_000}},
+			Info: ProviderInfo{ID: "anthropic", Name: "Anthropic"},
+			Models: []Model{
+				{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-opus-5", Name: "Claude Opus 5", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-fable-5-1", Name: "Claude Fable 5.1", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-fable-5", Name: "Claude Fable 5", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-mythos-5-1", Name: "Claude Mythos 5.1", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+				{ID: "claude-mythos-5", Name: "Claude Mythos 5", ContextWindow: 1_000_000, CompactionThreshold: 500_000},
+			},
+		},
+		"fireworks": {
+			Info: ProviderInfo{ID: "fireworks", Name: "Fireworks"},
+			Models: []Model{
+				{ID: "accounts/fireworks/models/glm-5p3", Name: "GLM-5.3", ContextWindow: 1_048_576, CompactionThreshold: 524_288},
+				{ID: "accounts/fireworks/models/glm-5p3-flash", Name: "GLM-5.3 Flash", ContextWindow: 1_048_576, CompactionThreshold: 524_288},
+			},
 		},
 		"openai": {
 			Info: ProviderInfo{ID: "openai", Name: "OpenAI"},
@@ -23,6 +38,11 @@ func TestLoad(t *testing.T) {
 				{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 				{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 				{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6-sol", Name: "GPT-6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-cyber", Name: "GPT-5.6 Cyber", ContextWindow: 400_000, CompactionThreshold: 244_800},
 			},
 		},
 		"openai-codex": {
@@ -31,6 +51,10 @@ func TestLoad(t *testing.T) {
 				{ID: "gpt-6-astra", Name: "GPT-6 Astra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 				{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 				{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-6-sol", Name: "GPT-6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+				{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 			},
 		},
 	}}
@@ -54,6 +78,11 @@ func TestLoad(t *testing.T) {
 			{ID: "gpt-6-astra", Name: "Custom Astra", ContextWindow: 200_000, CompactionThreshold: 150_000},
 			{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
 			{ID: "gpt-6-luna", Name: "GPT-6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-6-sol", Name: "GPT-6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", ContextWindow: 1_050_000, CompactionThreshold: 244_800},
+			{ID: "gpt-5.6-cyber", Name: "GPT-5.6 Cyber", ContextWindow: 400_000, CompactionThreshold: 244_800},
 			{ID: "custom", Name: "Custom model", ContextWindow: 150_000, CompactionThreshold: 75_000},
 			{ID: "zero", Name: "Zero threshold", ContextWindow: 100_000, CompactionThreshold: 50_000},
 		},
