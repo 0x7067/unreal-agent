@@ -1,0 +1,558 @@
+package findings
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const SchemaVersion = 1
+
+type Type string
+
+const (
+	TypeRun     Type = "run"
+	TypeFinding Type = "finding"
+	TypeSummary Type = "summary"
+)
+
+type Anchor string
+
+const (
+	AnchorNew Anchor = "new"
+	AnchorOld Anchor = "old"
+)
+
+type Severity string
+
+const (
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+	SeverityNote    Severity = "note"
+)
+
+type Status string
+
+const (
+	StatusRunning  Status = "running"
+	StatusComplete Status = "complete"
+	StatusFailed   Status = "failed"
+)
+
+type Source struct {
+	Kind    string `json:"kind"`
+	Base    string `json:"base,omitempty"`
+	Head    string `json:"head,omitempty"`
+	BaseSHA string `json:"base_sha,omitempty"`
+	HeadSHA string `json:"head_sha,omitempty"`
+	DiffSHA string `json:"diff_sha,omitempty"`
+}
+
+func (s Source) SameDiff(other Source) bool {
+	return s.BaseSHA == other.BaseSHA && s.HeadSHA == other.HeadSHA && s.DiffSHA == other.DiffSHA
+}
+
+type Cost struct {
+	AmountUSD         float64 `json:"amount_usd"`
+	Currency          string  `json:"currency"`
+	InputTokens       int64   `json:"input_tokens"`
+	OutputTokens      int64   `json:"output_tokens"`
+	ReasoningTokens   int64   `json:"reasoning_tokens,omitempty"`
+	CachedInputTokens int64   `json:"cached_input_tokens,omitempty"`
+	Requests          int     `json:"requests"`
+}
+
+func (c Cost) Format() string {
+	currency := c.Currency
+	if currency == "" {
+		currency = "USD"
+	}
+	return fmt.Sprintf("%s %.6f (%d input, %d output, %d requests)", currency, c.AmountUSD, c.InputTokens, c.OutputTokens, c.Requests)
+}
+
+func (c Cost) Add(other Cost) Cost {
+	currency := c.Currency
+	if currency == "" {
+		currency = other.Currency
+	}
+	if currency == "" {
+		currency = "USD"
+	}
+	return Cost{
+		AmountUSD:         c.AmountUSD + other.AmountUSD,
+		Currency:          currency,
+		InputTokens:       c.InputTokens + other.InputTokens,
+		OutputTokens:      c.OutputTokens + other.OutputTokens,
+		ReasoningTokens:   c.ReasoningTokens + other.ReasoningTokens,
+		CachedInputTokens: c.CachedInputTokens + other.CachedInputTokens,
+		Requests:          c.Requests + other.Requests,
+	}
+}
+
+func (c Cost) Recorded() bool {
+	return c.Requests > 0 || c.InputTokens > 0 || c.OutputTokens > 0 || c.AmountUSD > 0
+}
+
+type Run struct {
+	ID        string    `json:"id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Model     string    `json:"model,omitempty"`
+	Status    Status    `json:"status,omitempty"`
+	Source    Source    `json:"source"`
+	Cost      Cost      `json:"cost"`
+}
+
+type Finding struct {
+	ID        string   `json:"id,omitempty"`
+	Path      string   `json:"path"`
+	StartLine int      `json:"start_line"`
+	EndLine   int      `json:"end_line"`
+	Anchor    Anchor   `json:"anchor"`
+	Severity  Severity `json:"severity"`
+	Body      string   `json:"body"`
+}
+
+type Report struct {
+	Run      *Run
+	Findings []Finding
+	Summary  string
+}
+
+func (r Report) Complete() bool {
+	if r.Run == nil || r.Run.Status == "" {
+		return true
+	}
+	return r.Run.Status == StatusComplete
+}
+
+type record struct {
+	V         int             `json:"v"`
+	Type      Type            `json:"type"`
+	ID        string          `json:"id,omitempty"`
+	Path      string          `json:"path,omitempty"`
+	StartLine json.RawMessage `json:"start_line,omitempty"`
+	EndLine   json.RawMessage `json:"end_line,omitempty"`
+	Anchor    string          `json:"anchor,omitempty"`
+	Severity  string          `json:"severity,omitempty"`
+	Body      string          `json:"body,omitempty"`
+}
+
+type runRecord struct {
+	V         int     `json:"v"`
+	Type      Type    `json:"type"`
+	ID        string  `json:"id,omitempty"`
+	CreatedAt string  `json:"created_at,omitempty"`
+	Model     string  `json:"model,omitempty"`
+	Status    string  `json:"status,omitempty"`
+	Source    *Source `json:"source,omitempty"`
+	Cost      *Cost   `json:"cost,omitempty"`
+}
+
+func Parse(r io.Reader) (Report, error) {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return Report{}, fmt.Errorf("read findings: %w", err)
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return Report{}, nil
+	}
+	if raw[0] == '[' {
+		return Report{}, fmt.Errorf("findings must be JSONL, not a JSON array")
+	}
+	if err := rejectLegacyEnvelope(raw); err != nil {
+		return Report{}, err
+	}
+	return parseJSONL(raw)
+}
+
+func rejectLegacyEnvelope(raw []byte) error {
+	var peek struct {
+		Type     Type            `json:"type"`
+		Findings json.RawMessage `json:"findings"`
+	}
+	if err := json.Unmarshal(raw, &peek); err != nil {
+		return nil
+	}
+	if len(peek.Findings) == 0 {
+		return nil
+	}
+	switch peek.Type {
+	case TypeFinding, TypeRun, TypeSummary:
+		return nil
+	default:
+		return fmt.Errorf("findings must be JSONL, not a nested bundle")
+	}
+}
+
+func parseJSONL(raw []byte) (Report, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner.Buffer(nil, 4<<20)
+	var records []json.RawMessage
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		records = append(records, append(json.RawMessage(nil), line...))
+	}
+	if err := scanner.Err(); err != nil {
+		return Report{}, fmt.Errorf("read findings jsonl: %w", err)
+	}
+	return reportFromRaw(records)
+}
+
+func reportFromRaw(raws []json.RawMessage) (Report, error) {
+	var report Report
+	for i, raw := range raws {
+		var rec record
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return Report{}, fmt.Errorf("decode findings record %d: %w", i, err)
+		}
+		if rec.V != 0 && rec.V != SchemaVersion {
+			return Report{}, fmt.Errorf("record %d: unsupported schema version %d", i, rec.V)
+		}
+		typ := rec.Type
+		if typ == "" {
+			return Report{}, fmt.Errorf("record %d: type must be set", i)
+		}
+		switch typ {
+		case TypeRun:
+			run, err := parseClosedRun(raw)
+			if err != nil {
+				return Report{}, fmt.Errorf("record %d: %w", i, err)
+			}
+			report.Run = &run
+		case TypeFinding:
+			finding, err := parseFinding(rec)
+			if err != nil {
+				return Report{}, fmt.Errorf("record %d: %w", i, err)
+			}
+			report.Findings = append(report.Findings, finding)
+		case TypeSummary:
+			body := strings.TrimSpace(rec.Body)
+			if body == "" {
+				return Report{}, fmt.Errorf("record %d: summary body must be set", i)
+			}
+			report.Summary = body
+		default:
+			return Report{}, fmt.Errorf("record %d: unknown type %q", i, typ)
+		}
+	}
+	return report, nil
+}
+
+func parseClosedRun(raw []byte) (Run, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var rec runRecord
+	if err := dec.Decode(&rec); err != nil {
+		return Run{}, err
+	}
+	return parseRun(rec)
+}
+
+func parseRun(rec runRecord) (Run, error) {
+	run := Run{
+		ID:     rec.ID,
+		Model:  rec.Model,
+		Status: Status(strings.TrimSpace(rec.Status)),
+	}
+	switch run.Status {
+	case "", StatusRunning, StatusComplete, StatusFailed:
+	default:
+		return Run{}, fmt.Errorf("status must be running, complete, or failed")
+	}
+	if rec.Source != nil {
+		run.Source = *rec.Source
+	}
+	if rec.Cost != nil {
+		run.Cost = *rec.Cost
+	}
+	if run.Cost.Currency == "" {
+		run.Cost.Currency = "USD"
+	}
+	if rec.CreatedAt != "" {
+		parsed, err := time.Parse(time.RFC3339, rec.CreatedAt)
+		if err != nil {
+			return Run{}, fmt.Errorf("created_at: %w", err)
+		}
+		run.CreatedAt = parsed
+	}
+	return run, nil
+}
+
+func parseFinding(rec record) (Finding, error) {
+	start, err := parseLine(rec.StartLine)
+	if err != nil {
+		return Finding{}, fmt.Errorf("start_line: %w", err)
+	}
+	end, err := parseLine(rec.EndLine)
+	if err != nil {
+		return Finding{}, fmt.Errorf("end_line: %w", err)
+	}
+	return Normalize(Finding{
+		ID:        rec.ID,
+		Path:      rec.Path,
+		StartLine: start,
+		EndLine:   end,
+		Anchor:    Anchor(rec.Anchor),
+		Severity:  Severity(rec.Severity),
+		Body:      rec.Body,
+	})
+}
+
+func Normalize(finding Finding) (Finding, error) {
+	finding.Path = strings.TrimSpace(finding.Path)
+	if finding.Path == "" {
+		return Finding{}, fmt.Errorf("path must be set")
+	}
+	if finding.EndLine == 0 {
+		finding.EndLine = finding.StartLine
+	}
+	if finding.StartLine < 1 || finding.EndLine < finding.StartLine {
+		return Finding{}, fmt.Errorf("line range %d-%d is invalid", finding.StartLine, finding.EndLine)
+	}
+	finding.Anchor = Anchor(strings.TrimSpace(string(finding.Anchor)))
+	switch finding.Anchor {
+	case "":
+		finding.Anchor = AnchorNew
+	case AnchorNew, AnchorOld:
+	default:
+		return Finding{}, fmt.Errorf("anchor must be new or old")
+	}
+	finding.Severity = Severity(strings.TrimSpace(string(finding.Severity)))
+	switch finding.Severity {
+	case SeverityError, SeverityWarning, SeverityNote:
+	case "":
+		return Finding{}, fmt.Errorf("severity must be set (error, warning, or note)")
+	default:
+		return Finding{}, fmt.Errorf("severity must be error, warning, or note")
+	}
+	finding.Body = strings.TrimSpace(finding.Body)
+	if finding.Body == "" {
+		return Finding{}, fmt.Errorf("body must be set")
+	}
+	finding.ID = strings.TrimSpace(finding.ID)
+	if finding.ID == "" {
+		finding.ID = Fingerprint(finding)
+	}
+	return finding, nil
+}
+
+func parseLine(raw json.RawMessage) (int, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return 0, nil
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, fmt.Errorf("must be an integer")
+	}
+	return n, nil
+}
+
+func Fingerprint(finding Finding) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		finding.Path,
+		strconv.Itoa(finding.StartLine),
+		strconv.Itoa(finding.EndLine),
+		string(finding.Anchor),
+		finding.Body,
+	}, "\x1f")))
+	return hex.EncodeToString(sum[:8])
+}
+
+func AppendFinding(path string, finding Finding) (Finding, error) {
+	finding, err := Normalize(finding)
+	if err != nil {
+		return Finding{}, err
+	}
+	err = appendLine(path, record{
+		V:         SchemaVersion,
+		Type:      TypeFinding,
+		ID:        finding.ID,
+		Path:      finding.Path,
+		StartLine: json.RawMessage(strconv.Itoa(finding.StartLine)),
+		EndLine:   json.RawMessage(strconv.Itoa(finding.EndLine)),
+		Anchor:    string(finding.Anchor),
+		Severity:  string(finding.Severity),
+		Body:      finding.Body,
+	})
+	if err != nil {
+		return Finding{}, err
+	}
+	return finding, nil
+}
+
+const (
+	CleanVerdict     = "No material issues"
+	MaxSummaryLength = 300
+)
+
+func CheckSummary(body string, findingCount int) (string, error) {
+	body = strings.TrimSpace(body)
+	switch {
+	case body == "":
+		return "", fmt.Errorf("summary must be set")
+	case strings.ContainsAny(body, "\r\n"):
+		return "", fmt.Errorf("summary must be one line")
+	case len([]rune(body)) > MaxSummaryLength:
+		return "", fmt.Errorf("summary must be at most %d characters", MaxSummaryLength)
+	case strings.Contains(body, "```") || blockMarkdown(body):
+		return "", fmt.Errorf("summary must be plain prose, without headings, lists, quotes, or code blocks")
+	}
+	clean := strings.HasPrefix(body, CleanVerdict)
+	if findingCount == 0 && !clean {
+		return "", fmt.Errorf("summary of a review with no findings must start with %q", CleanVerdict)
+	}
+	if findingCount > 0 && clean {
+		return "", fmt.Errorf("summary of a review with %d finding(s) must name the most severe one, not start with %q", findingCount, CleanVerdict)
+	}
+	return body, nil
+}
+
+func blockMarkdown(body string) bool {
+	for _, prefix := range []string{"#", "- ", "* ", "+ ", "> ", "|"} {
+		if strings.HasPrefix(body, prefix) {
+			return true
+		}
+	}
+	digits := strings.TrimLeft(body, "0123456789")
+	return len(digits) < len(body) && (strings.HasPrefix(digits, ". ") || strings.HasPrefix(digits, ") "))
+}
+
+func AppendSummary(path, body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("body must be set")
+	}
+	return appendLine(path, record{V: SchemaVersion, Type: TypeSummary, Body: body})
+}
+
+// closeWritten closes an appended findings file. A test replaces it to fail the close.
+var closeWritten = func(file *os.File) error { return file.Close() }
+
+func appendLine(path string, rec record) (err error) {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { err = errors.Join(err, closeWritten(file)) }()
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.Size() > 0 {
+		var last [1]byte
+		if _, err := file.ReadAt(last[:], info.Size()-1); err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if last[0] != '\n' {
+			if _, err := file.WriteString("\n"); err != nil {
+				return fmt.Errorf("write %s: %w", path, err)
+			}
+		}
+	}
+	enc := json.NewEncoder(file)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(rec); err != nil {
+		return fmt.Errorf("encode %s: %w", rec.Type, err)
+	}
+	return nil
+}
+
+func Write(w io.Writer, report Report) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if report.Run != nil {
+		cost := report.Run.Cost
+		if cost.Currency == "" {
+			cost.Currency = "USD"
+		}
+		rec := runRecord{
+			V:      SchemaVersion,
+			Type:   TypeRun,
+			ID:     report.Run.ID,
+			Model:  report.Run.Model,
+			Status: string(report.Run.Status),
+			Source: &report.Run.Source,
+			Cost:   &cost,
+		}
+		if !report.Run.CreatedAt.IsZero() {
+			rec.CreatedAt = report.Run.CreatedAt.UTC().Format(time.RFC3339)
+		}
+		if err := enc.Encode(rec); err != nil {
+			return fmt.Errorf("encode run: %w", err)
+		}
+	}
+	for _, finding := range report.Findings {
+		rec := record{
+			V:         SchemaVersion,
+			Type:      TypeFinding,
+			ID:        finding.ID,
+			Path:      finding.Path,
+			StartLine: json.RawMessage(strconv.Itoa(finding.StartLine)),
+			EndLine:   json.RawMessage(strconv.Itoa(finding.EndLine)),
+			Anchor:    string(finding.Anchor),
+			Severity:  string(finding.Severity),
+			Body:      finding.Body,
+		}
+		if err := enc.Encode(rec); err != nil {
+			return fmt.Errorf("encode finding %s: %w", finding.ID, err)
+		}
+	}
+	if strings.TrimSpace(report.Summary) != "" {
+		if err := enc.Encode(record{
+			V:    SchemaVersion,
+			Type: TypeSummary,
+			Body: report.Summary,
+		}); err != nil {
+			return fmt.Errorf("encode summary: %w", err)
+		}
+	}
+	return nil
+}
+
+func ReadFile(path string) (report Report, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Report{}, err
+	}
+	defer func() { _ = file.Close() }() //nolint:errcheck // closing a finished read must not fail the run
+	report, err = Parse(file)
+	if err != nil {
+		return Report{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return report, nil
+}
+
+func WriteFile(path string, report Report) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-")
+	if err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	tmpName := tmp.Name()
+	writeErr := Write(tmp, report)
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		return errors.Join(writeErr, os.Remove(tmpName))
+	}
+	if closeErr != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", path, closeErr), os.Remove(tmpName))
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return errors.Join(fmt.Errorf("write %s: %w", path, err), os.Remove(tmpName))
+	}
+	return nil
+}
