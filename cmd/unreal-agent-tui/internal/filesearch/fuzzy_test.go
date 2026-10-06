@@ -78,21 +78,21 @@ func TestSearchPrefersExactFilenames(t *testing.T) {
 
 func TestSearchPrefersFilenamesOverDirectoryMatches(t *testing.T) {
 	index := NewIndex([]string{
-		"unreal-agent/internal/runcontrol/stop.go",
-		"unreal-agent/internal/filesearch/fuzzy.go",
-		"unreal-agent/internal/filesearch/index.go",
-		"unreal-agent/internal/reasoning/effort.go",
-		"unreal-agent/cmd/unreal-agent/ui.go",
+		"cmd/unreal-agent-tui/internal/runcontrol/stop.go",
+		"cmd/unreal-agent-tui/internal/filesearch/fuzzy.go",
+		"cmd/unreal-agent-tui/internal/filesearch/index.go",
+		"cmd/unreal-agent-tui/internal/reasoning/effort.go",
+		"cmd/unreal-agent-tui/cmd/unreal-agent/ui.go",
 		"other/ui.go",
 	})
 	matches, err := index.Search(t.Context(), "uig", 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matches) != 6 || matches[0].Path != "other/ui.go" || matches[1].Path != "unreal-agent/cmd/unreal-agent/ui.go" {
+	if len(matches) != 6 || matches[0].Path != "other/ui.go" || matches[1].Path != "cmd/unreal-agent-tui/cmd/unreal-agent/ui.go" {
 		t.Fatalf("filename ranking = %v", matches)
 	}
-	if !slices.Equal(matches[1].Positions, []int{30, 31, 33}) {
+	if !slices.Equal(matches[1].Positions, []int{38, 39, 41}) {
 		t.Fatalf("filename highlights = %v", matches[1].Positions)
 	}
 }
