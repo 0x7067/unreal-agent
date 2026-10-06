@@ -16,6 +16,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
@@ -125,7 +126,7 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 						if name == "XDG_CONFIG_HOME" {
 							return configHome
 						}
-						if name == llmAPIKeyEnvironment {
+						if name == providers.APIKeyEnvironment {
 							return "secret"
 						}
 						return ""

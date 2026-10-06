@@ -3,7 +3,7 @@ package main
 
 import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 )
 
 func main() {

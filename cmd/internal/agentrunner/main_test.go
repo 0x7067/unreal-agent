@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 )
 
 func TestRunnerSignalProcess(t *testing.T) {

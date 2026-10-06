@@ -1,11 +1,11 @@
-package sessionpath
+package xdgpath
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestResolve(t *testing.T) {
+func TestSessionDirectory(t *testing.T) {
 	for _, test := range []struct {
 		name, stateHome, userHome, processHome, want string
 		wantError                                    bool
@@ -21,13 +21,13 @@ func TestResolve(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("HOME", test.processHome)
 			env := map[string]string{"XDG_STATE_HOME": test.stateHome, "HOME": test.userHome}
-			got, err := Resolve(func(key string) string { return env[key] })
+			got, err := SessionDirectory(func(key string) string { return env[key] })
 			if test.wantError {
 				if err == nil || !strings.Contains(err.Error(), "XDG_STATE_HOME") {
 					t.Fatalf("error = %v, want actionable state location error", err)
 				}
 			} else if err != nil || got != test.want {
-				t.Fatalf("Resolve = %q, %v; want %q", got, err, test.want)
+				t.Fatalf("SessionDirectory = %q, %v; want %q", got, err, test.want)
 			}
 		})
 	}

@@ -13,6 +13,7 @@ import (
 	"testing/iotest"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 )
 
@@ -130,7 +131,7 @@ func TestRunMainRequestSources(t *testing.T) {
 			args := append([]string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, test.args...)
 			var stdout, stderr bytes.Buffer
 			code := RunMain(t.Context(), args, func(name string) string {
-				if name == llmAPIKeyEnvironment {
+				if name == providers.APIKeyEnvironment {
 					return "secret"
 				}
 				return ""

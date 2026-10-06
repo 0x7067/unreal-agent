@@ -5,7 +5,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/tool"

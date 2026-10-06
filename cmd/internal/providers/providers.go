@@ -29,6 +29,22 @@ type Provider struct {
 	NewClient func(apiKey, baseURL string, maxAttempts int, getenv func(string) string) (Client, error)
 }
 
+const APIKeyEnvironment = "UNREAL_HARNESS_LLM_API_KEY"
+
+func (provider Provider) APIKey(getenv func(string) string) (string, error) {
+	if provider.APIKeyEnvironment == "" {
+		return "", nil
+	}
+	key := getenv(APIKeyEnvironment)
+	if key == "" {
+		key = getenv(provider.APIKeyEnvironment)
+	}
+	if key == "" {
+		return "", fmt.Errorf("%s or %s must be set", APIKeyEnvironment, provider.APIKeyEnvironment)
+	}
+	return key, nil
+}
+
 func Default() []Provider {
 	return []Provider{
 		{

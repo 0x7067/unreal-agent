@@ -12,9 +12,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 )
@@ -42,7 +42,7 @@ func TestRunResumesAfterOutputFailure(t *testing.T) {
 			run := func(output io.Writer) error {
 				return Run(ctx, []string{"-workspace", workspace, "-session-directory", sessions},
 					func(name string) string {
-						if name == llmAPIKeyEnvironment {
+						if name == providers.APIKeyEnvironment {
 							return "secret"
 						}
 						return ""
@@ -113,7 +113,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 				code := RunMain(ctx, []string{"-workspace", workspace, "-session-directory", sessions},
 					func(name string) string {
 						switch name {
-						case llmAPIKeyEnvironment:
+						case providers.APIKeyEnvironment:
 							return "secret"
 						case "SHELL":
 							return "/bin/sh"
@@ -260,7 +260,7 @@ func TestRunResumesSessionWithoutRecordedSettings(t *testing.T) {
 		var output bytes.Buffer
 		err = Run(t.Context(), []string{"-workspace", workspace, "-session-directory", sessions},
 			func(name string) string {
-				if name == llmAPIKeyEnvironment {
+				if name == providers.APIKeyEnvironment {
 					return "secret"
 				}
 				return ""

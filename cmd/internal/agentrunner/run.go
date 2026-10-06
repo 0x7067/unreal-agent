@@ -18,12 +18,12 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/unreallabsai/unreal-agent/cmd/xdgpath"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
@@ -37,8 +37,6 @@ import (
 
 const (
 	defaultProvider           = "openai"
-	defaultSessionDirectory   = "unreal-agent/sessions"
-	llmAPIKeyEnvironment      = "UNREAL_HARNESS_LLM_API_KEY"
 	llmBaseURLEnvironment     = "UNREAL_HARNESS_LLM_BASE_URL"
 	llmModelEnvironment       = "UNREAL_HARNESS_LLM_MODEL"
 	llmProviderEnvironment    = "UNREAL_HARNESS_LLM_PROVIDER"
@@ -257,19 +255,9 @@ func Run(
 	if model == "" {
 		return fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
 	}
-	var apiKey string
-	if selected.APIKeyEnvironment != "" {
-		apiKey = getenv(llmAPIKeyEnvironment)
-		if strings.TrimSpace(apiKey) == "" {
-			apiKey = getenv(selected.APIKeyEnvironment)
-		}
-		if strings.TrimSpace(apiKey) == "" {
-			return fmt.Errorf(
-				"%s or %s must be set",
-				llmAPIKeyEnvironment,
-				selected.APIKeyEnvironment,
-			)
-		}
+	apiKey, err := selected.APIKey(getenv)
+	if err != nil {
+		return err
 	}
 	client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
 	if err != nil {
@@ -282,7 +270,7 @@ func Run(
 	}()
 
 	selectedModel := llm.Model{ID: model, MaxOutputTokens: parsed.MaxOutputTokens, ReasoningEffort: reasoningEffort(parsed.ThinkingLevel)}
-	configDirectory, err := xdgpath.Directory(getenv)
+	configDirectory, err := xdgpath.ConfigDirectory(getenv)
 	if err != nil {
 		return fmt.Errorf("resolve settings directory: %w", err)
 	}
@@ -515,22 +503,11 @@ func resolveSessionDirectory(configured string, getenv func(string) string) (str
 	if configured = strings.TrimSpace(configured); configured != "" {
 		return filepath.Abs(configured)
 	}
-	stateHome := getenv("XDG_STATE_HOME")
-	if !filepath.IsAbs(stateHome) {
-		userHome := getenv("HOME")
-		if userHome == "" {
-			var err error
-			userHome, err = os.UserHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("find home directory: %w; specify -session-directory to override", err)
-			}
-		}
-		if !filepath.IsAbs(userHome) {
-			return "", errors.New("set an absolute XDG_STATE_HOME or HOME, or specify -session-directory")
-		}
-		stateHome = filepath.Join(userHome, ".local", "state")
+	directory, err := xdgpath.SessionDirectory(getenv)
+	if err != nil {
+		return "", fmt.Errorf("%w; specify -session-directory to override", err)
 	}
-	return filepath.Join(stateHome, defaultSessionDirectory), nil
+	return directory, nil
 }
 
 func openDatetimeLog(directory string, now time.Time) (*os.File, error) {

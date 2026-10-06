@@ -26,7 +26,7 @@ type Client struct {
 var _ llm.Adapter = (*Client)(nil)
 
 func NewClient(config Config) (*Client, error) {
-	if strings.TrimSpace(config.APIKey) == "" {
+	if config.APIKey == "" {
 		return nil, errors.New("OpenAI API key must be set")
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")

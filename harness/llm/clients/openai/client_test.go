@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewClientRequiresAPIKey(t *testing.T) {
-	client, err := NewClient(Config{APIKey: " "})
+	client, err := NewClient(Config{APIKey: ""})
 	if err == nil || err.Error() != "OpenAI API key must be set" || client != nil {
 		t.Fatalf("client, error = (%#v, %v)", client, err)
 	}

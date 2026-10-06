@@ -18,9 +18,9 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
@@ -184,6 +184,8 @@ func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
 	}{
 		{name: "provider key", keyEnvironment: "CUSTOM_CREDENTIAL", providerKey: "provider-secret", wantKey: "provider-secret"},
 		{name: "generic key takes precedence", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: "generic-secret", providerKey: "provider-secret", wantKey: "generic-secret"},
+		{name: "key passed unchanged to client", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: " secret ", wantKey: " secret "},
+		{name: "whitespace key passed unchanged to client", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: " \t ", providerKey: "provider-secret", wantKey: " \t "},
 		{name: "delegated authentication ignores API keys", genericKey: "generic-secret", providerKey: "provider-secret"},
 		{name: "missing required key", keyEnvironment: "CUSTOM_CREDENTIAL", wantError: true},
 	} {
@@ -205,10 +207,10 @@ func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
 			var stderr strings.Builder
 			code := RunMain(t.Context(), []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, func(name string) string {
 				return map[string]string{
-					llmProviderEnvironment: "custom",
-					llmAPIKeyEnvironment:   test.genericKey,
-					"CUSTOM_CREDENTIAL":    test.providerKey,
-					"CUSTOM_API_KEY":       "must-not-use",
+					llmProviderEnvironment:      "custom",
+					providers.APIKeyEnvironment: test.genericKey,
+					"CUSTOM_CREDENTIAL":         test.providerKey,
+					"CUSTOM_API_KEY":            "must-not-use",
 				}[name]
 			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: available})
 			if test.wantError {
@@ -261,7 +263,7 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 			switch name {
 			case llmProviderEnvironment:
 				return "openrouter"
-			case llmAPIKeyEnvironment:
+			case providers.APIKeyEnvironment:
 				return "custom-secret"
 			case "OPENROUTER_API_KEY":
 				return "provider-secret"
@@ -289,7 +291,7 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 }
 
 func TestRunMainExecutesBashToolToCompletion(t *testing.T) {
-	t.Setenv(llmAPIKeyEnvironment, "secret")
+	t.Setenv(providers.APIKeyEnvironment, "secret")
 	for _, test := range []struct {
 		name, arguments, want string
 		truncated             bool
@@ -364,7 +366,7 @@ func TestRunMainExecutesBashToolToCompletion(t *testing.T) {
 				ctx,
 				[]string{"-workspace", workspace, "-session-directory", t.TempDir()},
 				func(name string) string {
-					if name == llmAPIKeyEnvironment {
+					if name == providers.APIKeyEnvironment {
 						return "secret"
 					}
 					if name == "SHELL" {
@@ -622,7 +624,7 @@ func TestRunMainWithoutLogDirectoryWritesOnlyStdout(t *testing.T) {
 			args := append([]string{"-workspace", workspace, "-session-directory", t.TempDir(), "-p", "hello"}, test.args...)
 			var stdout, stderr bytes.Buffer
 			code := RunMain(t.Context(), args, func(name string) string {
-				if name == llmAPIKeyEnvironment {
+				if name == providers.APIKeyEnvironment {
 					return "secret"
 				}
 				return ""
@@ -660,9 +662,9 @@ func TestRunMainUsesDefaultSessionDirectory(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunMain(ctx, []string{"-workspace", workspace, "-p", "hello"}, func(name string) string {
 		return map[string]string{
-			llmAPIKeyEnvironment: "secret",
-			"XDG_STATE_HOME":     stateHome,
-			"SHELL":              "/bin/sh",
+			providers.APIKeyEnvironment: "secret",
+			"XDG_STATE_HOME":            stateHome,
+			"SHELL":                     "/bin/sh",
 		}[name]
 	}, func() []string { return nil }, strings.NewReader(""), &stdout, &stderr, testConfig(client))
 	if code != 0 {
@@ -768,7 +770,7 @@ func TestRunLoadsModelSettings(t *testing.T) {
 				if name == "XDG_CONFIG_HOME" {
 					return configHome
 				}
-				if name == llmAPIKeyEnvironment {
+				if name == providers.APIKeyEnvironment {
 					return "secret"
 				}
 				return ""

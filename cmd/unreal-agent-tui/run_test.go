@@ -23,16 +23,24 @@ func TestRunLoadsModelSettingsBeforeOpeningTerminal(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
-	err := run(t.Context(), []string{"-provider", "openrouter", "-model", "selected", "-base-url", server.URL, "-max-attempts", "1"}, func(name string) string {
-		if name == "XDG_CONFIG_HOME" {
-			return configHome
-		}
-		if name == "OPENROUTER_API_KEY" {
-			return "test-key"
-		}
-		return ""
-	}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "load model settings") {
-		t.Fatalf("run error = %v", err)
+	for _, test := range []struct{ name, key string }{
+		{name: "ordinary key", key: "test-key"},
+		{name: "padded key", key: " test-key "},
+		{name: "whitespace key", key: " \t "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(t.Context(), []string{"-provider", "openrouter", "-model", "selected", "-base-url", server.URL, "-max-attempts", "1"}, func(name string) string {
+				if name == "XDG_CONFIG_HOME" {
+					return configHome
+				}
+				if name == "OPENROUTER_API_KEY" {
+					return test.key
+				}
+				return ""
+			}, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "load model settings") {
+				t.Fatalf("run error = %v", err)
+			}
+		})
 	}
 }

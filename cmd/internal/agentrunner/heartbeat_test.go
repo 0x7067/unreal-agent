@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
@@ -75,7 +76,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 	defer cancel()
 	getenv := func(name string) string {
 		switch name {
-		case llmAPIKeyEnvironment:
+		case providers.APIKeyEnvironment:
 			return "secret"
 		case "SHELL":
 			return "/bin/sh"

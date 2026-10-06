@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func TestAnthropicCacheTTLConfiguration(t *testing.T) {

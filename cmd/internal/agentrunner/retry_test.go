@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func TestResolveMaxAttempts(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRunMainRequestDisablesRetries(t *testing.T) {
 	code := RunMain(t.Context(), []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()},
 		func(name string) string {
 			switch name {
-			case llmAPIKeyEnvironment:
+			case providers.APIKeyEnvironment:
 				return "secret"
 			case llmMaxAttemptsEnvironment:
 				return "3"

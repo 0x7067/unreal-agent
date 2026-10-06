@@ -14,15 +14,14 @@ import (
 	"uuid"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol"
-	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/sessionpath"
-	"github.com/unreallabsai/unreal-agent/cmd/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
@@ -124,7 +123,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		_, err := fmt.Fprintf(output, "unreal-agent %s (commit %s, built %s)\n", version, commit, date)
 		return err
 	}
-	configDirectory, err := xdgpath.Directory(getenv)
+	configDirectory, err := xdgpath.ConfigDirectory(getenv)
 	if err != nil {
 		return fmt.Errorf("resolve settings directory: %w", err)
 	}
@@ -141,15 +140,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err != nil {
 		return err
 	}
-	key := ""
-	if provider.APIKeyEnvironment != "" {
-		key = strings.TrimSpace(getenv("UNREAL_HARNESS_LLM_API_KEY"))
-		if key == "" {
-			key = strings.TrimSpace(getenv(provider.APIKeyEnvironment))
-		}
-		if key == "" {
-			return fmt.Errorf("set %s or UNREAL_HARNESS_LLM_API_KEY", provider.APIKeyEnvironment)
-		}
+	key, err := provider.APIKey(getenv)
+	if err != nil {
+		return err
 	}
 	if opts.baseURL == "" {
 		opts.baseURL = provider.BaseURL
@@ -198,7 +191,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err != nil {
 		return err
 	}
-	directory, err := sessionpath.Resolve(getenv)
+	directory, err := xdgpath.SessionDirectory(getenv)
 	if err != nil {
 		return err
 	}

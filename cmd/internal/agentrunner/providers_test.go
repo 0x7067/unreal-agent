@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm/clients/anthropic"
-	"github.com/unreallabsai/unreal-agent/harness/llm/providers"
 )
 
 func TestRunnerAnthropicUsesMessagesAPI(t *testing.T) {

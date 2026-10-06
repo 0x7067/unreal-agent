@@ -16,7 +16,7 @@ import (
 
 func TestClientConfiguration(t *testing.T) {
 	for _, config := range []Config{
-		{APIKey: " "},
+		{APIKey: ""},
 		{APIKey: "test-key", MaxAttempts: new(0)},
 		{APIKey: "test-key", CacheTTL: "10m"},
 	} {
