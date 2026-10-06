@@ -12,8 +12,7 @@ unreal-agent
 ```sh
 go -C cmd/unreal-agent-tui install .
 unreal-agent-tui
-unreal-agent-tui -provider ollama -model qwen3.8:27b
-unreal-agent-tui -provider openai -model MODEL -theme catppuccin-dark
+unreal-agent-tui -provider openai -model gpt-6-astra -theme turbo-vision
 unreal-agent-tui -help
 ```
 
