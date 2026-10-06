@@ -1,0 +1,3 @@
+# Generated evidence retains its trailing separator blank line.
+tools/formal/models/history/enums/SOURCE.bend whitespace=-blank-at-eof
+tools/formal/models/implementation/enums/SOURCE.bend whitespace=-blank-at-eof

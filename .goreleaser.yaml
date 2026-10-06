@@ -21,6 +21,8 @@ builds:
     flags: [-mod=readonly, -trimpath]
     ldflags:
       - -s -w
+      # .Version is the tag with one leading v removed, so v0.4.1-fork.1
+      # embeds 0.4.1-fork.1. .RawVersion would drop the -fork.N suffix.
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
       - -X main.date={{ .CommitDate }}
@@ -37,7 +39,11 @@ checksum:
   algorithm: sha256
 
 dockers_v2:
+  # Fork: do not publish unrea1labs/unreal-agent. This fork has no Docker Hub
+  # credentials. Leave the image name in place; remove disable only together
+  # with a fork-owned image.
   - id: runner
+    disable: true
     ids: [runner]
     dockerfile: Dockerfile.release
     images: [unrea1labs/unreal-agent]
@@ -54,16 +60,33 @@ dockers_v2:
 
 release:
   github:
-    owner: unreallabsai
+    owner: 0x7067
     name: unreal-agent
   name_template: '{{ .Tag }}'
+  # Prepended to the GitHub release body for the next fork tag.
+  header: |
+    `unreal-agent-runner review` is the review command. The separate `unreal-review` binary is gone.
+
+    Review uses the runner's provider selection. An empty `UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`.
+    If you only have `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`.
 
 homebrew_casks:
+  # Fork: generate the cask locally but do not push unreallabsai/homebrew-tap
+  # (that needs HOMEBREW_TAP_DEPLOY_KEY). Casks have no disable field.
   - name: unreal-agent
+    skip_upload: true
     ids: [unreal-agent]
     binaries: [unreal-agent-runner, unreal-agent-tui]
     homepage: https://github.com/unreallabsai/unreal-agent
-    description: Unreal Agent terminal interface and headless runner
+    description: Unreal Agent terminal interface and headless runner with a review command
+    caveats: |
+      This cask installs unreal-agent-runner and unreal-agent-tui.
+      unreal-agent-runner review reviews a git diff; run unreal-agent-runner review help.
+      Review uses the runner's provider selection. An empty UNREAL_HARNESS_LLM_PROVIDER defaults to openai.
+      If you only have OPENROUTER_API_KEY, set UNREAL_HARNESS_LLM_PROVIDER=openrouter.
+      A missing key says "UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set" for that default,
+      or UNREAL_HARNESS_LLM_API_KEY and the selected provider's own variable.
+      ollama needs no API key. openai-codex reports its own credential errors.
     # Install the TUI aliases and clear quarantine only for this unsigned package.
     custom_block: |
       binary "unreal-agent-tui", target: "unreal-agent"

@@ -1,0 +1,36 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - misspell
+    - noctx
+  settings:
+    errcheck:
+      check-blank: true
+    depguard:
+      rules:
+        findings:
+          files:
+            - "**/review/findings/**"
+          allow:
+            - $gostd
+        reviewcore:
+          files:
+            - "**/cmd/internal/review/core/**"
+          allow:
+            - $gostd
+            - github.com/unreallabsai/unreal-agent/review/findings
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/unreallabsai/unreal-agent

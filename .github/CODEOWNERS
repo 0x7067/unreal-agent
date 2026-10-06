@@ -1,0 +1,14 @@
+# Requires branch protection with required code-owner reviews to enforce remotely.
+# Changes to laws, their checker, and policy require explicit owner review.
+/LAWS.bend @0x7067
+/PROOF.bend @0x7067
+/Makefile @0x7067
+/.github/CODEOWNERS @0x7067
+/.github/workflows/ @0x7067
+/tools/formal/ @0x7067
+
+# Module binding is part of the source-proof trust boundary.
+**/go.mod @0x7067
+**/go.sum @0x7067
+/go.mod @0x7067
+/go.sum @0x7067

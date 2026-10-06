@@ -90,3 +90,82 @@ jobs:
       - run: make -C benchmarks/harbor smoke BUNDLE=../../bin/harbor/ci
       - run: docker build -t unreal-agent-ci .
       - run: docker run --rm unreal-agent-ci -h
+
+  review-canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Offline review canary
+        run: make review-canary
+
+  bend-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install Bend 2.0.27
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          sh tools/formal/models/review/install-bend.sh
+          echo "$HOME/.bend/bin" >> "$GITHUB_PATH"
+      - name: Check live source contracts, review laws, and historical Bend models
+        run: make proof-test prove proof-regressions proof-report
+        env:
+          BEND_NO_TELEMETRY: "1"
+
+  review-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Lint the review packages
+        run: |
+          make install-review-lint
+          make review-lint
+
+  upstream-intact:
+    name: Upstream intact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Applying patches/ to the pinned upstream base must reproduce this tree.
+      - name: Patch the pinned upstream base and verify it
+        env:
+          VERIFY_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: script/verify-upstream.sh

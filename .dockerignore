@@ -7,4 +7,6 @@
 !harness/**
 !internal/
 !internal/**
+!review/
+!review/**
 !LICENSE
