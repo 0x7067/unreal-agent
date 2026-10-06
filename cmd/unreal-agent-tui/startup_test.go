@@ -52,7 +52,7 @@ func TestStartupDefaultsAndOverrides(t *testing.T) {
 func TestStartupMissingProviderModel(t *testing.T) {
 	_, err := parseOptions([]string{"-provider", "ollama"}, func(string) string { return "" }, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), `provider "ollama" requires -model`) ||
-		!strings.Contains(err.Error(), "unreal-agent -provider ollama -model qwen3.8:27b") {
+		!strings.Contains(err.Error(), "unreal-agent-tui -provider ollama -model qwen3.8:27b") {
 		t.Fatalf("missing model guidance = %v", err)
 	}
 }
@@ -77,7 +77,7 @@ func TestStartupHelpAndVersion(t *testing.T) {
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("help error = %v", err)
 	}
-	for _, text := range []string{"unreal-agent [flags]", "discover a Codex subscription", "default turbo-vision", "gpt-6.1-sol"} {
+	for _, text := range []string{"unreal-agent-tui [flags]", "discover a Codex subscription", "default turbo-vision", "gpt-6.1-sol"} {
 		if !strings.Contains(help.String(), text) {
 			t.Fatalf("help is missing %q", text)
 		}
@@ -113,7 +113,7 @@ func TestRunWithoutSubscriptionShowsLaunchExamples(t *testing.T) {
 			if err == nil {
 				t.Fatal("missing subscription started a session")
 			}
-			for _, text := range []string{"no usable Codex subscription login found", "codex -c", "unreal-agent -provider openai -model gpt-6.1-sol", "unreal-agent -provider ollama -model qwen3.8:27b"} {
+			for _, text := range []string{"no usable Codex subscription login found", "codex -c", "unreal-agent-tui -provider openai -model gpt-6.1-sol", "unreal-agent-tui -provider ollama -model qwen3.8:27b"} {
 				if !strings.Contains(err.Error(), text) {
 					t.Fatalf("startup guidance is missing %q: %v", text, err)
 				}

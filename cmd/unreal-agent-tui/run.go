@@ -47,7 +47,7 @@ const defaultCodexModel = "gpt-6.1-sol"
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
 	var opts options
 	var themeName string
-	flags := flag.NewFlagSet("unreal-agent", flag.ContinueOnError)
+	flags := flag.NewFlagSet("unreal-agent-tui", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.BoolVar(&opts.version, "version", false, "print version")
 	flags.BoolVar(&opts.setup, "setup", false, "choose and remember Codex model and reasoning settings")
@@ -120,7 +120,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		return err
 	}
 	if opts.version {
-		_, err := fmt.Fprintf(output, "unreal-agent %s (commit %s, built %s)\n", version, commit, date)
+		_, err := fmt.Fprintf(output, "unreal-agent-tui %s (commit %s, built %s)\n", version, commit, date)
 		return err
 	}
 	configDirectory, err := xdgpath.ConfigDirectory(getenv)

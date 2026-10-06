@@ -3,11 +3,11 @@
 A minimal terminal client for Harness. Run it from your workspace:
 
 ```sh
-go -C cmd/unreal-agent-tui install ./cmd/unreal-agent
-unreal-agent
-unreal-agent -provider ollama -model qwen3.8:27b
-unreal-agent -provider openai -model MODEL -theme catppuccin-dark
-unreal-agent -help
+go -C cmd/unreal-agent-tui install .
+unreal-agent-tui
+unreal-agent-tui -provider ollama -model qwen3.8:27b
+unreal-agent-tui -provider openai -model MODEL -theme catppuccin-dark
+unreal-agent-tui -help
 ```
 
 On the first launch without a provider flag or `UNREAL_HARNESS_LLM_PROVIDER`,
@@ -20,7 +20,7 @@ The model selector uses the Codex catalog in `settings.json`, including custom m
 Accepting saves the provider, model, and reasoning choice in
 `$XDG_CONFIG_HOME/unreal-agent/preferences.json` (default
 `~/.config/unreal-agent/preferences.json`). Later launches reuse that choice
-without the dialog. Use `unreal-agent -setup` to reopen it and change the choice.
+without the dialog. Use `unreal-agent-tui -setup` to reopen it and change the choice.
 Declining exits and shows example launch commands. If credentials are unavailable
 or invalid, it shows sign-in instructions and examples for other providers.
 
@@ -57,7 +57,7 @@ Sign in with Codex using file credentials:
 
 ```sh
 codex -c 'cli_auth_credentials_store="file"' login
-unreal-agent
+unreal-agent-tui
 ```
 
 Credentials come from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`;

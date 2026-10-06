@@ -10,7 +10,7 @@ Muted colors are adjusted where needed for the TUI.
 
 `turbo-vision` uses the DOS/EGA colors from [Borland Turbo Vision's palette](https://github.com/magiblot/tvision/blob/master/include/tvision/app.h):
 blue panes and status row, cyan user messages and double-line borders,
-and yellow headings and hotkeys. Select it with `unreal-agent -model MODEL -theme turbo-vision`.
+and yellow headings and hotkeys. Select it with `unreal-agent-tui -model MODEL -theme turbo-vision`.
 
 Optional colors support contrasting panels: `surface_foreground`, `surface_muted`,
 `surface_hint`, `surface_accent`, `surface_key`, `status_foreground`, `status_accent`,

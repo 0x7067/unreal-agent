@@ -15,11 +15,11 @@ import (
 
 const launchExamples = `Sign in with Codex, then run without flags:
   codex -c 'cli_auth_credentials_store="file"' login
-  unreal-agent
+  unreal-agent-tui
 
 Or choose a provider explicitly:
-  OPENAI_API_KEY=YOUR_API_KEY unreal-agent -provider openai -model gpt-6.1-sol
-  unreal-agent -provider ollama -model qwen3.8:27b`
+  OPENAI_API_KEY=YOUR_API_KEY unreal-agent-tui -provider openai -model gpt-6.1-sol
+  unreal-agent-tui -provider ollama -model qwen3.8:27b`
 
 type subscriptionDialog struct {
 	opts          options

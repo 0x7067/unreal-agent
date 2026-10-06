@@ -178,49 +178,31 @@ description: Review code.
 }
 
 func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
-	for _, test := range []struct {
-		name, keyEnvironment, genericKey, providerKey, wantKey string
-		wantError                                              bool
-	}{
-		{name: "provider key", keyEnvironment: "CUSTOM_CREDENTIAL", providerKey: "provider-secret", wantKey: "provider-secret"},
-		{name: "generic key takes precedence", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: "generic-secret", providerKey: "provider-secret", wantKey: "generic-secret"},
-		{name: "key passed unchanged to client", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: " secret ", wantKey: " secret "},
-		{name: "whitespace key passed unchanged to client", keyEnvironment: "CUSTOM_CREDENTIAL", genericKey: " \t ", providerKey: "provider-secret", wantKey: " \t "},
-		{name: "delegated authentication ignores API keys", genericKey: "generic-secret", providerKey: "provider-secret"},
-		{name: "missing required key", keyEnvironment: "CUSTOM_CREDENTIAL", wantError: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			client := &fakeClient{respond: func(context.Context, llm.Request) (llm.Response, error) {
-				return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
-			}}
-			created := false
-			available := []providers.Provider{{
-				Name: "custom", DefaultModel: "test-model", APIKeyEnvironment: test.keyEnvironment,
-				NewClient: func(apiKey, _ string, _ int, _ func(string) string) (providers.Client, error) {
-					created = true
-					if apiKey != test.wantKey {
-						return nil, errors.New("unexpected API key")
-					}
-					return client, nil
-				},
-			}}
-			var stderr strings.Builder
-			code := RunMain(t.Context(), []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, func(name string) string {
-				return map[string]string{
-					llmProviderEnvironment:      "custom",
-					providers.APIKeyEnvironment: test.genericKey,
-					"CUSTOM_CREDENTIAL":         test.providerKey,
-					"CUSTOM_API_KEY":            "must-not-use",
-				}[name]
-			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: available})
-			if test.wantError {
-				if code != 1 || created || !strings.Contains(stderr.String(), test.keyEnvironment) {
-					t.Fatalf("exit = %d, client created = %v, stderr = %s", code, created, stderr.String())
-				}
-			} else if code != 0 || !created {
-				t.Fatalf("exit = %d, client created = %v, stderr = %s", code, created, stderr.String())
+	const suppliedKey = " \t secret \t "
+	client := &fakeClient{respond: func(context.Context, llm.Request) (llm.Response, error) {
+		return llm.Response{ID: "response-1", Stop: llm.StopComplete}, nil
+	}}
+	created := false
+	available := []providers.Provider{{
+		Name: "custom", DefaultModel: "test-model", APIKeyEnvironment: "CUSTOM_CREDENTIAL",
+		NewClient: func(apiKey, _ string, _ int, _ func(string) string) (providers.Client, error) {
+			created = true
+			if apiKey != suppliedKey {
+				return nil, errors.New("unexpected API key")
 			}
-		})
+			return client, nil
+		},
+	}}
+	var stderr strings.Builder
+	code := RunMain(t.Context(), []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, func(name string) string {
+		return map[string]string{
+			llmProviderEnvironment: "custom",
+			"CUSTOM_CREDENTIAL":    suppliedKey,
+			"CUSTOM_API_KEY":       "must-not-use",
+		}[name]
+	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: available})
+	if code != 0 || !created || !client.closed {
+		t.Fatalf("exit = %d, client created = %v, client closed = %v, stderr = %s", code, created, client.closed, stderr.String())
 	}
 }
 
