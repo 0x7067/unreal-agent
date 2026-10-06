@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -51,7 +52,7 @@ func saveStartupPreferences(path string, preferences startupPreferences) error {
 	if err := preferences.validate(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(preferences)
+	data, err := json.Marshal(preferences, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}
