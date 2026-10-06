@@ -1,0 +1,857 @@
+[
+  {
+    "id": "local_finished",
+    "file": "harness/operation/local_manager.go",
+    "name": "localOperationFinished",
+    "receiver": "",
+    "dependencies": [
+      "harness/operation/local_manager.go",
+      "harness/operation/operation.go"
+    ],
+    "inputs": [
+      "status"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                99,
+                111,
+                109,
+                112,
+                108,
+                101,
+                116,
+                101,
+                100
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    102,
+                    97,
+                    105,
+                    108,
+                    101,
+                    100
+                  ]
+                },
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    99,
+                    97,
+                    110,
+                    99,
+                    101,
+                    108,
+                    101,
+                    100
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "bool",
+          "value": true
+        },
+        {
+          "kind": "bool"
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "a123cece6488c7adf6b1376232fec15af704fa4f5cef1f782597ef003d4155ff",
+    "dependency_sha256": {
+      "harness/operation/local_manager.go": "a123cece6488c7adf6b1376232fec15af704fa4f5cef1f782597ef003d4155ff",
+      "harness/operation/operation.go": "de4f293ef1e3d102f7fc54217bfa003c87c98a1e44efdba9b7caf1a2dfe1061b"
+    },
+    "law": "local_finished_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  },
+  {
+    "id": "primitive_completed",
+    "file": "harness/operation/local_manager.go",
+    "name": "localPrimitiveCompleted",
+    "receiver": "",
+    "dependencies": [
+      "harness/operation/local_manager.go",
+      "harness/primitives/compute.go",
+      "harness/primitives/file.go",
+      "harness/primitives/primitive_event.go",
+      "harness/primitives/process.go"
+    ],
+    "inputs": [
+      "eventType"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                105,
+                111,
+                46,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101,
+                95,
+                99,
+                111,
+                109,
+                112,
+                108,
+                101,
+                116,
+                101,
+                100
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    105,
+                    111,
+                    46,
+                    114,
+                    101,
+                    97,
+                    100,
+                    95,
+                    99,
+                    111,
+                    109,
+                    112,
+                    108,
+                    101,
+                    116,
+                    101,
+                    100
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "args": [
+                    {
+                      "kind": "eq",
+                      "bytes": [
+                        112,
+                        114,
+                        111,
+                        99,
+                        101,
+                        115,
+                        115,
+                        46,
+                        101,
+                        120,
+                        105,
+                        116,
+                        101,
+                        100
+                      ]
+                    },
+                    {
+                      "kind": "or",
+                      "args": [
+                        {
+                          "kind": "eq",
+                          "bytes": [
+                            112,
+                            114,
+                            105,
+                            109,
+                            105,
+                            116,
+                            105,
+                            118,
+                            101,
+                            46,
+                            102,
+                            97,
+                            105,
+                            108,
+                            101,
+                            100
+                          ]
+                        },
+                        {
+                          "kind": "or",
+                          "args": [
+                            {
+                              "kind": "eq",
+                              "bytes": [
+                                112,
+                                114,
+                                105,
+                                109,
+                                105,
+                                116,
+                                105,
+                                118,
+                                101,
+                                46,
+                                99,
+                                97,
+                                110,
+                                99,
+                                101,
+                                108,
+                                101,
+                                100
+                              ]
+                            },
+                            {
+                              "kind": "eq",
+                              "bytes": [
+                                99,
+                                111,
+                                109,
+                                112,
+                                117,
+                                116,
+                                101,
+                                46,
+                                99,
+                                111,
+                                109,
+                                112,
+                                108,
+                                101,
+                                116,
+                                101,
+                                100
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "bool",
+          "value": true
+        },
+        {
+          "kind": "bool"
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "a123cece6488c7adf6b1376232fec15af704fa4f5cef1f782597ef003d4155ff",
+    "dependency_sha256": {
+      "harness/operation/local_manager.go": "a123cece6488c7adf6b1376232fec15af704fa4f5cef1f782597ef003d4155ff",
+      "harness/primitives/compute.go": "ac2874a03bed12663fb2dc07d06f19f43bf895fb9ad818a6b75df2d57717ba3a",
+      "harness/primitives/file.go": "095258d38f35c70e2957fc0b2526bfb9c739ae84127902f380b2deffd1ff39e5",
+      "harness/primitives/primitive_event.go": "a60dd4ef782f326dacd3b8bf90bcedc6d9b13c1efee80adb225337324765cd44",
+      "harness/primitives/process.go": "4d3ac1c158ff6528b89aa3926694c228387570c465cb382e80b785d3d2c9c532"
+    },
+    "law": "primitive_completed_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  },
+  {
+    "id": "remote_transition",
+    "file": "harness/operation/remote_job_handler.go",
+    "name": "validRemoteJobStatusTransition",
+    "receiver": "",
+    "dependencies": [
+      "harness/operation/operation.go",
+      "harness/operation/remote_job_handler.go"
+    ],
+    "inputs": [
+      "current",
+      "updated"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "eq",
+          "bytes": [
+            114,
+            101,
+            97,
+            100,
+            121
+          ]
+        },
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "or",
+                  "args": [
+                    {
+                      "kind": "or",
+                      "args": [
+                        {
+                          "kind": "eq",
+                          "index": 1,
+                          "bytes": [
+                            97,
+                            119,
+                            97,
+                            105,
+                            116,
+                            105,
+                            110,
+                            103
+                          ]
+                        },
+                        {
+                          "kind": "eq",
+                          "index": 1,
+                          "bytes": [
+                            99,
+                            97,
+                            110,
+                            99,
+                            101,
+                            108,
+                            105,
+                            110,
+                            103
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "eq",
+                      "index": 1,
+                      "bytes": [
+                        99,
+                        111,
+                        109,
+                        112,
+                        108,
+                        101,
+                        116,
+                        101,
+                        100
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "eq",
+                  "index": 1,
+                  "bytes": [
+                    102,
+                    97,
+                    105,
+                    108,
+                    101,
+                    100
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "eq",
+              "index": 1,
+              "bytes": [
+                99,
+                97,
+                110,
+                99,
+                101,
+                108,
+                101,
+                100
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "if",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                97,
+                119,
+                97,
+                105,
+                116,
+                105,
+                110,
+                103
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "or",
+                  "args": [
+                    {
+                      "kind": "or",
+                      "args": [
+                        {
+                          "kind": "or",
+                          "args": [
+                            {
+                              "kind": "eq",
+                              "index": 1,
+                              "bytes": [
+                                97,
+                                119,
+                                97,
+                                105,
+                                116,
+                                105,
+                                110,
+                                103
+                              ]
+                            },
+                            {
+                              "kind": "eq",
+                              "index": 1,
+                              "bytes": [
+                                99,
+                                97,
+                                110,
+                                99,
+                                101,
+                                108,
+                                105,
+                                110,
+                                103
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "eq",
+                          "index": 1,
+                          "bytes": [
+                            99,
+                            111,
+                            109,
+                            112,
+                            108,
+                            101,
+                            116,
+                            101,
+                            100
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "eq",
+                      "index": 1,
+                      "bytes": [
+                        102,
+                        97,
+                        105,
+                        108,
+                        101,
+                        100
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "eq",
+                  "index": 1,
+                  "bytes": [
+                    99,
+                    97,
+                    110,
+                    99,
+                    101,
+                    108,
+                    101,
+                    100
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "if",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    99,
+                    97,
+                    110,
+                    99,
+                    101,
+                    108,
+                    105,
+                    110,
+                    103
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "args": [
+                    {
+                      "kind": "or",
+                      "args": [
+                        {
+                          "kind": "eq",
+                          "index": 1,
+                          "bytes": [
+                            99,
+                            97,
+                            110,
+                            99,
+                            101,
+                            108,
+                            105,
+                            110,
+                            103
+                          ]
+                        },
+                        {
+                          "kind": "eq",
+                          "index": 1,
+                          "bytes": [
+                            102,
+                            97,
+                            105,
+                            108,
+                            101,
+                            100
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "eq",
+                      "index": 1,
+                      "bytes": [
+                        99,
+                        97,
+                        110,
+                        99,
+                        101,
+                        108,
+                        101,
+                        100
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "bool"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "61b6d4805d940d15d0a79d7cc31fea363962cbd4a03c87ff3c0235c55b9a3240",
+    "dependency_sha256": {
+      "harness/operation/operation.go": "de4f293ef1e3d102f7fc54217bfa003c87c98a1e44efdba9b7caf1a2dfe1061b",
+      "harness/operation/remote_job_handler.go": "61b6d4805d940d15d0a79d7cc31fea363962cbd4a03c87ff3c0235c55b9a3240"
+    },
+    "law": "remote_transition_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  },
+  {
+    "id": "coordinator_terminal",
+    "file": "harness/coordinator/loop.go",
+    "name": "operationIsTerminal",
+    "receiver": "",
+    "dependencies": [
+      "harness/coordinator/loop.go",
+      "harness/operation/operation.go"
+    ],
+    "inputs": [
+      "status"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                99,
+                111,
+                109,
+                112,
+                108,
+                101,
+                116,
+                101,
+                100
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    102,
+                    97,
+                    105,
+                    108,
+                    101,
+                    100
+                  ]
+                },
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    99,
+                    97,
+                    110,
+                    99,
+                    101,
+                    108,
+                    101,
+                    100
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "bool",
+          "value": true
+        },
+        {
+          "kind": "bool"
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "320afd92d8d1c7c5ac6ecdc6837c6cfa2750d01c3d31257ac492fc78637a259b",
+    "dependency_sha256": {
+      "harness/coordinator/loop.go": "320afd92d8d1c7c5ac6ecdc6837c6cfa2750d01c3d31257ac492fc78637a259b",
+      "harness/operation/operation.go": "de4f293ef1e3d102f7fc54217bfa003c87c98a1e44efdba9b7caf1a2dfe1061b"
+    },
+    "law": "coordinator_terminal_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  },
+  {
+    "id": "stored_terminal",
+    "file": "harness/sessionstore/localfile/state.go",
+    "name": "terminalOperationStatus",
+    "receiver": "",
+    "dependencies": [
+      "harness/operation/operation.go",
+      "harness/sessionstore/localfile/state.go"
+    ],
+    "inputs": [
+      "status"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                99,
+                111,
+                109,
+                112,
+                108,
+                101,
+                116,
+                101,
+                100
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    102,
+                    97,
+                    105,
+                    108,
+                    101,
+                    100
+                  ]
+                },
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    99,
+                    97,
+                    110,
+                    99,
+                    101,
+                    108,
+                    101,
+                    100
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "bool",
+          "value": true
+        },
+        {
+          "kind": "bool"
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "7e86b1a8ce8217ac7fe7cd7f9a0a14fe75bda0bafac86c2ae409b791d686e98d",
+    "dependency_sha256": {
+      "harness/operation/operation.go": "de4f293ef1e3d102f7fc54217bfa003c87c98a1e44efdba9b7caf1a2dfe1061b",
+      "harness/sessionstore/localfile/state.go": "7e86b1a8ce8217ac7fe7cd7f9a0a14fe75bda0bafac86c2ae409b791d686e98d"
+    },
+    "law": "stored_terminal_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  },
+  {
+    "id": "reasoning_valid",
+    "file": "harness/llm/model.go",
+    "name": "Valid",
+    "receiver": "ReasoningEffort",
+    "dependencies": [
+      "harness/llm/model.go"
+    ],
+    "inputs": [
+      "effort"
+    ],
+    "ast": {
+      "kind": "if",
+      "args": [
+        {
+          "kind": "or",
+          "args": [
+            {
+              "kind": "eq",
+              "bytes": [
+                108,
+                111,
+                119
+              ]
+            },
+            {
+              "kind": "or",
+              "args": [
+                {
+                  "kind": "eq",
+                  "bytes": [
+                    109,
+                    101,
+                    100,
+                    105,
+                    117,
+                    109
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "args": [
+                    {
+                      "kind": "eq",
+                      "bytes": [
+                        104,
+                        105,
+                        103,
+                        104
+                      ]
+                    },
+                    {
+                      "kind": "or",
+                      "args": [
+                        {
+                          "kind": "eq",
+                          "bytes": [
+                            120,
+                            104,
+                            105,
+                            103,
+                            104
+                          ]
+                        },
+                        {
+                          "kind": "eq",
+                          "bytes": [
+                            109,
+                            97,
+                            120
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "bool",
+          "value": true
+        },
+        {
+          "kind": "bool"
+        }
+      ]
+    },
+    "module_metadata_sha256": {
+      "go.mod": "3afb0af188137bf23922158b543e4fc847ca1fba73c30983da34c6139e0aaf77"
+    },
+    "source_sha256": "9c802b5d6cb26739996898ded07a97243b13d48d42e66adbfda73b63a879746f",
+    "dependency_sha256": {
+      "harness/llm/model.go": "9c802b5d6cb26739996898ded07a97243b13d48d42e66adbfda73b63a879746f"
+    },
+    "law": "reasoning_valid_matches_policy",
+    "classification": "source-linked-restricted-semantics"
+  }
+]

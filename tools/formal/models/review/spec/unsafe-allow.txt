@@ -1,0 +1,1 @@
+# No exceptions: every review law must be checked without unsafe or foreign code.

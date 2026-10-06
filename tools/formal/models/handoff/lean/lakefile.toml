@@ -1,0 +1,5 @@
+name = "handoff"
+defaultTargets = ["Handoff"]
+
+[[lean_lib]]
+name = "Handoff"
