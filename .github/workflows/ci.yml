@@ -27,7 +27,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - run: make test check build
+      - name: Test, check, and build the library, runner, and TUI
+        run: make test check build
 
   fuzz:
     name: Fuzzing (${{ matrix.target }})
