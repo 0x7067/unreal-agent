@@ -1,0 +1,388 @@
+From 0f96ebd57557b07c483f05699a8dc648d76332eb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pedro=20Guimar=C3=A3es?=
+ <21346846+0x7067@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 18:28:00 +0100
+Subject: [PATCH] maintenance: add upstream patch series tooling
+
+Pins the upstream base and adds the scripts that refresh, verify and rebase the fork delta. Applying the series reproduces the fork tree; CI enforces that invariant.
+---
+ script/refresh-patches.sh | 142 ++++++++++++++++++++++++++++++++++++++
+ script/sync-upstream.sh   | 115 ++++++++++++++++++++++++++++++
+ script/upstream-pin       |   1 +
+ script/verify-upstream.sh |  88 +++++++++++++++++++++++
+ 4 files changed, 346 insertions(+)
+ create mode 100755 script/refresh-patches.sh
+ create mode 100755 script/sync-upstream.sh
+ create mode 100644 script/upstream-pin
+ create mode 100755 script/verify-upstream.sh
+
+diff --git a/script/refresh-patches.sh b/script/refresh-patches.sh
+new file mode 100755
+index 0000000..322482e
+--- /dev/null
++++ b/script/refresh-patches.sh
+@@ -0,0 +1,142 @@
++#!/usr/bin/env bash
++# Regenerate patches/ from the fork tree.
++#
++# Invariant enforced by script/verify-upstream.sh:
++#   apply(script/upstream-pin, patches/*.patch) == FORK_REF (ignoring patches/)
++#
++# The series is ordered and split into buckets so that a rebase conflict is
++# isolated to the bucket that owns the file. Add changed paths to a bucket here
++# when you add new work; the script refuses to run if any changed path is not
++# assigned to a bucket.
++set -euo pipefail
++
++root=$(git rev-parse --show-toplevel)
++cd "$root"
++
++FORK_REF=${FORK_REF:-main}
++
++die() { printf 'refresh-patches: %s\n' "$*" >&2; exit 1; }
++
++pin=$(tr -d '[:space:]' < script/upstream-pin)
++[ -n "$pin" ] || die "script/upstream-pin is empty"
++git cat-file -e "${pin}^{commit}" 2>/dev/null ||
++	die "pinned commit $pin is not in this repository; run: git fetch upstream --tags"
++git rev-parse --verify "${FORK_REF}^{commit}" >/dev/null 2>&1 ||
++	die "fork ref $FORK_REF does not exist"
++
++if ! git diff --quiet || ! git diff --cached --quiet; then
++	die "working tree has staged or unstaged changes; commit them first"
++fi
++
++# Ordered buckets. Paths must be disjoint. patches/ is deliberately absent:
++# the series cannot contain itself.
++bucket_names=(
++	0001-formal-models
++	0002-review-product
++	0003-tui
++	0004-build-integration
++	0005-agent-skills
++	0006-fork-maintenance
++)
++bucket_paths=(
++	"tools/formal LAWS.bend PROOF.bend"
++	"cmd/internal/review cmd/internal/reviewcli review cmd/internal/providers/selection.go cmd/internal/providers/selection_test.go tools/review-canary .claude/skills/verify-unreal-review"
++	"cmd/unreal-agent-tui"
++	"Makefile .goreleaser.yaml .github .golangci.yml .gitattributes .dockerignore Dockerfile .gitignore cmd/unreal-agent-runner"
++	".claude/skills/verify-unreal-agent-tui"
++	"script"
++)
++
++message_for() {
++	case "$1" in
++	0001-formal-models)
++		printf '%s\n\n%s\n' \
++			"formal: add Bend models, source-linked contracts, and proof tooling" \
++			"Adds the Bend/TLA/Lean model tree together with the Python drivers that gate the restricted Go predicates and generated API enums. Additive: no upstream file is touched."
++		;;
++	0002-review-product)
++		printf '%s\n\n%s\n' \
++			"review: add the automated code review pipeline" \
++			"Adds the review command (diff acquisition, planning, focused/planned strategies, findings, GitHub rendering) plus its offline and live canaries. Depends only on upstream public packages plus the fork's own provider selection."
++		;;
++	0003-tui)
++		printf '%s\n\n%s\n' \
++			"tui: add /review integration and presentation improvements" \
++			"Declared soft-fork: modifies ten upstream TUI files (command picker, review command, tool details, scroll coalescing, terminal-text sanitizers). Conflicts here are expected on upstream sync; git rerere is recommended."
++		;;
++	0004-build-integration)
++		printf '%s\n\n%s\n' \
++			"build: integrate the review command and fork release" \
++			"Seven lines in the runner entry point dispatch the review subcommand, plus the fork's Makefile targets, release configuration, CI jobs, Dockerfile and lint config."
++		;;
++	0005-agent-skills)
++		printf '%s\n\n%s\n' \
++			"agent skills: add TUI verification scripts" \
++			"Adds the agent-facing scripts used to drive and inspect the TUI during verification."
++		;;
++	0006-fork-maintenance)
++		printf '%s\n\n%s\n' \
++			"maintenance: add upstream patch series tooling" \
++			"Pins the upstream base and adds the scripts that refresh, verify and rebase the fork delta. Applying the series reproduces the fork tree; CI enforces that invariant."
++		;;
++	*) die "no commit message for bucket $1" ;;
++	esac
++}
++
++# Refuse to silently drop changed paths that belong to no bucket.
++all_paths=$(git diff --name-only "${pin}..${FORK_REF}" | LC_ALL=C sort -u | grep -v '^patches/' || true)
++bucketed=$(
++	for paths in "${bucket_paths[@]}"; do
++		# shellcheck disable=SC2086 # intentional path splitting
++		git diff --name-only "${pin}..${FORK_REF}" -- $paths
++	done | LC_ALL=C sort -u
++)
++leftover=$(LC_ALL=C comm -23 <(printf '%s\n' "$all_paths") <(printf '%s\n' "$bucketed") | sed '/^$/d')
++if [ -n "$leftover" ]; then
++	printf 'refresh-patches: these changed paths are not assigned to any bucket:\n%s\n' "$leftover" >&2
++	die "add them to bucket_paths in script/refresh-patches.sh and document them in patches/README.md"
++fi
++
++tmp=$(mktemp -d)
++cleanup() {
++	git worktree remove --force "$tmp/tree" >/dev/null 2>&1 || true
++	rm -rf "$tmp"
++}
++trap cleanup EXIT
++git worktree prune
++git worktree add --detach "$tmp/tree" "$pin" >/dev/null
++
++# Fixed to the pinned base so repeated refreshes are byte-stable.
++date=$(git show -s --format=%cI "$pin")
++mkdir -p "$root/patches"
++rm -f "$root/patches"/*.patch
++
++(
++	cd "$tmp/tree"
++	for i in "${!bucket_names[@]}"; do
++		name=${bucket_names[$i]}
++		paths=${bucket_paths[$i]}
++
++		# Files the fork deleted relative to upstream.
++		while IFS= read -r f; do
++			[ -n "$f" ] && git rm -q -f --ignore-unmatch -- "$f"
++		done < <(git -C "$root" diff --name-only --diff-filter=D "${pin}..${FORK_REF}" -- $paths)
++
++		if [ -z "$(git -C "$root" ls-tree -r --name-only "$FORK_REF" -- $paths)" ]; then
++			die "bucket $name matches no files at $FORK_REF"
++		fi
++		# shellcheck disable=SC2086 # intentional path splitting
++		git checkout "$FORK_REF" -- $paths
++		git add -A
++		if git diff --cached --quiet; then
++			printf 'refresh-patches: bucket %s is empty, skipping\n' "$name" >&2
++			continue
++		fi
++		message_for "$name" >"$tmp/message"
++		GIT_AUTHOR_DATE=$date GIT_COMMITTER_DATE=$date \
++			git commit -q --no-verify -F "$tmp/message"
++		git format-patch -1 HEAD --stdout --no-signature >"$root/patches/$name.patch"
++	done
++)
++
++printf 'refresh-patches: wrote %s patch file(s) from %s\n' "$(ls -1 "$root/patches"/*.patch 2>/dev/null | wc -l | tr -d ' ')" "$FORK_REF"
+diff --git a/script/sync-upstream.sh b/script/sync-upstream.sh
+new file mode 100755
+index 0000000..dd380e6
+--- /dev/null
++++ b/script/sync-upstream.sh
+@@ -0,0 +1,115 @@
++#!/usr/bin/env bash
++# Rebase the fork onto a newer upstream and refresh the patch series.
++#
++#   script/sync-upstream.sh v0.5.0    # fetch, rebase, update the pin, refresh
++#   script/sync-upstream.sh --continue  # finish after resolving conflicts
++#
++# The pre-rebase tip is tagged so the rebase can be reviewed with git range-diff.
++# Conflicts are expected only in the bucket that owns the file; git rerere
++# replays previous resolutions of the same hunks.
++set -euo pipefail
++
++root=$(git rev-parse --show-toplevel)
++cd "$root"
++
++FORK_REF=${FORK_REF:-main}
++UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
++
++die() { printf 'sync-upstream: %s\n' "$*" >&2; exit 1; }
++usage() {
++	cat >&2 <<'EOF'
++usage: script/sync-upstream.sh <new-upstream-ref>
++       script/sync-upstream.sh --continue
++       script/sync-upstream.sh --help
++
++  <new-upstream-ref>  commit/tag to rebase onto (e.g. v0.5.0, upstream/main)
++  --continue          finish an interrupted sync after resolving conflicts
++
++environment:
++  FORK_REF         fork branch to rebase            (default: main)
++  UPSTREAM_REMOTE  git remote for upstream          (default: upstream)
++  NO_FETCH=1       skip git fetch
++EOF
++}
++
++write_pin() { printf '%s\n' "$1" >script/upstream-pin; }
++
++finish() {
++	local new=$1
++	# The pin is tracked, so commit the bump before regenerating the series:
++	# refresh-patches refuses to run over a dirty tree.
++	write_pin "$new"
++	git add script/upstream-pin
++	git commit -q --no-verify -m "upstream-pin: advance to $new"
++	script/refresh-patches.sh
++	if [ -n "$(git status --porcelain -- patches)" ]; then
++		git add patches
++		git commit -q --no-verify -m "Refresh patch series"
++	fi
++	script/verify-upstream.sh
++	printf '\nsync-upstream: rebased onto %s and refreshed patches\n' "$new"
++	printf 'review the replay with:\n  git range-diff %s..%s %s..%s\n' \
++		"$old_base" "$old_tip" "$new" "$FORK_REF"
++}
++
++old_base=$(tr -d '[:space:]' < script/upstream-pin)
++old_tip=$(git rev-parse "$FORK_REF")
++marker=.git/ua-sync-target
++marker_base=.git/ua-sync-base
++
++case "${1:-}" in
++"" | -h | --help)
++	usage
++	exit 0
++	;;
++--continue)
++	[ -d .git/rebase-merge ] || [ -d .git/rebase-apply ] ||
++		die "no rebase in progress; nothing to continue"
++	[ -f "$marker" ] && [ -f "$marker_base" ] ||
++		die "no interrupted sync recorded; finish the rebase manually, then run script/refresh-patches.sh"
++	new=$(cat "$marker")
++	old_base=$(cat "$marker_base")
++	old_tip=$(git tag --list 'sync/pre-*' --sort=-creatordate | head -1)
++	[ -n "$old_tip" ] || die "no sync/pre-* tag found"
++	GIT_EDITOR=true git rebase --continue || die "rebase still has unresolved conflicts"
++	rm -f "$marker" "$marker_base"
++	finish "$new"
++	exit 0
++	;;
++-*)
++	usage
++	exit 2
++	;;
++esac
++
++requested=$1
++if ! git diff --quiet || ! git diff --cached --quiet; then
++	die "working tree has staged or unstaged changes; commit or stash them first"
++fi
++
++if [ "${NO_FETCH:-0}" != 1 ]; then
++	git fetch "$UPSTREAM_REMOTE" --tags
++fi
++
++new=$(git rev-parse --verify "${requested}^{commit}") || die "cannot resolve $requested"
++[ "$new" != "$old_base" ] || die "already pinned to $new"
++git merge-base --is-ancestor "$old_base" "$FORK_REF" ||
++	die "$FORK_REF does not descend from the pinned base $old_base; reconcile the history manually before syncing"
++
++tag="sync/pre-$(date -u +%Y%m%d-%H%M%S)"
++git tag "$tag" "$old_tip"
++printf '%s\n' "$new" >"$marker"
++printf '%s\n' "$old_base" >"$marker_base"
++
++if ! git rebase --onto "$new" "$old_base" "$FORK_REF"; then
++	cat >&2 <<EOF
++
++sync-upstream: rebase stopped on conflicts.
++  1. resolve them (git status), then: git add <files>
++  2. finish with: script/sync-upstream.sh --continue
++  pre-sync tip is tagged $tag for git range-diff.
++EOF
++	exit 1
++fi
++rm -f "$marker" "$marker_base"
++finish "$new"
+diff --git a/script/upstream-pin b/script/upstream-pin
+new file mode 100644
+index 0000000..4dfd52f
+--- /dev/null
++++ b/script/upstream-pin
+@@ -0,0 +1 @@
++a5f3fd13032737142916523ae4344c392292f9d5
+diff --git a/script/verify-upstream.sh b/script/verify-upstream.sh
+new file mode 100755
+index 0000000..c0f43b4
+--- /dev/null
++++ b/script/verify-upstream.sh
+@@ -0,0 +1,88 @@
++#!/usr/bin/env bash
++# Verify that the committed patch series applies to the pinned upstream base and
++# that the fork still builds. Two independent checks:
++#
++#   1. every patch applies cleanly to a pristine checkout of script/upstream-pin;
++#   2. the applied tree is byte-identical to the fork ref (modes and blobs),
++#      except for patches/ itself, which cannot be part of the series.
++#
++# Environment:
++#   VERIFY_REF       fork ref to compare against          (default: HEAD)
++#   VERIFY_IDENTITY  1 to check byte-identity             (default: 1)
++#   VERIFY_VET       1 to run go vet                      (default: 1)
++#   VERIFY_TESTS     1 to run the full test suites        (default: 1)
++set -euo pipefail
++
++root=$(git rev-parse --show-toplevel)
++cd "$root"
++
++VERIFY_REF=${VERIFY_REF:-HEAD}
++VERIFY_IDENTITY=${VERIFY_IDENTITY:-1}
++VERIFY_VET=${VERIFY_VET:-1}
++VERIFY_TESTS=${VERIFY_TESTS:-1}
++
++die() { printf 'verify-upstream: %s\n' "$*" >&2; exit 1; }
++
++pin=$(tr -d '[:space:]' < script/upstream-pin)
++[ -n "$pin" ] || die "script/upstream-pin is empty"
++git cat-file -e "${pin}^{commit}" 2>/dev/null ||
++	die "pinned commit $pin is not in this repository; run: git fetch upstream --tags"
++verify_ref=$(git rev-parse --verify "${VERIFY_REF}^{commit}") ||
++	die "fork ref $VERIFY_REF does not exist"
++
++shopt -s nullglob
++patches=("$root"/patches/*.patch)
++shopt -u nullglob
++[ "${#patches[@]}" -gt 0 ] || die "no patches in patches/; run script/refresh-patches.sh"
++
++tmp=$(mktemp -d)
++trap 'rm -rf "$tmp"' EXIT
++
++printf 'verify-upstream: base %s, %s patch(es)\n' "$pin" "${#patches[@]}"
++git archive "$pin" | tar -x -C "$tmp"
++cd "$tmp"
++git init -q .
++git config user.name "unreal-agent verify"
++git config user.email "verify@invalid"
++git add -A
++git commit -q --no-verify -m "pinned upstream $pin"
++
++for patch in "${patches[@]}"; do
++	git apply --check "$patch" ||
++		die "$(basename "$patch") does not apply to $pin; rebase the fork (script/sync-upstream.sh)"
++	git apply "$patch"
++done
++git add -A
++git commit -q --no-verify -m "fork patches"
++printf 'verify-upstream: patches applied\n'
++
++if [ "$VERIFY_IDENTITY" = 1 ] &&
++	git -C "$root" merge-base --is-ancestor "$pin" "$verify_ref" 2>/dev/null; then
++	git -C "$root" ls-tree -r --format='%(objectmode) %(objectname) %(path)' "$verify_ref" |
++		LC_ALL=C sort -k3 | grep -v '^[0-9]\+ [0-9a-f]\+ patches/' >"$tmp/fork.tree" || true
++	git ls-tree -r --format='%(objectmode) %(objectname) %(path)' HEAD |
++		LC_ALL=C sort -k3 >"$tmp/applied.tree"
++	if ! diff -u "$tmp/fork.tree" "$tmp/applied.tree" >"$tmp/tree.diff"; then
++		head -50 "$tmp/tree.diff" >&2
++		die "patches do not reproduce $VERIFY_REF ($verify_ref); run script/refresh-patches.sh"
++	fi
++	printf 'verify-upstream: applied tree matches %s\n' "$VERIFY_REF"
++fi
++
++go build ./... || die "root module does not build after patching"
++go -C cmd/unreal-agent-tui build ./... || die "TUI module does not build after patching"
++printf 'verify-upstream: both modules build\n'
++
++if [ "$VERIFY_VET" = 1 ]; then
++	go vet ./... || die "go vet failed in the patched tree"
++	go -C cmd/unreal-agent-tui vet ./... || die "go vet failed in the patched TUI module"
++	printf 'verify-upstream: go vet clean\n'
++fi
++
++if [ "$VERIFY_TESTS" = 1 ]; then
++	go test -count=1 ./... || die "root tests failed in the patched tree"
++	go -C cmd/unreal-agent-tui test -count=1 ./... || die "TUI tests failed in the patched tree"
++	printf 'verify-upstream: tests pass\n'
++fi
++
++printf 'verify-upstream: ok\n'
