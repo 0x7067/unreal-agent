@@ -320,7 +320,7 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 	if config.Workspace != "" {
 		args = append(args, "-workspace", config.Workspace)
 	}
-	args = append(args, string(encoded))
+	// The request goes to stdin, not argv, so other local users cannot read it.
 	command := exec.CommandContext(ctx, config.Command[0], args...)
 	command.Cancel = func() error { return command.Process.Signal(os.Interrupt) }
 	command.WaitDelay = stopWaitDelay
@@ -337,6 +337,10 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 		if err == nil {
 			current.stdin, current.stop = stdin, stop
 			go s.supervisor.read(current, generation, command, stdout)
+			if _, err := stdin.Write(append(encoded, '\n')); err != nil {
+				// The reader reports the exit and fails the owner.
+				stop()
+			}
 			return
 		}
 	}

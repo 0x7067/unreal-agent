@@ -168,7 +168,7 @@ func Run(
 	workspaceDirectory := flags.String("workspace", ".", "agent workspace and Bash working directory")
 	logDirectory := flags.String("log-directory", "", "optional session JSONL log directory; unset writes only to stdout")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
-	inboxStdin := flags.Bool(strings.TrimPrefix(subagent.InboxStdinFlag, "-"), false, "after the request, read JSONL inbox inputs from stdin; requires -p or a positional request")
+	inboxStdin := flags.Bool(strings.TrimPrefix(subagent.InboxStdinFlag, "-"), false, "read JSONL inbox inputs from stdin after the request; without -p or a positional request, the first stdin line is the request")
 	isSubagent := flags.Bool(strings.TrimPrefix(subagent.SubagentFlag, "-"), false, "run as a subagent that messages its parent instead of starting subagents")
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
@@ -188,10 +188,7 @@ func Run(
 	if *toolHeartbeatInterval < 0 {
 		return errors.New("tool heartbeat interval must not be negative")
 	}
-	if *inboxStdin && prompt == nil && flags.NArg() == 0 {
-		return errors.New("-inbox-stdin requires -p or a positional JSON request")
-	}
-	inboxInput := input
+	inboxInput := bufio.NewReader(input)
 
 	if prompt != nil {
 		encoded, err := json.Marshal(struct {
@@ -203,6 +200,13 @@ func Run(
 		input = bytes.NewReader(encoded)
 	} else if flags.NArg() == 1 {
 		input = strings.NewReader(flags.Arg(0))
+	} else if *inboxStdin {
+		// The first stdin line is the request; later lines are inbox inputs.
+		raw, err := readLine(ctx, inboxInput)
+		if err != nil {
+			return fmt.Errorf("read request line: %w", err)
+		}
+		input = bytes.NewReader(raw)
 	} else {
 		raw, err := readInput(ctx, input)
 		if err != nil {
@@ -232,9 +236,13 @@ func Run(
 	if !workspaceInfo.IsDir() {
 		return fmt.Errorf("workspace %q is not a directory", workspace)
 	}
-	environment, err := loadDotEnv(filepath.Join(workspace, ".env"))
-	if err != nil {
-		return err
+	environment := &environmentScope{}
+	if !*isSubagent {
+		// Subagents inherit their parent's environment instead.
+		environment, err = loadDotEnv(filepath.Join(workspace, ".env"))
+		if err != nil {
+			return err
+		}
 	}
 	defer func() {
 		if err := environment.Close(); err != nil {
@@ -533,6 +541,25 @@ func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error)
 		return 0, errors.New("max attempts must be positive")
 	}
 	return maxAttempts, nil
+}
+
+func readLine(ctx context.Context, input *bufio.Reader) ([]byte, error) {
+	var line []byte
+	var err error
+	done := make(chan struct{})
+	go func() {
+		line, err = input.ReadBytes('\n')
+		if err == io.EOF && len(bytes.TrimSpace(line)) != 0 {
+			err = nil
+		}
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-done:
+		return line, err
+	}
 }
 
 func readInput(ctx context.Context, input io.Reader) ([]byte, error) {
