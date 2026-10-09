@@ -57,6 +57,13 @@ directories and directory symlinks. Scanning and searching run in process;
 they do not launch Git, a shell, or other subprocesses.
 File references insert paths into the message; file contents are not attached.
 
+## Subagents
+
+The `Agent` and `SendMessage` tools are on by default; `-subagents=false` disables them.
+Subagents run as child processes started with `unreal-agent-tui agent-runner`.
+Their stderr goes to `subagents.log` in the session's operations directory, not the terminal.
+Child sessions are stored alongside the parent's session.
+
 ## ChatGPT subscription
 
 Sign in with Codex using file credentials:

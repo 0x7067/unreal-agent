@@ -27,7 +27,7 @@ Request schema (JSON object; unknown fields are rejected):
     Creates or resumes a persisted session.
   disallowed_tools: array of non-empty strings (optional)
     Static tool names excluded from model context and execution.
-  extra_allowed_tools: array of non-empty strings (optional; accepted but ignored)
+  extra_allowed_tools: array of non-empty strings (optional; "Agent" enables the Agent and SendMessage subagent tools)
   include_partial_messages: boolean (optional; accepted but ignored)
 `
 

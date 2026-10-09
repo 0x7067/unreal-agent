@@ -9,6 +9,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
+	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -23,6 +24,8 @@ func resultState(result tool.Result) (running bool, failure string) {
 	case viewimage.Result:
 		return result.Running, result.Error
 	case tool.SkillUseResult:
+		return result.Running, result.Error
+	case toolsubagent.Result:
 		return result.Running, result.Error
 	default:
 		return false, fmt.Sprintf("Unsupported tool result %T", result)
@@ -91,6 +94,13 @@ func resultText(result tool.Result) (string, string) {
 		}
 	case tool.SkillUseResult:
 		parts = append(parts, string(result.Content))
+		if result.Error != "" {
+			parts = append(parts, result.Error)
+		}
+	case toolsubagent.Result:
+		if result.Text != "" {
+			parts = append(parts, result.Text)
+		}
 		if result.Error != "" {
 			parts = append(parts, result.Error)
 		}

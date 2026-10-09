@@ -29,6 +29,9 @@ import (
 
 type runEnded struct{ err error }
 
+// subagentMessagePrefix starts the external inbox payloads the subagent supervisor delivers.
+const subagentMessagePrefix = `Message from subagent "`
+
 const mascot = `⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⣀⣴⣟⣋⣀⣀⡀⠀⠀⠀⠀
 ⠀⠴⢞⡿⠋⠉⠁⠀⠈⠉⠙⠳⣄⠀⠀
@@ -370,7 +373,11 @@ func (m *model) apply(item sessionstore.Item) {
 		if data.Kind == inbox.InputExternal {
 			var text string
 			if json.Unmarshal(data.Payload, &text) == nil {
-				m.append("You", text)
+				label := "You"
+				if strings.HasPrefix(text, subagentMessagePrefix) {
+					label = "Subagent"
+				}
+				m.append(label, text)
 			}
 		}
 	case session.Turn:

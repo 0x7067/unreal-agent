@@ -12,7 +12,7 @@ import (
 )
 
 func TestParseRequestConfiguresStaticTools(t *testing.T) {
-	parsed, factory, err := parseRequest(strings.NewReader(`{"prompt":"hello","disallowed_tools":["Bash","SkillUse"]}`))
+	parsed, factory, err := parseRequest(strings.NewReader(`{"prompt":"hello","disallowed_tools":["Bash","SkillUse","Agent","SendMessage"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	BashName      = "Bash"
-	ViewImageName = "ViewImage"
-	SkillUseName  = "SkillUse"
+	BashName        = "Bash"
+	ViewImageName   = "ViewImage"
+	SkillUseName    = "SkillUse"
+	AgentName       = "Agent"
+	SendMessageName = "SendMessage"
 )
 
 type registry struct {
@@ -34,8 +36,10 @@ type registry struct {
 var _ Registry = (*registry)(nil)
 
 type StaticTranslators struct {
-	Bash      Translator
-	ViewImage Translator
+	Bash        Translator
+	ViewImage   Translator
+	Agent       Translator
+	SendMessage Translator
 }
 
 func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
@@ -53,10 +57,18 @@ func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
 	if configured.ViewImage == nil {
 		configured.ViewImage = unavailableTranslator{name: ViewImageName}
 	}
+	if configured.Agent == nil {
+		configured.Agent = unavailableTranslator{name: AgentName}
+	}
+	if configured.SendMessage == nil {
+		configured.SendMessage = unavailableTranslator{name: SendMessageName}
+	}
 	current.staticTranslators = map[string]Translator{
-		BashName:      configured.Bash,
-		ViewImageName: configured.ViewImage,
-		SkillUseName:  &skillUseTranslator{registry: current},
+		BashName:        configured.Bash,
+		ViewImageName:   configured.ViewImage,
+		SkillUseName:    &skillUseTranslator{registry: current},
+		AgentName:       configured.Agent,
+		SendMessageName: configured.SendMessage,
 	}
 	return current
 }

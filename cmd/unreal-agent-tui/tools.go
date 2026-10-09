@@ -38,6 +38,10 @@ func toolSummary(name, arguments string) string {
 	var input struct {
 		Command string `json:"command"`
 		Path    string `json:"path"`
+		Name    string `json:"name"`
+		Prompt  string `json:"prompt"`
+		To      string `json:"to"`
+		Message string `json:"message"`
 	}
 	if json.Unmarshal([]byte(arguments), &input) == nil {
 		switch name {
@@ -45,6 +49,10 @@ func toolSummary(name, arguments string) string {
 			arguments = input.Command
 		case "ViewImage":
 			arguments = input.Path
+		case "Agent":
+			arguments = input.Name + ": " + input.Prompt
+		case "SendMessage":
+			arguments = "to " + input.To + ": " + input.Message
 		}
 	}
 	return ansi.Truncate(singleLine(arguments), 160, "…")

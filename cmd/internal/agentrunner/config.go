@@ -15,6 +15,9 @@ type Config struct {
 	Name         string
 	Providers    []providers.Provider
 	ParseRequest func(io.Reader) (Request, ToolFactory, error)
+	// SubagentCommand starts a subagent runner: an executable and its leading
+	// arguments. Nil runs this executable with no leading arguments.
+	SubagentCommand []string
 }
 
 type ToolConfig struct {
@@ -31,6 +34,17 @@ type Tools struct {
 }
 
 type ToolFactory func(context.Context, ToolConfig) (Tools, error)
+
+// ParseRequest decodes a request that configures only the static tools.
+func ParseRequest(input io.Reader) (Request, ToolFactory, error) {
+	var parsed Request
+	if err := DecodeRequest(input, &parsed); err != nil {
+		return Request{}, nil, err
+	}
+	return parsed, func(_ context.Context, config ToolConfig) (Tools, error) {
+		return Tools{Registry: tool.NewRegistry(config.Translators, parsed.EnabledTools(config.Names...)...)}, nil
+	}, nil
+}
 
 func (parsed Request) EnabledTools(names ...string) []string {
 	enabled := make([]string, 0, len(names))

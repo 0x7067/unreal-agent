@@ -1,6 +1,7 @@
 package agentrunner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json/v2"
@@ -19,6 +20,7 @@ import (
 	"uuid"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
@@ -32,6 +34,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/settings"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
+	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -48,6 +51,10 @@ const defaultSystemPrompt = `You are an AI agent running inside an isolated sand
 ## Guidelines
 - Save output files to the workspace root.
 - For large datasets, inspect a sample first before processing everything.
+`
+
+const subagentSystemPrompt = `## Subagent
+You are a subagent started by a parent agent, which reads your final message as your result. Make it a complete, self-contained report. Use SendMessage with to "parent" only for questions or findings the parent needs before you finish.
 `
 
 type Request struct {
@@ -161,6 +168,8 @@ func Run(
 	workspaceDirectory := flags.String("workspace", ".", "agent workspace and Bash working directory")
 	logDirectory := flags.String("log-directory", "", "optional session JSONL log directory; unset writes only to stdout")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
+	inboxStdin := flags.Bool(strings.TrimPrefix(subagent.InboxStdinFlag, "-"), false, "after the request, read JSONL inbox inputs from stdin; requires -p or a positional request")
+	isSubagent := flags.Bool(strings.TrimPrefix(subagent.SubagentFlag, "-"), false, "run as a subagent that messages its parent instead of starting subagents")
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -179,6 +188,10 @@ func Run(
 	if *toolHeartbeatInterval < 0 {
 		return errors.New("tool heartbeat interval must not be negative")
 	}
+	if *inboxStdin && prompt == nil && flags.NArg() == 0 {
+		return errors.New("-inbox-stdin requires -p or a positional JSON request")
+	}
+	inboxInput := input
 
 	if prompt != nil {
 		encoded, err := json.Marshal(struct {
@@ -321,17 +334,22 @@ func Run(
 	if len(skills) != 0 {
 		names = append(names, tool.SkillUseName)
 	}
-	toolConfig := ToolConfig{
-		SessionID: sessionID, Getenv: getenv, Names: names,
-		Translators: tool.StaticTranslators{
-			Bash: bash.New(bash.Config{
-				Shell:         shell,
-				Directory:     workspace,
-				BaseDirectory: operationDirectory,
-			}),
-			ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
-		},
+	translators := tool.StaticTranslators{
+		Bash: bash.New(bash.Config{
+			Shell:         shell,
+			Directory:     workspace,
+			BaseDirectory: operationDirectory,
+		}),
+		ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
 	}
+	if *isSubagent {
+		names = append(names, tool.SendMessageName)
+		translators.SendMessage = toolsubagent.NewSendToParent()
+	} else if slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
+		names = append(names, tool.AgentName, tool.SendMessageName)
+		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+	}
+	toolConfig := ToolConfig{SessionID: sessionID, Getenv: getenv, Names: names, Translators: translators}
 	configuredTools, err := newTools(runContext, toolConfig)
 	if err != nil {
 		return err
@@ -356,16 +374,35 @@ func Run(
 		}
 	}
 
-	operations := operation.NewLocalOperationManager(runContext, configuredTools.RemoteJobs...)
+	inputs, err := inbox.New(runContext, restored.InputIDs)
+	if err != nil {
+		return fmt.Errorf("open inbox: %w", err)
+	}
+	remoteJobs := configuredTools.RemoteJobs
+	if _, enabled := registry.Resolve(tool.AgentName); enabled {
+		command := config.SubagentCommand
+		if command == nil {
+			executable, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolve subagent executable: %w", err)
+			}
+			command = []string{executable}
+		}
+		supervisor, err := subagent.New(runContext, subagent.Config{
+			Command: command, SessionDirectory: storeDirectory, Workspace: workspace,
+			Model: model, ThinkingLevel: parsed.ThinkingLevel, Inbox: inputs, Stderr: flagOutput,
+		})
+		if err != nil {
+			return err
+		}
+		remoteJobs = append(slices.Clip(remoteJobs), supervisor.Handlers()...)
+	}
+	operations := operation.NewLocalOperationManager(runContext, remoteJobs...)
 	defer func() {
 		cancel()
 		for range operations.Updates() {
 		}
 	}()
-	inputs, err := inbox.New(runContext, restored.InputIDs)
-	if err != nil {
-		return fmt.Errorf("open inbox: %w", err)
-	}
 	settingsPayload, err := json.Marshal(inbox.ControlMessage{
 		Mode: inbox.UpdateSettings,
 		Parameters: inbox.Settings{
@@ -410,12 +447,18 @@ func Run(
 	}); err != nil {
 		return fmt.Errorf("submit stop request: %w", err)
 	}
+	if *inboxStdin {
+		go submitInboxLines(runContext, inboxInput, inputs, flagOutput)
+	}
 
 	builder := contextbuilder.NewBuilder(registry.Skills()...)
 	builder.SetModel(selectedModel)
 	systemPrompt := defaultSystemPrompt
 	if parsed.SystemPrompt != nil {
 		systemPrompt = *parsed.SystemPrompt
+	}
+	if *isSubagent {
+		systemPrompt = strings.TrimSpace(systemPrompt) + "\n\n" + subagentSystemPrompt
 	}
 	builder.SetSystemPrompt(systemPrompt)
 	for _, definition := range registry.StaticDefinitions() {
@@ -448,6 +491,31 @@ func Run(
 		return fmt.Errorf("run coordinator: %w", coordinatorErr)
 	}
 	return nil
+}
+
+// submitInboxLines submits each JSONL inbox input read from input. Invalid
+// lines are reported and skipped.
+func submitInboxLines(ctx context.Context, input io.Reader, inputs inbox.Writer, errors io.Writer) {
+	lines := bufio.NewReader(input)
+	for {
+		line, readErr := lines.ReadBytes('\n')
+		if line = bytes.TrimSpace(line); len(line) != 0 {
+			var received inbox.Input
+			err := json.Unmarshal(line, &received)
+			if err == nil {
+				err = inputs.Submit(ctx, received)
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				_, _ = fmt.Fprintf(errors, "inbox input> %s\n", err)
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }
 
 func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error) {
