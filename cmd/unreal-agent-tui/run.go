@@ -9,12 +9,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"uuid"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol"
@@ -30,6 +33,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/settings"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
+	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -38,6 +42,7 @@ type options struct {
 	version, setup                   bool
 	modelExplicit, effortExplicit    bool
 	maxAttempts                      int
+	subagents                        bool
 	theme                            theme
 }
 
@@ -56,6 +61,7 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	flags.StringVar(&opts.effort, "effort", getenv("UNREAL_HARNESS_LLM_REASONING_EFFORT"), strings.Join(reasoning.Choices(), ", ")+" (default high for Codex, medium otherwise)")
 	flags.StringVar(&opts.baseURL, "base-url", getenv("UNREAL_HARNESS_LLM_BASE_URL"), "API endpoint override")
 	flags.IntVar(&opts.maxAttempts, "max-attempts", responsesapi.DefaultMaxAttempts, fmt.Sprintf("request attempts (default %d)", responsesapi.DefaultMaxAttempts))
+	flags.BoolVar(&opts.subagents, "subagents", true, "let the agent start subagents with the Agent tool")
 	flags.StringVar(&themeName, "theme", defaultTheme, "palette name or JSON path (default "+defaultTheme+")")
 	flags.Usage = func() { printHelp(flags, output) }
 	if err := flags.Parse(args); err != nil {
@@ -114,7 +120,17 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	return opts, err
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) error {
+func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) (err error) {
+	// Like the runner, read the workspace .env before any settings; subagents inherit it.
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	environment, err := agentrunner.LoadDotEnv(filepath.Join(workingDirectory, ".env"))
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, environment.Close()) }()
 	opts, err := parseOptions(args, getenv, output)
 	if err != nil {
 		return err
@@ -222,7 +238,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	}); err != nil {
 		return err
 	}
-	operations := operation.NewLocalOperationManager(runCtx)
+	operationDirectory := filepath.Join(directory, "operations", string(id))
+	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
+		return err
+	}
+	var remoteJobs []operation.RemoteJobHandler
+	if opts.subagents {
+		handlers, stderr, err := startSubagents(runCtx, opts, directory, workspace, operationDirectory, inputs)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = stderr.Close() }()
+		remoteJobs = handlers
+	}
+	operations := operation.NewLocalOperationManager(runCtx, remoteJobs...)
 	defer func() {
 		cancel()
 		for range operations.Updates() {
@@ -232,19 +261,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	operationDirectory := filepath.Join(directory, "operations", string(id))
-	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
-		return err
-	}
 	skills, skillErrors := tool.DiscoverSkills(filepath.Join(workspace, ".harness", "skills"))
 	enabled := []string{tool.BashName, tool.ViewImageName}
 	if len(skills) > 0 {
 		enabled = append(enabled, tool.SkillUseName)
 	}
-	registry := tool.NewRegistry(tool.StaticTranslators{
+	translators := tool.StaticTranslators{
 		Bash:      bash.New(bash.Config{Shell: shell, Directory: workspace, BaseDirectory: operationDirectory}),
 		ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
-	}, enabled...)
+	}
+	if opts.subagents {
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+	}
+	registry := tool.NewRegistry(translators, enabled...)
 	for _, skill := range skills {
 		if _, err := registry.RegisterSkill(skill); err != nil {
 			return fmt.Errorf("register skill %q: %w", skill.Name, err)
@@ -289,4 +319,33 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		uiErr = nil
 	}
 	return errors.Join(runErr, uiErr)
+}
+
+// startSubagents starts the supervisor that runs Agent and SendMessage work as child
+// runner processes. Child stderr goes to the session's operations directory so it
+// never reaches the terminal; the caller closes the returned file.
+func startSubagents(ctx context.Context, opts options, directory, workspace, operationDirectory string, inputs inbox.Writer) ([]operation.RemoteJobHandler, *os.File, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve subagent executable: %w", err)
+	}
+	stderr, err := os.OpenFile(filepath.Join(operationDirectory, "subagents.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open subagent log: %w", err)
+	}
+	supervisor, err := subagent.New(ctx, subagent.Config{
+		Command:          []string{executable, "agent-runner"},
+		Env:              append(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+opts.provider, "UNREAL_HARNESS_LLM_BASE_URL="+opts.baseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(opts.maxAttempts)),
+		SessionDirectory: directory,
+		Workspace:        workspace,
+		Model:            opts.model,
+		ThinkingLevel:    opts.effort,
+		Inbox:            inputs,
+		Stderr:           stderr,
+	})
+	if err != nil {
+		_ = stderr.Close()
+		return nil, nil, err
+	}
+	return supervisor.Handlers(), stderr, nil
 }

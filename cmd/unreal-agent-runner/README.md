@@ -50,6 +50,23 @@ OpenAI is the default provider. Set `UNREAL_HARNESS_LLM_PROVIDER` to `openai`,
 
 Run `unreal-agent-runner -h` for options and the JSON request fields.
 
+## Subagents
+
+Add `"extra_allowed_tools":["Agent"]` to a request to give the agent the
+`Agent` and `SendMessage` tools:
+
+```sh
+unreal-agent-runner '{"prompt":"Review each package in parallel.","extra_allowed_tools":["Agent"]}'
+```
+
+Each subagent is another runner process with its own session, started with
+`-inbox-stdin -subagent`. Agents talk through their inboxes: the parent writes
+inbox inputs as JSONL to the subagent's stdin, and the subagent's
+`SendMessage` calls to `"parent"` arrive in the parent's inbox. An `Agent`
+call runs until its subagent is idle and returns the subagent's final message.
+Messaging a finished subagent resumes its session. Subagents cannot start
+subagents of their own.
+
 ## Docker
 
 The `unrea1labs/unreal-agent` image supports Linux on AMD64 and ARM64. Run it

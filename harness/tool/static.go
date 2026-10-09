@@ -95,6 +95,44 @@ func staticDefinitions() []Definition {
 				"required": []any{"name"},
 			},
 		}},
+		{Tool: llm.Tool{
+			Type:        llm.ToolFunction,
+			Name:        AgentName,
+			Description: "Start a subagent: a separate agent with its own context and the same workspace. The call keeps running while the subagent works; its final message becomes the result. Messages it sends you arrive as user messages prefixed with its name. Start independent subagents as parallel tool calls in one turn.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Unique name for the subagent, used to message it: lowercase letters, digits, '-' or '_', at most 40 characters.",
+					},
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "The complete task for the subagent. It cannot see your conversation, so include every detail it needs.",
+					},
+				},
+				"required": []any{"name", "prompt"},
+			},
+		}},
+		{Tool: llm.Tool{
+			Type:        llm.ToolFunction,
+			Name:        SendMessageName,
+			Description: "Send a message to another agent's inbox. A parent addresses subagents by name; messaging a finished subagent resumes it, and its reply becomes the result. A subagent addresses its parent as \"parent\".",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"to": map[string]any{
+						"type":        "string",
+						"description": "Recipient: a subagent name, or \"parent\".",
+					},
+					"message": map[string]any{
+						"type":        "string",
+						"description": "The message text.",
+					},
+				},
+				"required": []any{"to", "message"},
+			},
+		}},
 	}
 }
 
