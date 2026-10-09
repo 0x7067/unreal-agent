@@ -617,6 +617,16 @@ func openDatetimeLog(directory string, now time.Time) (*os.File, error) {
 	return file, nil
 }
 
+// LoadDotEnv sets the variables in a .env file that the environment does not
+// already set. Close restores the previous environment.
+func LoadDotEnv(path string) (io.Closer, error) {
+	scope, err := loadDotEnv(path)
+	if err != nil {
+		return nil, err
+	}
+	return scope, nil
+}
+
 func loadDotEnv(path string) (*environmentScope, error) {
 	encoded, err := os.ReadFile(path)
 	if err != nil {

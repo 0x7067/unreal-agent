@@ -57,6 +57,11 @@ directories and directory symlinks. Scanning and searching run in process;
 they do not launch Git, a shell, or other subprocesses.
 File references insert paths into the message; file contents are not attached.
 
+## Environment
+
+Like the runner, the TUI reads `.env` in the directory it starts from. Its
+variables apply only where the environment does not already set them.
+
 ## Subagents
 
 The `Agent` and `SendMessage` tools are on by default; `-subagents=false` disables them.

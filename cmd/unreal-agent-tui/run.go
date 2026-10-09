@@ -15,6 +15,7 @@ import (
 	"uuid"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
@@ -119,7 +120,17 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	return opts, err
 }
 
-func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) error {
+func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) (err error) {
+	// Like the runner, read the workspace .env before any settings; subagents inherit it.
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	environment, err := agentrunner.LoadDotEnv(filepath.Join(workingDirectory, ".env"))
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, environment.Close()) }()
 	opts, err := parseOptions(args, getenv, output)
 	if err != nil {
 		return err
