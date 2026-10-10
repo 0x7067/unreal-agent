@@ -223,6 +223,8 @@ func claims(p []string) []string {
 	return p
 }
 func overlaps(a, b string) bool {
+	// Portable claims conservatively reserve aliases on case-insensitive volumes.
+	a, b = strings.ToLower(a), strings.ToLower(b)
 	return a == "." || b == "." || a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 func intersects(a, b []string) bool {

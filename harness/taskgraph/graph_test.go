@@ -313,3 +313,14 @@ func TestCheckpointValidation(t *testing.T) {
 		t.Fatal("empty tasks")
 	}
 }
+
+func TestCaseInsensitiveClaimAliasesConflict(t *testing.T) {
+	a, b := task("a"), task("b")
+	a.Writes = []string{"Src"}
+	b.Writes = []string{"src/main.go"}
+	g := mustGraph(t, a, b)
+	g.Start("a")
+	if err := g.Start("b"); err == nil {
+		t.Fatal("case alias writer admitted")
+	}
+}
