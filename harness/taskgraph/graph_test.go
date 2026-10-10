@@ -1,10 +1,28 @@
 package taskgraph
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
 )
+
+func TestCheckpointPreservesUnknownClaims(t *testing.T) {
+	a := task("a")
+	a.Reads, a.Writes = nil, nil
+	g := mustGraph(t, a)
+	data, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Graph
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Nodes[0].Task.Reads != nil || restored.Nodes[0].Task.Writes != nil {
+		t.Fatal("unknown claims became independent claims in checkpoint")
+	}
+}
 
 func task(id string, deps ...string) Task {
 	return Task{ID: id, Command: "true", DependsOn: deps, Reads: []string{}, Writes: []string{}, Acceptance: "checked"}

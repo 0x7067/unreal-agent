@@ -3,6 +3,7 @@ package taskgraph
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -63,6 +64,9 @@ func TestFingerprintNilEmptyAndGit(t *testing.T) {
 	all := fingerprintMust(t, dir, nil)
 	empty := fingerprintMust(t, dir, []string{})
 	fingerprintWrite(t, dir, ".git/index", "ignore")
+	if all != fingerprintMust(t, dir, nil) {
+		t.Fatal("root .git was included")
+	}
 	fingerprintWrite(t, dir, "nested/.git/index", "ignore")
 	nested := fingerprintMust(t, dir, nil)
 	fingerprintWrite(t, dir, "nested/.git/index", "changed")
@@ -113,8 +117,12 @@ func TestFingerprintUnsafeAliases(t *testing.T) {
 	if _, err := Fingerprint(filepath.Join(parent, "workspace"), []string{}); err != nil {
 		t.Fatalf("trusted workspace alias rejected: %v", err)
 	}
-	if _, err := Fingerprint(filepath.Join(parent, "workspace", "child"), nil); err == nil {
-		t.Fatal("accepted symlink ancestor")
+	fingerprintWrite(t, dir, "local/file", "inside")
+	if err := os.Symlink("local", filepath.Join(dir, "local-alias")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Fingerprint(dir, []string{"local-alias/file"}); err == nil {
+		t.Fatal("accepted internal symlink ancestor")
 	}
 }
 func TestFingerprintOrderAndName(t *testing.T) {
@@ -126,5 +134,30 @@ func TestFingerprintOrderAndName(t *testing.T) {
 	}
 	if fingerprintMust(t, dir, []string{"a"}) == fingerprintMust(t, dir, []string{"b"}) {
 		t.Fatal("path name ignored")
+	}
+}
+
+func TestFingerprintReadFailuresAndTypes(t *testing.T) {
+	dir := t.TempDir()
+	fingerprintWrite(t, dir, "regular", "value")
+	if _, err := Fingerprint(dir, []string{"regular/child"}); err == nil {
+		t.Fatal("accepted non-directory ancestor")
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, "fifo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Fingerprint(dir, []string{"fifo"}); err == nil {
+		t.Fatal("accepted unsupported FIFO")
+	}
+	if err := os.Chmod(filepath.Join(dir, "regular"), 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(filepath.Join(dir, "regular"), 0600)
+	if f, err := os.Open(filepath.Join(dir, "regular")); err == nil {
+		f.Close()
+		t.Skip("current user can read mode-zero files")
+	}
+	if _, err := Fingerprint(dir, []string{"regular"}); err == nil {
+		t.Fatal("returned fingerprint for unreadable input")
 	}
 }

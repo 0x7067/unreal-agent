@@ -2,6 +2,7 @@
 package taskgraph
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -33,6 +34,14 @@ type Task struct {
 	Acceptance       string   `json:"acceptance"`
 	EstimatedSeconds float64  `json:"estimated_seconds,omitempty"`
 }
+
+// MarshalJSON keeps unknown claims distinct from explicitly empty claims.
+// That distinction controls both reservations and evidence freshness on resume.
+func (t Task) MarshalJSON() ([]byte, error) {
+	type encodedTask Task
+	return json.Marshal(encodedTask(t), json.FormatNilSliceAsNull(true))
+}
+
 type Node struct {
 	Task       Task   `json:"task"`
 	Generation uint64 `json:"generation"`
