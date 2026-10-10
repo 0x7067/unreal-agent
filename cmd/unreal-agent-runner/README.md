@@ -128,6 +128,14 @@ workspace (`.`); `reads: []` declares no reads and `writes: []` declares no writ
 Overlapping writers and reader/writer conflicts wait for ownership to clear;
 readers can overlap.
 
+Current limitation: a conflicting writer can change a completed candidate before
+the parent accepts it. A later task can also invalidate an accepted prerequisite
+by changing its declared inputs or outputs. Such graphs can repeatedly invalidate
+their results instead of reaching completion. Shared mutable artifact workflows
+need further ownership and evidence design; the measured evaluation covers
+compatible, explicit claims. Narrow claims must still include every relevant
+input and generated output.
+
 Completion produces a candidate, not acceptance. Progress arrives in the inbox
 while independent tasks continue. Inspect the graph's JSON status, including
 each node's result, status, generation and evidence, and any blockers:

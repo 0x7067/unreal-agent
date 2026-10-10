@@ -8,6 +8,7 @@ import (
 	"math"
 	"path"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -121,20 +122,14 @@ func (g *Graph) Find(id string) *Node {
 	}
 	return nil
 }
-func cloneStrings(s []string) []string {
-	if s == nil {
-		return nil
-	}
-	return append([]string{}, s...)
-}
 func (g Graph) clone() Graph {
 	c := g
 	c.Nodes = append([]Node(nil), g.Nodes...)
 	for i := range c.Nodes {
 		t := &c.Nodes[i].Task
-		t.DependsOn = cloneStrings(t.DependsOn)
-		t.Reads = cloneStrings(t.Reads)
-		t.Writes = cloneStrings(t.Writes)
+		t.DependsOn = slices.Clone(t.DependsOn)
+		t.Reads = slices.Clone(t.Reads)
+		t.Writes = slices.Clone(t.Writes)
 	}
 	return c
 }
@@ -166,7 +161,7 @@ func (g *Graph) validate() error {
 	ids := map[string]bool{}
 	for i := range g.Nodes {
 		t := &g.Nodes[i].Task
-		t.DependsOn = cloneStrings(t.DependsOn)
+		t.DependsOn = slices.Clone(t.DependsOn)
 		if strings.TrimSpace(t.ID) == "" || ids[t.ID] {
 			return fmt.Errorf("duplicate or empty task ID %q", t.ID)
 		}

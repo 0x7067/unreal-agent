@@ -121,11 +121,10 @@ type graphExecution struct {
 	terminal       bool
 }
 type runtimeState struct {
-	runtime      *Runtime
-	graphs       map[string]*graphExecution
-	active       *graphExecution
-	seen         map[operation.ID]bool
-	shuttingDown bool
+	runtime *Runtime
+	graphs  map[string]*graphExecution
+	active  *graphExecution
+	seen    map[operation.ID]bool
 }
 
 func (r *Runtime) loop() {
@@ -169,7 +168,6 @@ func (r *Runtime) loop() {
 			}
 		case <-done:
 			done = nil
-			s.shuttingDown = true
 			if s.active == nil {
 				return
 			}
@@ -307,12 +305,26 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		a := g.Attempts[n.Task.ID]
 		child := a.ChildOperation
 		if child.Status == operation.StatusReady {
+			if n.Status == Canceling {
+				// Cancellation was recorded before dispatch. Do not turn a
+				// restored cancellation into a new process or agent run.
+				child.Status = operation.StatusCanceled
+				a.ChildOperation = child
+				g.Graph.Canceled(n.Task.ID, n.Generation)
+				s.notify(g, g.Graph.Find(n.Task.ID))
+				continue
+			}
 			g.manager.Add(child)
 		} else if terminal(child.Status) {
 			s.child(child)
 		} else if child.Type == operation.TypeShell {
 			state, err := operation.DecodeShellState(child)
 			if err == nil && state.Phase != operation.ShellPhaseProcess {
+				if n.Status == Canceling {
+					// Resume through the shell's cancellation reducer rather
+					// than letting preparation proceed to command execution.
+					child.Status = operation.StatusCanceling
+				}
 				g.manager.Add(child)
 			} else {
 				a.Blocker = "resumed shell outcome unknown; reservation retained"
@@ -479,15 +491,18 @@ func (s *runtimeState) fresh(g *graphExecution, n *Node) error {
 	}
 	return nil
 }
-func (s *runtimeState) recheck(g *graphExecution) {
+func (s *runtimeState) recheck(g *graphExecution) bool {
+	changed := false
 	for i := range g.Graph.Nodes {
 		n := &g.Graph.Nodes[i]
 		if n.Status == Accepted {
 			if err := s.fresh(g, n); err != nil {
 				g.Graph.Invalidate(n.Task.ID)
+				changed = true
 			}
 		}
 	}
+	return changed
 }
 func (s *runtimeState) advance(g *graphExecution) {
 	if g.terminal {
@@ -670,8 +685,9 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 	if g.terminal && p.Action != "status" {
 		return errors.New("graph is terminal; only status is available")
 	}
+	invalidated := false
 	if p.Action == "accept" && !g.terminal {
-		s.recheck(g)
+		invalidated = s.recheck(g)
 	}
 	switch p.Action {
 	case "status":
@@ -690,7 +706,7 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 			err = s.fresh(g, n)
 			if err != nil {
 				g.Graph.Invalidate(p.TaskID)
-				s.advance(g)
+				invalidated = true
 			}
 		}
 		if err == nil {
@@ -720,6 +736,11 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 		err = fmt.Errorf("unsupported graph action %q", p.Action)
 	}
 	if err != nil {
+		if invalidated {
+			// The acceptance may be stale because its precheck invalidated
+			// prerequisites. Persist and admit reruns even when it fails.
+			s.advance(g)
+		}
 		return err
 	}
 	if !g.terminal {

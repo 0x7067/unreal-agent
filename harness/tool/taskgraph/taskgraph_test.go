@@ -82,6 +82,28 @@ func TestControlsPreserveCurrentAttemptAndExistingDependencies(t *testing.T) {
 		translated(t, controlArgs(action))
 	}
 }
+
+func TestRevisePreservesNullClaimsFromStatusTask(t *testing.T) {
+	// Status serializes unknown ownership as null. Reusing that declaration
+	// must retain whole-workspace ownership rather than turn it into [].
+	declaration := graph.Task{ID: "work", Command: "true", Acceptance: "checked"}
+	arguments, err := json.Marshal(struct {
+		Action string       `json:"action"`
+		Name   string       `json:"name"`
+		Tasks  []graph.Task `json:"tasks"`
+	}{"revise", "goal", []graph.Task{declaration}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := translated(t, string(arguments))
+	var plan graph.ControlPlan
+	if err = json.Unmarshal(state.Plan.Data, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Tasks) != 1 || plan.Tasks[0].Reads != nil || plan.Tasks[0].Writes != nil {
+		t.Fatalf("null ownership changed during revision: %+v", plan)
+	}
+}
 func controlArgs(action string) string {
 	if action == "status" || action == "cancel" {
 		return `{"action":"` + action + `","name":"goal"}`
