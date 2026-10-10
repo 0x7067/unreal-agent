@@ -133,7 +133,43 @@ func staticDefinitions() []Definition {
 				"required": []any{"to", "message"},
 			},
 		}},
+		taskGraphDefinition(),
 	}
+}
+
+func taskGraphDefinition() Definition {
+	stringsSchema := map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+	return Definition{Tool: llm.Tool{
+		Type: llm.ToolFunction, Name: TaskGraphName,
+		Description: "Start and manage a named adaptive task DAG. Ready work runs continuously within safe declared ownership and bounded concurrency. Successful execution produces completed candidates, not accepted output. Judge acceptance conditions and use accept with the current generation and current validation evidence; use reject for unmet conditions. The main call remains running until all tasks are accepted. Inspect status and issue controls while other tasks run. Revise atomically upserts tasks; affected active attempts must terminate first. Cancellation drains running work before releasing ownership. Execution follows enabled Bash and Agent permissions.",
+		Parameters: map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required": []any{"action", "name"},
+			"properties": map[string]any{
+				"action":      map[string]any{"type": "string", "enum": []any{"start", "status", "revise", "accept", "reject", "cancel", "invalidate", "retry"}},
+				"name":        map[string]any{"type": "string", "description": "Stable nonempty graph name."},
+				"concurrency": map[string]any{"type": "integer", "minimum": 1, "maximum": 16, "default": 4, "description": "Maximum concurrent tasks; start only."},
+				"task_id":     map[string]any{"type": "string", "description": "Required for accept, reject, invalidate, retry. Optional for cancel; omit to cancel the entire graph."},
+				"generation":  map[string]any{"type": "integer", "minimum": 1, "description": "Current attempt generation from status, required for accept and reject."},
+				"evidence":    map[string]any{"type": "string", "description": "Required for accept or reject: current evidence satisfying acceptance conditions, or the rejection reason."},
+				"tasks": map[string]any{"type": "array", "minItems": 1, "description": "Required for start and revise. Include declared generated and build artifacts in writes.", "items": map[string]any{
+					"type": "object", "additionalProperties": false, "required": []any{"id", "acceptance"},
+					"oneOf": []any{map[string]any{"required": []any{"command"}, "not": map[string]any{"required": []any{"prompt"}}}, map[string]any{"required": []any{"prompt"}, "not": map[string]any{"required": []any{"command"}}}},
+					"properties": map[string]any{
+						"id":                map[string]any{"type": "string", "description": "Unique stable nonempty task ID."},
+						"description":       map[string]any{"type": "string"},
+						"command":           map[string]any{"type": "string", "description": "Shell command; exactly one of command or prompt."},
+						"prompt":            map[string]any{"type": "string", "description": "Complete worker instructions; exactly one of command or prompt."},
+						"depends_on":        stringsSchema,
+						"reads":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workspace-relative relevant inputs. Omitted/null conservatively claims the entire workspace (.). Explicit [] declares no reads."},
+						"writes":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workspace-relative exclusive edit ownership, including generated artifacts. Omitted/null conservatively claims the entire workspace (.). Explicit [] declares read-only work."},
+						"acceptance":        map[string]any{"type": "string", "description": "Nonempty observable acceptance conditions evaluated by the parent."},
+						"estimated_seconds": map[string]any{"type": "number", "minimum": 0, "description": "Optional duration estimate for remaining critical-path priority."},
+					},
+				}},
+			},
+		},
+	}}
 }
 
 func maxOutputLengthSchema() map[string]any {

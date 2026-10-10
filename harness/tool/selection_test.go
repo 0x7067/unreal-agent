@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+
+	"github.com/unreallabsai/unreal-agent/harness/llm"
 )
 
 func TestRegistryKeepsSelectedStaticToolsAcrossCatalogChanges(t *testing.T) {
-	allNames := []string{BashName, ViewImageName, SkillUseName}
+	allNames := []string{BashName, ViewImageName, SkillUseName, TaskGraphName}
 	for selection := range 1 << len(allNames) {
 		t.Run(fmt.Sprint(selection), func(t *testing.T) {
 			var enabled []string
@@ -55,15 +57,29 @@ func TestRegistryKeepsSelectedStaticToolsAcrossCatalogChanges(t *testing.T) {
 
 func TestRegistryDoesNotResolveUnselectedTranslators(t *testing.T) {
 	registry := NewRegistry(StaticTranslators{
-		Bash: &fixedTranslator{}, ViewImage: &fixedTranslator{},
+		Bash: &fixedTranslator{}, ViewImage: &fixedTranslator{}, TaskGraph: &fixedTranslator{},
 	})
 	if got := registry.StaticDefinitions(); len(got) != 0 {
 		t.Fatalf("empty selection advertises %v", got)
 	}
-	for _, name := range []string{BashName, ViewImageName, SkillUseName} {
+	for _, name := range []string{BashName, ViewImageName, SkillUseName, TaskGraphName} {
 		translator, exists := registry.Resolve(name)
 		if exists || translator != nil {
 			t.Fatalf("unselected %s resolves to (%T, %t)", name, translator, exists)
 		}
+	}
+}
+
+func TestRegistryTaskGraphTranslatorSelection(t *testing.T) {
+	configured := &fixedTranslator{}
+	registry := NewRegistry(StaticTranslators{TaskGraph: configured}, TaskGraphName)
+	got, exists := registry.Resolve(TaskGraphName)
+	if !exists || got != configured {
+		t.Fatalf("TaskGraph translator = (%T, %t), want configured translator", got, exists)
+	}
+	fallback := NewRegistry(StaticTranslators{}, TaskGraphName)
+	unavailable, exists := fallback.Resolve(TaskGraphName)
+	if !exists || unavailable.Translate(nil, llm.ToolCall{}).Error == "" {
+		t.Fatal("unconfigured selected TaskGraph must report unavailable")
 	}
 }
