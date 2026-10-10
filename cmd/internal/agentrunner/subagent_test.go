@@ -29,6 +29,12 @@ func TestSubagentChildProcess(t *testing.T) {
 	os.Args = append(os.Args[:1], os.Args[separator+1:]...)
 	client := &fakeClient{}
 	client.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
+		if os.Getenv("HARNESS_SUBAGENT_PERMISSION_TEST") == "1" {
+			if containsTool(request.Tools, "Bash") {
+				return messageResponse("Bash available"), nil
+			}
+			return messageResponse("Bash denied"), nil
+		}
 		last := request.Input[len(request.Input)-1]
 		text := lastUserText(request.Input)
 		if message, ok := last.Data.(llm.Message); ok && message.Role == llm.RoleUser &&
@@ -38,6 +44,36 @@ func TestSubagentChildProcess(t *testing.T) {
 		return messageResponse("child saw: " + text), nil
 	}
 	Main(testConfig(client))
+}
+
+func TestSubagentsInheritDisallowedTools(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(subagentChildEnvironment, "1")
+	t.Setenv("HARNESS_SUBAGENT_PERMISSION_TEST", "1")
+	t.Setenv(providers.APIKeyEnvironment, "secret")
+	t.Setenv(llmProviderEnvironment, "")
+	t.Setenv(llmBaseURLEnvironment, "")
+	finished := false
+	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+		if text := toolResults(request.Input)["agent"]; text != "" {
+			finished = text == "Bash denied"
+			return messageResponse("done"), nil
+		}
+		return toolCallResponse("agent", "Agent", `{"name":"worker","prompt":"check permissions"}`), nil
+	}}
+	config := testConfig(client)
+	config.SubagentCommand = []string{executable, "-test.run=^TestSubagentChildProcess$", "--"}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	var stdout, stderr strings.Builder
+	code := RunMain(ctx, []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, os.Getenv, os.Environ,
+		strings.NewReader(`{"prompt":"delegate","model":"gpt-test","extra_allowed_tools":["Agent"],"disallowed_tools":["Bash"]}`), &stdout, &stderr, config)
+	if code != 0 || !finished {
+		t.Fatalf("exit=%d inherited denial=%v stderr=%s", code, finished, stderr.String())
+	}
 }
 
 func TestRunMainSubagentsExchangeInboxMessages(t *testing.T) {

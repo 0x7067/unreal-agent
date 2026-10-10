@@ -399,6 +399,7 @@ func Run(
 		supervisor, err := subagent.New(runContext, subagent.Config{
 			Command: command, SessionDirectory: storeDirectory, Workspace: workspace,
 			Model: model, ThinkingLevel: parsed.ThinkingLevel, Inbox: inputs, Stderr: flagOutput,
+			DisallowedTools: parsed.DisallowedTools,
 		})
 		if err != nil {
 			return err
