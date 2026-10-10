@@ -8,6 +8,12 @@ An async-first agent harness from Unreal Labs.
   - [cmd/unreal-agent-tui](cmd/unreal-agent-tui) - cozy TUI.
 - [benchmarks/](benchmarks/) — benchmark runners.
 
+The runner and TUI expose `TaskGraph` to the coordinating agent for work with
+useful overlap: a named dependency graph schedules ready commands or enabled
+subagents within declared file ownership. Completed results require explicit
+parent acceptance before dependents run. See the [task graph usage and
+limits](cmd/unreal-agent-runner/README.md#task-graphs).
+
 ## Glossary
 
 - **Input**: an event with a caller-supplied globally unique ID that remains

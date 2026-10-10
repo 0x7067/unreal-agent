@@ -65,10 +65,9 @@ def smoke(bundle: Path) -> None:
             .splitlines()
         ]
         assert requests and all(request.get("stream") is True for request in requests)
-        assert all(
-            {tool["name"] for tool in request["tools"]} == {"Bash", "ViewImage"}
-            for request in requests
-        )
+        for request in requests:
+            tools = {tool["name"] for tool in request["tools"]}
+            assert tools == {"Bash", "ViewImage", "TaskGraph"}, tools
         observed = set()
         for request in requests:
             for item in request["input"]:
