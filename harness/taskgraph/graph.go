@@ -48,7 +48,7 @@ type Graph struct {
 	Nodes       []Node `json:"nodes"`
 }
 
-func New(name string, tasks []Task, concurrency int) (Graph, error) {
+func NewGraph(name string, tasks []Task, concurrency int) (Graph, error) {
 	if strings.TrimSpace(name) == "" || len(tasks) == 0 {
 		return Graph{}, errors.New("graph requires a name and at least one task")
 	}

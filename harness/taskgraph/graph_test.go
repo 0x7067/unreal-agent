@@ -11,7 +11,7 @@ func task(id string, deps ...string) Task {
 }
 func mustGraph(t *testing.T, tasks ...Task) Graph {
 	t.Helper()
-	g, err := New("test", tasks, 4)
+	g, err := NewGraph("test", tasks, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,25 +200,25 @@ func TestValidation(t *testing.T) {
 	for _, p := range []string{"/tmp", "../outside", "a/../b", ".git/config", "a/.git/config", "C:/tmp", "a\\b"} {
 		a := task("a")
 		a.Writes = []string{p}
-		if _, err := New("bad", []Task{a}, 4); err == nil {
+		if _, err := NewGraph("bad", []Task{a}, 4); err == nil {
 			t.Errorf("unsafe path %q", p)
 		}
 	}
 	for _, n := range []int{-1, 17} {
-		if _, err := New("bad", []Task{task("a")}, n); err == nil {
+		if _, err := NewGraph("bad", []Task{task("a")}, n); err == nil {
 			t.Fatal(n)
 		}
 	}
-	g, err := New("default", []Task{task("a")}, 0)
+	g, err := NewGraph("default", []Task{task("a")}, 0)
 	if err != nil || g.Concurrency != 4 {
 		t.Fatal(g, err)
 	}
 	a := task("a")
 	a.Prompt = "both"
-	if _, err := New("bad", []Task{a}, 4); err == nil {
+	if _, err := NewGraph("bad", []Task{a}, 4); err == nil {
 		t.Fatal("ambiguous execution")
 	}
-	if _, err := New("bad", []Task{task("a", "missing")}, 4); err == nil {
+	if _, err := NewGraph("bad", []Task{task("a", "missing")}, 4); err == nil {
 		t.Fatal("missing dependency")
 	}
 }
@@ -306,10 +306,10 @@ func TestCheckpointValidation(t *testing.T) {
 			t.Fatal("validation mutated checkpoint")
 		}
 	}
-	if _, err := New("", []Task{task("a")}, 4); err == nil {
+	if _, err := NewGraph("", []Task{task("a")}, 4); err == nil {
 		t.Fatal("empty name")
 	}
-	if _, err := New("empty", nil, 4); err == nil {
+	if _, err := NewGraph("empty", nil, 4); err == nil {
 		t.Fatal("empty tasks")
 	}
 }
