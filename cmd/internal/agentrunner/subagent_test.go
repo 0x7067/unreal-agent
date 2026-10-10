@@ -2,6 +2,7 @@ package agentrunner
 
 import (
 	"context"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/tool"
 )
 
 const subagentChildEnvironment = "HARNESS_SUBAGENT_CHILD_TEST"
@@ -29,6 +31,9 @@ func TestSubagentChildProcess(t *testing.T) {
 	os.Args = append(os.Args[:1], os.Args[separator+1:]...)
 	client := &fakeClient{}
 	client.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
+		if containsTool(request.Tools, tool.AgentName) || containsTool(request.Tools, tool.TaskGraphName) {
+			return messageResponse("recursive tools available"), nil
+		}
 		if os.Getenv("HARNESS_SUBAGENT_PERMISSION_TEST") == "1" {
 			if containsTool(request.Tools, "Bash") {
 				return messageResponse("Bash available"), nil
@@ -163,4 +168,53 @@ func messageResponse(text string) llm.Response {
 		Type: llm.ItemMessage,
 		Data: llm.Message{Role: llm.RoleAssistant, Text: text},
 	}}}
+}
+
+func TestGraphSubagentsInheritActualRegistrySelection(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(subagentChildEnvironment, "1")
+	t.Setenv("HARNESS_SUBAGENT_PERMISSION_TEST", "1")
+	t.Setenv(providers.APIKeyEnvironment, "secret")
+	t.Setenv(llmProviderEnvironment, "")
+	t.Setenv(llmBaseURLEnvironment, "")
+	started, accepted, finished := false, false, false
+	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+		results := toolResults(request.Input)
+		if strings.Contains(results["graph"], "all current task generations accepted") {
+			finished = true
+			return messageResponse("done"), nil
+		}
+		if !started {
+			started = true
+			return toolCallResponse("graph", "TaskGraph", `{"action":"start","name":"permissions","tasks":[{"id":"worker","prompt":"check permissions","reads":[],"writes":[],"acceptance":"Bash denied"}]}`), nil
+		}
+		if !accepted && strings.Contains(lastUserText(request.Input), "task worker generation 1: completed") {
+			if !strings.Contains(lastUserText(request.Input), "Bash denied") {
+				t.Errorf("child candidate=%s", lastUserText(request.Input))
+			}
+			accepted = true
+			return toolCallResponse("accept", "TaskGraph", `{"action":"accept","name":"permissions","task_id":"worker","generation":1,"evidence":"child reported Bash denied"}`), nil
+		}
+		return messageResponse("waiting"), nil
+	}}
+	config := testConfig(client)
+	config.SubagentCommand = []string{executable, "-test.run=^TestSubagentChildProcess$", "--"}
+	config.ParseRequest = func(input io.Reader) (Request, ToolFactory, error) {
+		var parsed Request
+		err := DecodeRequest(input, &parsed)
+		return parsed, func(_ context.Context, c ToolConfig) (Tools, error) {
+			names := slices.DeleteFunc(slices.Clone(c.Names), func(name string) bool { return name == tool.BashName })
+			return Tools{Registry: tool.NewRegistry(c.Translators, names...)}, nil
+		}, err
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var stdout, stderr strings.Builder
+	code := RunMain(ctx, []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, os.Getenv, os.Environ, strings.NewReader(`{"prompt":"delegate","model":"gpt-test","extra_allowed_tools":["Agent"]}`), &stdout, &stderr, config)
+	if code != 0 || !accepted || !finished {
+		t.Fatalf("exit=%d accepted=%v finished=%v stderr=%s output=%s", code, accepted, finished, stderr.String(), stdout.String())
+	}
 }
