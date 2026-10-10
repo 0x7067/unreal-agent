@@ -209,10 +209,10 @@ func (s *runtimeState) emit(h *runtimeHandler, op operation.Operation, status op
 }
 func (s *runtimeState) permissions(tasks []Task) error {
 	for _, t := range tasks {
-		if t.Command != "" && !s.runtime.config.AllowBash {
+		if strings.TrimSpace(t.Command) != "" && !s.runtime.config.AllowBash {
 			return errors.New("shell tasks require Bash capability")
 		}
-		if t.Prompt != "" && s.runtime.config.NewAgentHandlers == nil {
+		if strings.TrimSpace(t.Prompt) != "" && s.runtime.config.NewAgentHandlers == nil {
 			return errors.New("agent tasks require agent capability")
 		}
 	}
@@ -340,13 +340,13 @@ func validateAttempts(cp checkpoint) error {
 			switch a.ChildOperation.Type {
 			case operation.TypeShell:
 				_, err = operation.NewShell(a.ChildOperation)
-				if n.Task.Command == "" {
+				if strings.TrimSpace(n.Task.Command) == "" {
 					err = errors.New("shell child belongs to an agent task")
 				}
 			case operation.TypeRemoteJob:
 				var remote operation.RemoteJobState
 				remote, err = operation.DecodeRemoteJobState(a.ChildOperation)
-				if err == nil && (remote.Plan.Type != toolsubagent.RunPlanType || remote.Plan.Version != toolsubagent.PlanVersion || n.Task.Prompt == "") {
+				if err == nil && (remote.Plan.Type != toolsubagent.RunPlanType || remote.Plan.Version != toolsubagent.PlanVersion || strings.TrimSpace(n.Task.Prompt) == "") {
 					err = errors.New("invalid agent child plan")
 				}
 			default:
@@ -561,7 +561,7 @@ func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation
 	id := fmt.Sprintf("tg-%x", digest[:16])
 	var spec operation.Spec
 	var err error
-	if n.Task.Command != "" {
+	if strings.TrimSpace(n.Task.Command) != "" {
 		spec, err = operation.NewShellSpec(operation.ShellInput{Command: n.Task.Command, Shell: s.runtime.config.Shell, Directory: s.runtime.config.Workspace}, s.runtime.config.BaseDirectory, operation.DefaultMaxOutputLength)
 	} else {
 		declaration, e := json.Marshal(n.Task)
