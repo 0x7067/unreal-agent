@@ -38,6 +38,40 @@ func TestSchedulingEvaluation(t *testing.T) {
 	chainSerial := evaluateAcceptedGoal(t, 1, true)
 	chainParallel := evaluateAcceptedGoal(t, 4, true)
 	t.Logf("chain correctness: serial=%s parallel=%s (no speedup requirement)", chainSerial, chainParallel)
+	for _, concurrency := range []int{1, 4} {
+		evaluateBlockedGoal(t, concurrency)
+	}
+}
+
+func evaluateBlockedGoal(t *testing.T, concurrency int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	r, err := New(ctx, Config{Workspace: t.TempDir(), BaseDirectory: t.TempDir(), AllowBash: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := operation.NewLocalOperationManager(ctx, r.Handlers()...)
+	tasks := []Task{
+		{ID: "bad", Command: "exit 7", Reads: []string{}, Writes: []string{}, Acceptance: "exit zero"},
+		{ID: "independent", Command: "printf independent", Reads: []string{}, Writes: []string{}, Acceptance: "output independent"},
+		{ID: "dependent", Command: "printf must-not-run", DependsOn: []string{"bad"}, Reads: []string{}, Writes: []string{}, Acceptance: "blocked"},
+	}
+	if err := m.Add(runtimeOperation(t, "blocked", RunPlanType, RunPlan{Name: "failure", Tasks: tasks, Concurrency: concurrency})); err != nil {
+		t.Fatal(err)
+	}
+	op := runtimeWait(t, m, func(op operation.Operation) bool {
+		g := runtimeGraph(t, op)
+		return g.Find("bad").Status == Failed && g.Find("independent").Status == Completed
+	})
+	g := runtimeGraph(t, op)
+	if g.Find("dependent").Status != Pending || op.Status != operation.StatusAwaiting {
+		t.Fatal("failed goal unlocked dependent or completed")
+	}
+	if g.Find("independent").Result != "independent" {
+		t.Fatal("independent work did not produce the same checked output")
+	}
+	t.Logf("failure concurrency=%d: failed prerequisite blocks dependent; independent output checked; goal remains incomplete", concurrency)
 }
 
 func evaluateAcceptedGoal(t *testing.T, concurrency int, chain bool) time.Duration {
