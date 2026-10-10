@@ -304,25 +304,14 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		}
 		a := g.Attempts[n.Task.ID]
 		child := a.ChildOperation
-		if child.Status == operation.StatusReady {
-			if n.Status == Canceling {
-				// Cancellation was recorded before dispatch. Do not turn a
-				// restored cancellation into a new process or agent run.
-				child.Status = operation.StatusCanceled
-				a.ChildOperation = child
-				g.Graph.Canceled(n.Task.ID, n.Generation)
-				s.notify(g, g.Graph.Find(n.Task.ID))
-				continue
-			}
-			g.manager.Add(child)
-		} else if terminal(child.Status) {
+		if terminal(child.Status) {
 			s.child(child)
 		} else if child.Type == operation.TypeShell {
 			state, err := operation.DecodeShellState(child)
-			if err == nil && state.Phase != operation.ShellPhaseProcess {
+			// Only output collection proves the command already exited. A
+			// persisted Ready or preparation phase can lag a live launch.
+			if err == nil && shellOutputPhase(state.Phase) {
 				if n.Status == Canceling {
-					// Resume through the shell's cancellation reducer rather
-					// than letting preparation proceed to command execution.
 					child.Status = operation.StatusCanceling
 				}
 				g.manager.Add(child)
@@ -340,6 +329,14 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 	}
 	s.probe(g)
 	s.advance(g)
+}
+func shellOutputPhase(phase operation.ShellPhase) bool {
+	switch phase {
+	case operation.ShellPhaseReadOut, operation.ShellPhaseReadOutTail, operation.ShellPhaseReadErr, operation.ShellPhaseReadErrTail:
+		return true
+	default:
+		return false
+	}
 }
 func validateAttempts(cp checkpoint) error {
 	if cp.Attempts == nil {
