@@ -220,16 +220,19 @@ func (g *Graph) validate() error {
 	// Acceptance binds evidence to a task's claimed paths. A task writing into an
 	// ancestor's claims, or unrelated tasks writing into each other's claims,
 	// would invalidate accepted evidence and rerun indefinitely.
+	descendants := map[string]map[string]bool{}
+	for _, n := range g.Nodes {
+		descendants[n.Task.ID] = g.affected(map[string]bool{n.Task.ID: true})
+	}
 	for _, a := range g.Nodes {
-		descendants := g.affected(map[string]bool{a.Task.ID: true})
 		for _, b := range g.Nodes {
 			if a.Task.ID == b.Task.ID {
 				continue
 			}
-			if descendants[b.Task.ID] && writesInto(b.Task, a.Task) {
+			if descendants[a.Task.ID][b.Task.ID] && writesInto(b.Task, a.Task) {
 				return fmt.Errorf("task %s writes paths claimed by its prerequisite %s; declare disjoint claims or merge the tasks", b.Task.ID, a.Task.ID)
 			}
-			if a.Task.ID < b.Task.ID && !descendants[b.Task.ID] && !g.affected(map[string]bool{b.Task.ID: true})[a.Task.ID] &&
+			if a.Task.ID < b.Task.ID && !descendants[a.Task.ID][b.Task.ID] && !descendants[b.Task.ID][a.Task.ID] &&
 				writesInto(a.Task, b.Task) && writesInto(b.Task, a.Task) {
 				return fmt.Errorf("tasks %s and %s write paths claimed by each other; declare disjoint claims or a dependency", a.Task.ID, b.Task.ID)
 			}
