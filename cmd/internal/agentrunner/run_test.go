@@ -131,8 +131,8 @@ description: Review code.
 			t.Fatalf("messages = %#v, want system preamble plus ordered messages from %#v", messages, wantMessages)
 		}
 		allMessagesDelivered = allMessagesDelivered || len(messages) == 3
-		if len(request.Tools) != 3 || !containsTool(request.Tools, "Bash") || !containsTool(request.Tools, "ViewImage") || !containsTool(request.Tools, "SkillUse") {
-			t.Fatalf("tools = %#v, want Bash, ViewImage, and SkillUse", request.Tools)
+		if len(request.Tools) != 4 || !containsTool(request.Tools, "TaskGraph") || !containsTool(request.Tools, "Bash") || !containsTool(request.Tools, "ViewImage") || !containsTool(request.Tools, "SkillUse") {
+			t.Fatalf("tools = %#v, want Bash, ViewImage, SkillUse, and TaskGraph", request.Tools)
 		}
 	}
 	if !allMessagesDelivered {

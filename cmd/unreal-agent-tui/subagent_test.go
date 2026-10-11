@@ -10,6 +10,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	tooltaskgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 )
 
 func TestToolSummarySubagents(t *testing.T) {
@@ -84,5 +85,18 @@ func TestApplySubagentMessageLabel(t *testing.T) {
 	m.apply(sessionstore.Item{Kind: sessionstore.ItemInput, Data: inbox.Input{Kind: inbox.InputExternal, Payload: userPayload}})
 	if len(m.lines) != 2 || m.lines[1].label != "You" {
 		t.Fatalf("lines = %+v, want a You line", m.lines)
+	}
+}
+
+func TestTaskGraphResultState(t *testing.T) {
+	for _, result := range []tooltaskgraph.Result{{Running: true, Text: "candidate awaiting acceptance"}, {Text: "accepted"}, {Error: "denied"}} {
+		running, failure := resultState(result)
+		if running != result.Running || failure != result.Error {
+			t.Fatalf("state=%v %q", running, failure)
+		}
+		text, _ := resultText(result)
+		if !strings.Contains(text, result.Text) || !strings.Contains(text, result.Error) {
+			t.Fatalf("text=%q", text)
+		}
 	}
 }

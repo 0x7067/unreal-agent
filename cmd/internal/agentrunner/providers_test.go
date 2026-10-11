@@ -52,7 +52,7 @@ func TestRunnerAnthropicUsesMessagesAPI(t *testing.T) {
 				if body.Model != "claude-opus-5-5" || !body.Stream || len(body.System) != 1 || !strings.HasSuffix(body.System[0].Text, "\n\nmy system prompt") || body.Thinking.Type != "adaptive" || body.OutputConfig.Effort != "high" {
 					t.Errorf("request = %#v", body)
 				}
-				if len(body.Tools) != 2 || body.Tools[0].Name != "Bash" || body.Tools[1].Name != "ViewImage" || body.Tools[0].Type != "custom" || body.Tools[1].Type != "custom" {
+				if len(body.Tools) != 3 || body.Tools[2].Name != "TaskGraph" || body.Tools[2].Type != "custom" || body.Tools[0].Name != "Bash" || body.Tools[1].Name != "ViewImage" || body.Tools[0].Type != "custom" || body.Tools[1].Type != "custom" {
 					t.Errorf("tools = %#v", body.Tools)
 				}
 				for _, message := range body.Messages {

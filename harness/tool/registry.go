@@ -20,6 +20,7 @@ const (
 	SkillUseName    = "SkillUse"
 	AgentName       = "Agent"
 	SendMessageName = "SendMessage"
+	TaskGraphName   = "TaskGraph"
 )
 
 type registry struct {
@@ -40,6 +41,7 @@ type StaticTranslators struct {
 	ViewImage   Translator
 	Agent       Translator
 	SendMessage Translator
+	TaskGraph   Translator
 }
 
 func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
@@ -63,12 +65,16 @@ func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
 	if configured.SendMessage == nil {
 		configured.SendMessage = unavailableTranslator{name: SendMessageName}
 	}
+	if configured.TaskGraph == nil {
+		configured.TaskGraph = unavailableTranslator{name: TaskGraphName}
+	}
 	current.staticTranslators = map[string]Translator{
 		BashName:        configured.Bash,
 		ViewImageName:   configured.ViewImage,
 		SkillUseName:    &skillUseTranslator{registry: current},
 		AgentName:       configured.Agent,
 		SendMessageName: configured.SendMessage,
+		TaskGraphName:   configured.TaskGraph,
 	}
 	return current
 }

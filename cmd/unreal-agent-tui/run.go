@@ -31,9 +31,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/settings"
+	"github.com/unreallabsai/unreal-agent/harness/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	tooltaskgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -242,39 +244,29 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
 		return err
 	}
-	var remoteJobs []operation.RemoteJobHandler
-	if opts.subagents {
-		handlers, stderr, err := startSubagents(runCtx, opts, directory, workspace, operationDirectory, inputs)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = stderr.Close() }()
-		remoteJobs = handlers
-	}
-	operations := operation.NewLocalOperationManager(runCtx, remoteJobs...)
-	defer func() {
-		cancel()
-		for range operations.Updates() {
-		}
-	}()
 	shell := strings.TrimSpace(getenv("SHELL"))
 	if shell == "" {
 		shell = "/bin/sh"
 	}
 	skills, skillErrors := tool.DiscoverSkills(filepath.Join(workspace, ".harness", "skills"))
-	enabled := []string{tool.BashName, tool.ViewImageName}
-	if len(skills) > 0 {
-		enabled = append(enabled, tool.SkillUseName)
-	}
-	translators := tool.StaticTranslators{
-		Bash:      bash.New(bash.Config{Shell: shell, Directory: workspace, BaseDirectory: operationDirectory}),
-		ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
-	}
+	var newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
 	if opts.subagents {
-		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
-		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+		factory, stderr, err := newSubagentFactory(opts, directory, workspace, operationDirectory, inputs)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = stderr.Close() }()
+		newAgentHandlers = factory
 	}
-	registry := tool.NewRegistry(translators, enabled...)
+	registry, operations, err := newTaskOperations(runCtx, workspace, operationDirectory, shell, inputs, len(skills) > 0, newAgentHandlers)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cancel()
+		for range operations.Updates() {
+		}
+	}()
 	for _, skill := range skills {
 		if _, err := registry.RegisterSkill(skill); err != nil {
 			return fmt.Errorf("register skill %q: %w", skill.Name, err)
@@ -321,10 +313,39 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	return errors.Join(runErr, uiErr)
 }
 
-// startSubagents starts the supervisor that runs Agent and SendMessage work as child
-// runner processes. Child stderr goes to the session's operations directory so it
-// never reaches the terminal; the caller closes the returned file.
-func startSubagents(ctx context.Context, opts options, directory, workspace, operationDirectory string, inputs inbox.Writer) ([]operation.RemoteJobHandler, *os.File, error) {
+// newTaskOperations connects the same registry capabilities to graph and direct work.
+func newTaskOperations(ctx context.Context, workspace, operationDirectory, shell string, inputs inbox.Writer, hasSkills bool, newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)) (tool.Registry, operation.Manager, error) {
+	enabled := []string{tool.BashName, tool.ViewImageName, tool.TaskGraphName}
+	if hasSkills {
+		enabled = append(enabled, tool.SkillUseName)
+	}
+	translators := tool.StaticTranslators{
+		Bash:      bash.New(bash.Config{Shell: shell, Directory: workspace, BaseDirectory: operationDirectory}),
+		ViewImage: viewimage.New(viewimage.Config{Directory: workspace}), TaskGraph: tooltaskgraph.New(),
+	}
+	var remoteJobs []operation.RemoteJobHandler
+	if newAgentHandlers != nil {
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+		handlers, err := newAgentHandlers(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		remoteJobs = append(remoteJobs, handlers...)
+	}
+	registry := tool.NewRegistry(translators, enabled...)
+	_, allowBash := registry.Resolve(tool.BashName)
+	runtime, err := taskgraph.New(ctx, taskgraph.Config{Workspace: workspace, Shell: shell, BaseDirectory: operationDirectory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: newAgentHandlers})
+	if err != nil {
+		return nil, nil, err
+	}
+	remoteJobs = append(remoteJobs, runtime.Handlers()...)
+	return registry, operation.NewLocalOperationManager(ctx, remoteJobs...), nil
+}
+
+// newSubagentFactory captures child configuration and a single caller-owned log.
+// Each call creates a supervisor whose channels belong to its operation manager.
+func newSubagentFactory(opts options, directory, workspace, operationDirectory string, inputs inbox.Writer) (func(context.Context) ([]operation.RemoteJobHandler, error), *os.File, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve subagent executable: %w", err)
@@ -333,19 +354,18 @@ func startSubagents(ctx context.Context, opts options, directory, workspace, ope
 	if err != nil {
 		return nil, nil, fmt.Errorf("open subagent log: %w", err)
 	}
-	supervisor, err := subagent.New(ctx, subagent.Config{
+	config := subagent.Config{
 		Command:          []string{executable, "agent-runner"},
 		Env:              append(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+opts.provider, "UNREAL_HARNESS_LLM_BASE_URL="+opts.baseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(opts.maxAttempts)),
-		SessionDirectory: directory,
-		Workspace:        workspace,
-		Model:            opts.model,
-		ThinkingLevel:    opts.effort,
-		Inbox:            inputs,
-		Stderr:           stderr,
-	})
-	if err != nil {
-		_ = stderr.Close()
-		return nil, nil, err
+		SessionDirectory: directory, Workspace: workspace, Model: opts.model, ThinkingLevel: opts.effort, Inbox: inputs, Stderr: stderr,
+		DisallowedTools: []string{tool.AgentName, tool.TaskGraphName},
 	}
-	return supervisor.Handlers(), stderr, nil
+	factory := func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
+		supervisor, err := subagent.New(ctx, config)
+		if err != nil {
+			return nil, err
+		}
+		return supervisor.Handlers(), nil
+	}
+	return factory, stderr, nil
 }

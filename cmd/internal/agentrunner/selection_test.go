@@ -23,14 +23,15 @@ func TestRunSelectsToolsFromStartupConfiguration(t *testing.T) {
 		disallowed []string
 		want       []string
 	}{
-		{name: "no integrations", want: []string{"Bash", "ViewImage"}},
-		{name: "valid skill", skill: "---\nname: review\ndescription: Review code.\n---\n", want: []string{"Bash", "ViewImage", "SkillUse"}},
-		{name: "disallowed SkillUse", skill: "---\nname: review\ndescription: Review code.\n---\n", disallowed: []string{"SkillUse"}, want: []string{"Bash", "ViewImage"}},
-		{name: "disallowed ViewImage", disallowed: []string{"ViewImage"}, want: []string{"Bash"}},
-		{name: "malformed skill", skill: "invalid", want: []string{"Bash", "ViewImage"}},
-		{name: "incomplete skill", skill: "---\nname: review\n---\n", want: []string{"Bash", "ViewImage"}},
-		{name: "disallowed tools", skill: "---\nname: review\ndescription: Review code.\n---\n", disallowed: []string{"Bash", "ViewImage", "SkillUse"}, want: nil},
-		{name: "empty selection", disallowed: []string{"Bash", "ViewImage"}},
+		{name: "no integrations", want: []string{"Bash", "ViewImage", "TaskGraph"}},
+		{name: "valid skill", skill: "---\nname: review\ndescription: Review code.\n---\n", want: []string{"Bash", "ViewImage", "SkillUse", "TaskGraph"}},
+		{name: "disallowed SkillUse", skill: "---\nname: review\ndescription: Review code.\n---\n", disallowed: []string{"SkillUse"}, want: []string{"Bash", "ViewImage", "TaskGraph"}},
+		{name: "disallowed ViewImage", disallowed: []string{"ViewImage"}, want: []string{"Bash", "TaskGraph"}},
+		{name: "malformed skill", skill: "invalid", want: []string{"Bash", "ViewImage", "TaskGraph"}},
+		{name: "incomplete skill", skill: "---\nname: review\n---\n", want: []string{"Bash", "ViewImage", "TaskGraph"}},
+		{name: "disallowed tools", skill: "---\nname: review\ndescription: Review code.\n---\n", disallowed: []string{"Bash", "ViewImage", "SkillUse", "TaskGraph"}, want: nil},
+		{name: "empty selection", disallowed: []string{"Bash", "ViewImage", "TaskGraph"}},
+		{name: "disallowed TaskGraph", disallowed: []string{"TaskGraph"}, want: []string{"Bash", "ViewImage"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			workspace := t.TempDir()

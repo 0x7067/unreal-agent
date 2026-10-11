@@ -45,6 +45,7 @@ type Config struct {
 	Workspace        string
 	Model            string
 	ThinkingLevel    string
+	DisallowedTools  []string
 	// Inbox receives the subagents' messages to the parent.
 	Inbox  inbox.Writer
 	Stderr io.Writer
@@ -292,11 +293,12 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 		MessageID string `json:"message_id"`
 	}
 	request := struct {
-		SessionID     string           `json:"session_id"`
-		Messages      []requestMessage `json:"messages"`
-		Model         string           `json:"model,omitempty"`
-		ThinkingLevel string           `json:"thinking_level,omitempty"`
-	}{SessionID: current.sessionID, Model: s.supervisor.config.Model, ThinkingLevel: s.supervisor.config.ThinkingLevel}
+		SessionID       string           `json:"session_id"`
+		Messages        []requestMessage `json:"messages"`
+		Model           string           `json:"model,omitempty"`
+		ThinkingLevel   string           `json:"thinking_level,omitempty"`
+		DisallowedTools []string         `json:"disallowed_tools,omitempty"`
+	}{SessionID: current.sessionID, Model: s.supervisor.config.Model, ThinkingLevel: s.supervisor.config.ThinkingLevel, DisallowedTools: s.supervisor.config.DisallowedTools}
 	for _, message := range messages {
 		var text string
 		if err := json.Unmarshal(message.Payload, &text); err != nil {

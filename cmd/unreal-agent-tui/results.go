@@ -10,6 +10,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	tooltaskgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -26,6 +27,8 @@ func resultState(result tool.Result) (running bool, failure string) {
 	case tool.SkillUseResult:
 		return result.Running, result.Error
 	case toolsubagent.Result:
+		return result.Running, result.Error
+	case tooltaskgraph.Result:
 		return result.Running, result.Error
 	default:
 		return false, fmt.Sprintf("Unsupported tool result %T", result)
@@ -94,6 +97,11 @@ func resultText(result tool.Result) (string, string) {
 		}
 	case tool.SkillUseResult:
 		parts = append(parts, string(result.Content))
+		if result.Error != "" {
+			parts = append(parts, result.Error)
+		}
+	case tooltaskgraph.Result:
+		parts = append(parts, result.Text)
 		if result.Error != "" {
 			parts = append(parts, result.Error)
 		}

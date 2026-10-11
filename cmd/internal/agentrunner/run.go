@@ -32,9 +32,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/settings"
+	"github.com/unreallabsai/unreal-agent/harness/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	tooltaskgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 )
 
@@ -353,9 +355,13 @@ func Run(
 	if *isSubagent {
 		names = append(names, tool.SendMessageName)
 		translators.SendMessage = toolsubagent.NewSendToParent()
-	} else if slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
-		names = append(names, tool.AgentName, tool.SendMessageName)
-		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+	} else {
+		names = append(names, tool.TaskGraphName)
+		translators.TaskGraph = tooltaskgraph.New()
+		if slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
+			names = append(names, tool.AgentName, tool.SendMessageName)
+			translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+		}
 	}
 	toolConfig := ToolConfig{SessionID: sessionID, Getenv: getenv, Names: names, Translators: translators}
 	configuredTools, err := newTools(runContext, toolConfig)
@@ -387,7 +393,8 @@ func Run(
 		return fmt.Errorf("open inbox: %w", err)
 	}
 	remoteJobs := configuredTools.RemoteJobs
-	if _, enabled := registry.Resolve(tool.AgentName); enabled {
+	var newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
+	if _, enabled := registry.Resolve(tool.AgentName); enabled && !*isSubagent && slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
 		command := config.SubagentCommand
 		if command == nil {
 			executable, err := os.Executable()
@@ -396,14 +403,38 @@ func Run(
 			}
 			command = []string{executable}
 		}
-		supervisor, err := subagent.New(runContext, subagent.Config{
+		denied := slices.Clone(parsed.DisallowedTools)
+		for _, name := range tool.StaticNames() {
+			if _, enabled := registry.Resolve(name); !enabled && !slices.Contains(denied, name) {
+				denied = append(denied, name)
+			}
+		}
+		denied = append(denied, tool.AgentName, tool.TaskGraphName)
+		childConfig := subagent.Config{
 			Command: command, SessionDirectory: storeDirectory, Workspace: workspace,
 			Model: model, ThinkingLevel: parsed.ThinkingLevel, Inbox: inputs, Stderr: flagOutput,
-		})
+			DisallowedTools: denied,
+		}
+		newAgentHandlers = func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
+			supervisor, err := subagent.New(ctx, childConfig)
+			if err != nil {
+				return nil, err
+			}
+			return supervisor.Handlers(), nil
+		}
+		handlers, err := newAgentHandlers(runContext)
 		if err != nil {
 			return err
 		}
-		remoteJobs = append(slices.Clip(remoteJobs), supervisor.Handlers()...)
+		remoteJobs = append(slices.Clip(remoteJobs), handlers...)
+	}
+	if _, enabled := registry.Resolve(tool.TaskGraphName); enabled && !*isSubagent && !slices.Contains(parsed.DisallowedTools, tool.TaskGraphName) {
+		_, allowBash := registry.Resolve(tool.BashName)
+		runtime, err := taskgraph.New(runContext, taskgraph.Config{Workspace: workspace, Shell: shell, BaseDirectory: operationDirectory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: newAgentHandlers})
+		if err != nil {
+			return err
+		}
+		remoteJobs = append(slices.Clip(remoteJobs), runtime.Handlers()...)
 	}
 	operations := operation.NewLocalOperationManager(runContext, remoteJobs...)
 	defer func() {
