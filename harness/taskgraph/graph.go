@@ -217,9 +217,34 @@ func (g *Graph) validate() error {
 			return err
 		}
 	}
+	// Acceptance binds evidence to a task's claimed paths. A task writing into an
+	// ancestor's claims, or unrelated tasks writing into each other's claims,
+	// would invalidate accepted evidence and rerun indefinitely.
+	for _, a := range g.Nodes {
+		descendants := g.affected(map[string]bool{a.Task.ID: true})
+		for _, b := range g.Nodes {
+			if a.Task.ID == b.Task.ID {
+				continue
+			}
+			if descendants[b.Task.ID] && writesInto(b.Task, a.Task) {
+				return fmt.Errorf("task %s writes paths claimed by its prerequisite %s; declare disjoint claims or merge the tasks", b.Task.ID, a.Task.ID)
+			}
+			if a.Task.ID < b.Task.ID && !descendants[b.Task.ID] && !g.affected(map[string]bool{b.Task.ID: true})[a.Task.ID] &&
+				writesInto(a.Task, b.Task) && writesInto(b.Task, a.Task) {
+				return fmt.Errorf("tasks %s and %s write paths claimed by each other; declare disjoint claims or a dependency", a.Task.ID, b.Task.ID)
+			}
+		}
+	}
 	return nil
 }
+func writesInto(writer, owner Task) bool {
+	return intersects(writer.Writes, owner.Reads) || intersects(writer.Writes, owner.Writes)
+}
 func active(n *Node) bool { return n.Status == Running || n.Status == Canceling }
+
+// Completed candidates keep their claims until accepted or rejected so a
+// conflicting task cannot change them before the parent inspects them.
+func reserved(n *Node) bool { return active(n) || n.Status == Completed }
 func claims(p []string) []string {
 	if p == nil {
 		return []string{"."}
@@ -262,9 +287,13 @@ func (g *Graph) eligible(n *Node) bool {
 func (g *Graph) Ready() []string {
 	var held []Task
 	var ready []*Node
+	running := 0
 	for i := range g.Nodes {
 		n := &g.Nodes[i]
 		if active(n) {
+			running++
+		}
+		if reserved(n) {
 			held = append(held, n.Task)
 		}
 		if g.eligible(n) {
@@ -299,7 +328,7 @@ func (g *Graph) Ready() []string {
 	sort.SliceStable(ready, func(i, j int) bool { return score(ready[i].Task.ID) > score(ready[j].Task.ID) })
 	out := []string{}
 	for _, n := range ready {
-		if len(held) >= g.Concurrency {
+		if running >= g.Concurrency {
 			break
 		}
 		safe := true
@@ -312,6 +341,7 @@ func (g *Graph) Ready() []string {
 		if safe {
 			out = append(out, n.Task.ID)
 			held = append(held, n.Task)
+			running++
 		}
 	}
 	return out
@@ -326,9 +356,9 @@ func (g *Graph) Start(id string) error {
 		other := &g.Nodes[i]
 		if active(other) {
 			count++
-			if conflicts(n.Task, other.Task) {
-				return fmt.Errorf("task %s conflicts with active task %s", id, other.Task.ID)
-			}
+		}
+		if reserved(other) && conflicts(n.Task, other.Task) {
+			return fmt.Errorf("task %s conflicts with %s task %s", id, other.Status, other.Task.ID)
 		}
 	}
 	if count >= g.Concurrency {

@@ -336,9 +336,90 @@ func TestCaseInsensitiveClaimAliasesConflict(t *testing.T) {
 	a, b := task("a"), task("b")
 	a.Writes = []string{"Src"}
 	b.Writes = []string{"src/main.go"}
+	if _, err := NewGraph("test", []Task{a, b}, 4); err == nil {
+		t.Fatal("case alias writers accepted")
+	}
+	b.Writes, b.Reads = []string{}, []string{"src/main.go"}
 	g := mustGraph(t, a, b)
 	g.Start("a")
 	if err := g.Start("b"); err == nil {
-		t.Fatal("case alias writer admitted")
+		t.Fatal("case alias reader admitted")
+	}
+}
+
+func TestCompletedCandidateKeepsClaimsUntilDecided(t *testing.T) {
+	a, b := task("a"), task("b")
+	a.Writes = []string{"out.txt"}
+	b.Reads = []string{"out.txt"}
+	g := mustGraph(t, a, b)
+	g.Concurrency = 1
+	if err := g.Start("a"); err != nil {
+		t.Fatal(err)
+	}
+	g.Complete("a", g.Find("a").Generation, "ok", nil)
+	if got := g.Ready(); len(got) != 0 {
+		t.Fatal("conflicting task admitted before candidate decision", got)
+	}
+	if err := g.Start("b"); err == nil {
+		t.Fatal("conflicting task started before candidate decision")
+	}
+	// A held candidate does not occupy a concurrency slot.
+	c := task("c")
+	if err := g.Revise([]Task{c}); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Ready(); !reflect.DeepEqual(got, []string{"c"}) {
+		t.Fatal(got)
+	}
+	g.Accept("a", g.Find("a").Generation, "checked")
+	if err := g.Start("b"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectsClaimsThatInvalidateAcceptedEvidence(t *testing.T) {
+	cases := map[string]func() []Task{
+		"dependent writes prerequisite output": func() []Task {
+			a, b := task("a"), task("b", "a")
+			a.Writes, b.Writes = []string{"out"}, []string{"out/file"}
+			return []Task{a, b}
+		},
+		"transitive dependent writes prerequisite input": func() []Task {
+			a, b, c := task("a"), task("b", "a"), task("c", "b")
+			a.Reads, c.Writes = []string{"src"}, []string{"src"}
+			return []Task{a, b, c}
+		},
+		"dependent unknown writes": func() []Task {
+			a, b := task("a"), task("b", "a")
+			a.Writes, b.Writes = []string{"out"}, nil
+			return []Task{a, b}
+		},
+		"unrelated overlapping writers": func() []Task {
+			a, b := task("a"), task("b")
+			a.Writes, b.Writes = []string{"out"}, []string{"out"}
+			return []Task{a, b}
+		},
+		"unrelated writers into each other's inputs": func() []Task {
+			a, b := task("a"), task("b")
+			a.Reads, a.Writes = []string{"x"}, []string{"y"}
+			b.Reads, b.Writes = []string{"y"}, []string{"x"}
+			return []Task{a, b}
+		},
+	}
+	for name, tasks := range cases {
+		if _, err := NewGraph("test", tasks(), 4); err == nil {
+			t.Fatal(name, "accepted")
+		}
+	}
+	// Prerequisite outputs may be read downstream.
+	a, b, c := task("a"), task("b", "a"), task("c")
+	a.Writes, b.Reads, b.Writes = []string{"gen"}, []string{"gen"}, []string{"out"}
+	c.Writes = []string{"other"}
+	g := mustGraph(t, a, b, c)
+	// Revisions are held to the same rule.
+	bad := c
+	bad.Writes = []string{"out"}
+	if err := g.Revise([]Task{bad}); err == nil {
+		t.Fatal("revision introduced overlapping writers")
 	}
 }

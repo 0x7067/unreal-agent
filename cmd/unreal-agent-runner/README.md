@@ -125,16 +125,16 @@ Concurrency defaults to 4 and accepts 1–16; one graph can be active per handle
 Declare workspace-relative `reads` and `writes`, including all generated files
 and build artifacts. Omitted or `null` claims conservatively cover the whole
 workspace (`.`); `reads: []` declares no reads and `writes: []` declares no writes.
-Overlapping writers and reader/writer conflicts wait for ownership to clear;
-readers can overlap.
+Reader/writer conflicts wait for ownership to clear, and a completed candidate
+keeps its claims until the parent accepts or rejects it; readers can overlap.
 
-Current limitation: a conflicting writer can change a completed candidate before
-the parent accepts it. A later task can also invalidate an accepted prerequisite
-by changing its declared inputs or outputs. Such graphs can repeatedly invalidate
-their results instead of reaching completion. Shared mutable artifact workflows
-need further ownership and evidence design; the measured evaluation covers
-compatible, explicit claims. Narrow claims must still include every relevant
-input and generated output.
+Acceptance evidence covers a task's claimed paths, so graphs that would
+overwrite accepted results are rejected at `start` and `revise`: a task may not
+write paths claimed by any of its prerequisites, direct or transitive, and two
+unrelated tasks may not write into each other's claims (including overlapping
+writes). Unknown `writes` overlap every claim. Workflows that edit one artifact
+in sequence should use a single task or disjoint output paths. Narrow claims
+must still include every relevant input and generated output.
 
 Completion produces a candidate, not acceptance. Progress arrives in the inbox
 while independent tasks continue. Inspect the graph's JSON status, including
