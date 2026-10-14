@@ -17,9 +17,9 @@ The left pane shows the intro, your messages, agent replies rendered as markdown
 
 Preconditions: baseline launch with `$S start $R 4 40` (few tool calls, a long reply).
 
-- Send: `$S keys $R "hello" Enter`, wait 3s, then `$S snap $R conv-send`. The screen shows `hello` and `Running 4 commands.`
-- Reply: after the tools finish, the screen shows `Result 39` with no `##` (the heading was rendered).
-- Scroll: run `$S snap $R conv-before`, then `$S wheel $R 40 20 up` five times, then `$S snap $R conv-after`. Columns 1–117 differ, and the composer row is unchanged.
+- Send: `$S keys $R "hello" Enter`, wait 4s, then `$S keys $R PageUp PageUp PageUp PageUp PageUp PageUp` and `$S snap $R conv-send`. The screen shows `hello` and `Running 4 commands.` By the time the reply settles, the 40 paragraphs have pushed both off the bottom view, so scroll to the top first.
+- Reply: `$S keys $R PageDown PageDown PageDown PageDown PageDown PageDown`, then `$S snap $R conv-reply`. The screen shows `Result 39` with no `##` and no `**` (the markdown was rendered).
+- Scroll: `$S wheel $R 40 20 up` five times, then `$S snap $R conv-after`. Columns 1–117 differ from `conv-reply`, and the last four rows (the composer) are unchanged.
 
 ## Gotchas
 
