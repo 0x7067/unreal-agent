@@ -23,5 +23,5 @@ Recipes for proving user-facing TUI behavior with `scripts/tui.sh`. Read [SKILL.
 ## Features
 
 - [Conversation](./conversation.md): sending a message, the markdown reply, wheel and PgUp scrolling, hiding reasoning.
-- [Tools pane](./tools-pane.md): the tool card list, keyboard navigation, wheel scrolling, opening details by click or Enter.
+- [Tools pane](./tools-pane.md): the tool card list, keyboard navigation, wheel scrolling, and opening details by click or Enter.
 - [Tool details](./tool-details.md): result output, scrolling, returning with Esc.

@@ -10,7 +10,7 @@
 set -euo pipefail
 cmd=$1 run=$2
 shift 2
-session="verify-tui-$(basename "$run")"
+session="tui-$(basename "$run")"
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 
 case $cmd in
