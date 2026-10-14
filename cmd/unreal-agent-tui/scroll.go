@@ -20,8 +20,8 @@ func (s *mouseScreen) filter(_ tea.Model, msg tea.Msg) tea.Msg {
 		return msg
 	}
 	target := s.mouseViewport(wheel.Mouse())
-	if target == nil || !wheel.Mod.Contains(tea.ModShift) &&
-		(wheel.Button == tea.MouseWheelDown && target.AtBottom() || wheel.Button == tea.MouseWheelUp && target.AtTop()) {
+	if _, overTools := s.toolAt(wheel.Mouse()); !overTools && (target == nil || !wheel.Mod.Contains(tea.ModShift) &&
+		(wheel.Button == tea.MouseWheelDown && target.AtBottom() || wheel.Button == tea.MouseWheelUp && target.AtTop())) {
 		return nil
 	}
 	if s.framePending {
@@ -47,6 +47,15 @@ func (s *mouseScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) scrollWheel(msg tea.MouseWheelMsg) {
 	m.lastClickAt = time.Time{}
+	if _, overTools := m.toolAt(msg.Mouse()); overTools {
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.scrollTools(-1)
+		case tea.MouseWheelDown:
+			m.scrollTools(1)
+		}
+		return
+	}
 	if target := m.mouseViewport(msg.Mouse()); target != nil {
 		*target, _ = target.Update(msg)
 		if m.selection.dragging && m.selection.details == m.detailsOpen {
