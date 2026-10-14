@@ -64,8 +64,10 @@ type callKey struct {
 }
 
 type message struct {
-	label, text, rendered string
-	width                 int
+	label, text string
+	// block caches the styled entry at width; messages never change after append.
+	block string
+	width int
 }
 
 type model struct {
@@ -84,6 +86,7 @@ type model struct {
 	theme                               theme
 	tools                               []toolCard
 	selected                            int
+	toolsOffset                         int // first visible card in the Tools pane
 	toolsFocused                        bool
 	toolsCollapsed                      bool
 	selection                           textSelection
@@ -209,6 +212,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
+			if index, _ := m.toolAt(msg.Mouse()); index >= 0 {
+				return m, m.openTool(index)
+			}
 			m.beginSelection(msg.Mouse())
 		}
 		return m, nil
@@ -253,6 +259,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toolsFocused = !m.toolsCollapsed && m.width < 90
 			if m.toolsFocused {
 				m.selected = 0
+				m.revealSelected()
 				m.toolsCollapsed = false
 				m.composer.Blur()
 			} else {
@@ -285,6 +292,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toolsFocused = !m.toolsFocused
 			if m.toolsFocused {
 				m.selected = 0
+				m.revealSelected()
 				m.toolsCollapsed = false
 				m.composer.Blur()
 			} else {
@@ -298,10 +306,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, sendKey):
 				if len(m.tools) > 0 {
-					m.selection = textSelection{}
-					m.detailsOpen = true
-					m.refreshDetails()
-					m.details.GotoTop()
+					return m, m.openTool(m.selected)
 				}
 			case key.Matches(msg, selectKey, scrollKey):
 				step := 1
@@ -312,6 +317,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					step = -step
 				}
 				m.selected = max(0, min(len(m.tools)-1, m.selected+step))
+				m.revealSelected()
 			}
 			return m, nil
 		}
@@ -457,56 +463,60 @@ func (m *model) renderConversation() {
 	}
 	intro := renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width), content)
 	blocks := []string{intro}
-	renderer, renderErr := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)), glamour.WithChromaFormatter("terminal16m"))
-	reasoningStyle := m.theme.markdownStyles()
-	reasoningStyle.Document.Color = &m.theme.Hint
-	reasoningRenderer, reasoningErr := glamour.NewTermRenderer(glamour.WithStyles(reasoningStyle), glamour.WithWordWrap(max(1, width-5)), glamour.WithChromaFormatter("terminal16m"))
+	// Renderers are built only when a message is not cached at this width.
+	var renderer, reasoningRenderer *glamour.TermRenderer
+	var renderErr, reasoningErr error
 	for i := range m.lines {
 		entry := &m.lines[i]
 		if m.hideReasoning && entry.label == "Reasoning" {
 			continue
 		}
-		color := m.theme.Muted
-		style := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2)
-		switch entry.label {
-		case "You":
-			style = style.Foreground(lipgloss.Color(m.theme.UserForeground)).Background(lipgloss.Color(m.theme.User)).Padding(1, 1, 1, 2)
-		case "Agent":
-		case "Run failed", "Model failed", "Send failed", "Skill error":
-			color = m.theme.Error
-		default:
-			style = style.Foreground(lipgloss.Color(m.theme.Muted))
-		}
-		content := entry.text
-		markdown, err := renderer, renderErr
-		if entry.label == "Reasoning" {
-			markdown, err = reasoningRenderer, reasoningErr
-		}
-		if (entry.label == "Agent" || entry.label == "Reasoning") && err == nil {
-			if entry.width != width {
-				entry.rendered = entry.text
-				if rendered, err := markdown.Render(entry.text); err == nil {
-					entry.rendered = strings.Trim(terminaltext.CleanStyled(rendered), "\n")
-				}
-				entry.width = width
+		continued := entry.label == "Reasoning" && i > 0 && m.lines[i-1].label == "Reasoning"
+		if entry.width != width {
+			if renderer == nil && renderErr == nil {
+				renderer, renderErr = glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, width-3)), glamour.WithChromaFormatter("terminal16m"))
+				reasoningStyle := m.theme.markdownStyles()
+				reasoningStyle.Document.Color = &m.theme.Hint
+				reasoningRenderer, reasoningErr = glamour.NewTermRenderer(glamour.WithStyles(reasoningStyle), glamour.WithWordWrap(max(1, width-5)), glamour.WithChromaFormatter("terminal16m"))
 			}
-			content = entry.rendered
-		}
-		if entry.label != "You" && entry.label != "Agent" && entry.label != "Reasoning" {
-			content = textStyle(color).Bold(true).Render(entry.label) + "\n" + content
-		}
-		if entry.label == "Reasoning" {
-			style = style.Foreground(lipgloss.Color(m.theme.Hint))
-			content = lipgloss.JoinHorizontal(lipgloss.Top, textStyle(m.theme.Hint).Render("• "), content)
-		}
-		block := renderSurface(style, content)
-		if entry.label == "Reasoning" && i > 0 && m.lines[i-1].label == "Reasoning" {
-			blocks[len(blocks)-1] += "\n" + block
-		} else {
+			color := m.theme.Muted
+			style := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Width(width).Padding(0, 1, 0, 2)
+			switch entry.label {
+			case "You":
+				style = style.Foreground(lipgloss.Color(m.theme.UserForeground)).Background(lipgloss.Color(m.theme.User)).Padding(1, 1, 1, 2)
+			case "Agent":
+			case "Run failed", "Model failed", "Send failed", "Skill error":
+				color = m.theme.Error
+			default:
+				style = style.Foreground(lipgloss.Color(m.theme.Muted))
+			}
+			content := entry.text
+			markdown, err := renderer, renderErr
 			if entry.label == "Reasoning" {
-				block = renderSurface(style.Bold(true), "Thinking") + "\n" + block
+				markdown, err = reasoningRenderer, reasoningErr
 			}
-			blocks = append(blocks, block)
+			if (entry.label == "Agent" || entry.label == "Reasoning") && err == nil {
+				if rendered, err := markdown.Render(entry.text); err == nil {
+					content = strings.Trim(terminaltext.CleanStyled(rendered), "\n")
+				}
+			}
+			if entry.label != "You" && entry.label != "Agent" && entry.label != "Reasoning" {
+				content = textStyle(color).Bold(true).Render(entry.label) + "\n" + content
+			}
+			if entry.label == "Reasoning" {
+				style = style.Foreground(lipgloss.Color(m.theme.Hint))
+				content = lipgloss.JoinHorizontal(lipgloss.Top, textStyle(m.theme.Hint).Render("• "), content)
+			}
+			entry.block = renderSurface(style, content)
+			if entry.label == "Reasoning" && !continued {
+				entry.block = renderSurface(style.Bold(true), "Thinking") + "\n" + entry.block
+			}
+			entry.width = width
+		}
+		if continued {
+			blocks[len(blocks)-1] += "\n" + entry.block
+		} else {
+			blocks = append(blocks, entry.block)
 		}
 	}
 	m.conversation.SetContent(strings.Join(blocks, "\n\n"))
@@ -643,12 +653,14 @@ func (m model) View() tea.View {
 	if m.toolsCollapsed || m.width < 90 {
 		hint = "Tools · Shift+Tab ‹"
 	}
-	header := m.heading("", hint, m.theme.Background, m.theme.Accent, m.theme.Hint, chatWidth)
 	pane := textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).Padding(0, 1)
 	conversation := m.selection.render(m.conversation, false, m.theme)
-	body := header + "\n" + renderSurface(pane.PaddingLeft(0).PaddingBottom(1), conversation)
+	var body string
 	if m.theme.Delimiter != "" {
 		body = m.framedPane("Conversation", hint, conversation, m.theme.Background, chatWidth)
+	} else {
+		body = m.heading("", hint, m.theme.Background, m.theme.Accent, m.theme.Hint, chatWidth) + "\n" +
+			renderSurface(pane.PaddingLeft(0).PaddingBottom(1), conversation)
 	}
 	if m.detailsOpen {
 		details := m.selection.render(m.details, true, m.theme)
