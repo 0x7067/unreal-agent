@@ -24,7 +24,7 @@ $S start $R 120 3 160 50   # tool calls per turn, markdown paragraphs per reply,
 
 ## Drive
 
-- `$S keys $R "text" Enter` types and sends a message. The fake model replies with the tool calls, then with the markdown paragraphs. Keys use tmux `send-keys` names (`Tab`, `Down`, `Escape`, `F3`, `PageUp`).
+- `$S keys $R "text" Enter` types and sends a message. The fake model replies with the tool calls, then with the markdown paragraphs. Keys use tmux `send-keys` names (`Tab`, `Down`, `Escape`, `F3`, `PageUp`). Send `Escape` in its own `keys` call and wait about 0.3s. If another key follows in the same call, the terminal reads ESC plus that key as Alt+key and the Escape is lost.
 - `$S wheel $R COL ROW up|down` sends one SGR wheel notch. `$S click $R COL ROW` sends a left press and release. Both COL and ROW are 1-based screen cells.
 - Wait about 4s after sending a message for 120 tool calls to settle before taking a snapshot.
 
