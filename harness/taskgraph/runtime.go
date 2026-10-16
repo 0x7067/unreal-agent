@@ -397,6 +397,8 @@ func (s *runtimeState) blockers(g *graphExecution) string {
 			reason := n.Status
 			if a := g.Attempts[n.Task.ID]; a != nil && a.Blocker != "" {
 				reason = a.Blocker
+			} else if wait := g.Graph.WaitReason(n.Task.ID); wait != "" {
+				reason = wait
 			}
 			out = append(out, n.Task.ID+": "+reason)
 		}

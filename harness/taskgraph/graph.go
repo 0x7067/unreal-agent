@@ -285,6 +285,53 @@ func (g *Graph) eligible(n *Node) bool {
 	return true
 }
 
+func (g *Graph) WaitReason(id string) string {
+	n := g.Find(id)
+	if n == nil || n.Status == Accepted {
+		return ""
+	}
+	if n.Status != Pending {
+		return n.Status
+	}
+	var unmet []string
+	for _, dep := range n.Task.DependsOn {
+		p := g.Find(dep)
+		if p != nil && p.Status == Accepted {
+			continue
+		}
+		status := "missing"
+		if p != nil {
+			status = p.Status
+		}
+		unmet = append(unmet, status+" task "+dep)
+	}
+	if len(unmet) > 0 {
+		return "waiting on " + strings.Join(unmet, ", ")
+	}
+	var fileConflicts []string
+	for i := range g.Nodes {
+		other := &g.Nodes[i]
+		if reserved(other) && conflicts(n.Task, other.Task) {
+			fileConflicts = append(fileConflicts, other.Status+" task "+other.Task.ID)
+		}
+	}
+	if len(fileConflicts) > 0 {
+		return "conflicts with " + strings.Join(fileConflicts, ", ")
+	}
+	if g.eligible(n) {
+		activeCount := 0
+		for i := range g.Nodes {
+			if active(&g.Nodes[i]) {
+				activeCount++
+			}
+		}
+		if activeCount >= g.Concurrency {
+			return "concurrency full"
+		}
+	}
+	return Pending
+}
+
 // Ready returns an admissible batch in descending remaining critical-path order.
 // Start rechecks eligibility against live reservations, independently of this batch.
 func (g *Graph) Ready() []string {
