@@ -334,3 +334,58 @@ func TestRuntimeRejectsWritableSymlinkBeforeExecution(t *testing.T) {
 		t.Fatal("task executed through writable symlink")
 	}
 }
+
+func TestRuntimeStatusNamesDependencyWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := New(ctx, Config{Workspace: t.TempDir(), BaseDirectory: t.TempDir(), AllowBash: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := operation.NewLocalOperationManager(ctx, r.Handlers()...)
+	tasks := []Task{
+		{ID: "a", Command: "printf candidate", Reads: []string{}, Writes: []string{}, Acceptance: "verify candidate"},
+		{ID: "b", Command: "printf later", DependsOn: []string{"a"}, Reads: []string{}, Writes: []string{}, Acceptance: "verify candidate"},
+	}
+	if err = m.Add(runtimeOperation(t, "run", RunPlanType, RunPlan{Name: "g", Tasks: tasks})); err != nil {
+		t.Fatal(err)
+	}
+	runtimeWait(t, m, func(op operation.Operation) bool {
+		g := runtimeGraph(t, op)
+		return op.ID == "run" && g.Find("a").Status == Completed
+	})
+	if err = m.Add(runtimeOperation(t, "status", ControlPlanType, ControlPlan{Name: "g", Action: "status"})); err != nil {
+		t.Fatal(err)
+	}
+	status := runtimeWait(t, m, func(op operation.Operation) bool {
+		return op.ID == "status" && op.Status == operation.StatusCompleted
+	})
+	state, err := operation.DecodeRemoteJobState(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		Graph    Graph  `json:"graph"`
+		Blockers string `json:"blockers"`
+	}
+	if err = json.Unmarshal([]byte(state.TerminalResult), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Blockers != "a: completed; b: waiting on completed task a" {
+		t.Fatalf("%q", snapshot.Blockers)
+	}
+}
+
+func TestBlockersKeepAttemptOverride(t *testing.T) {
+	g := mustGraph(t, task("a"), task("b", "a"))
+	if err := g.Start("a"); err != nil {
+		t.Fatal(err)
+	}
+	exec := &graphExecution{checkpoint: checkpoint{Graph: g, Attempts: map[string]*attempt{
+		"a": {Blocker: "resumed shell outcome unknown; reservation retained"},
+	}}}
+	got := (&runtimeState{}).blockers(exec)
+	if got != "a: resumed shell outcome unknown; reservation retained; b: waiting on running task a" {
+		t.Fatalf("%q", got)
+	}
+}

@@ -423,3 +423,98 @@ func TestRejectsClaimsThatInvalidateAcceptedEvidence(t *testing.T) {
 		t.Fatal("revision introduced overlapping writers")
 	}
 }
+
+func TestWaitReasonNamesCompletedPrerequisite(t *testing.T) {
+	g := mustGraph(t, task("a"), task("b", "a"))
+	if err := g.Start("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Complete("a", g.Find("a").Generation, "ok", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.WaitReason("b"); got != "waiting on completed task a" {
+		t.Fatalf("%q", got)
+	}
+	if got := g.WaitReason("a"); got != "completed" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestWaitReasonNamesUnmetDependenciesInDependsOnOrder(t *testing.T) {
+	g := mustGraph(t, task("right"), task("left"), task("join", "left", "right"))
+	if err := g.Start("left"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Complete("left", g.Find("left").Generation, "ok", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.WaitReason("join"); got != "waiting on completed task left, pending task right" {
+		t.Fatalf("%q", got)
+	}
+	reversed := mustGraph(t, task("left"), task("right"), task("join", "right", "left"))
+	if err := reversed.Start("left"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reversed.Complete("left", reversed.Find("left").Generation, "ok", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := reversed.WaitReason("join"); got != "waiting on pending task right, completed task left" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestWaitReasonConcurrencyFullAfterAcceptance(t *testing.T) {
+	prereq, other, next := task("prereq"), task("other"), task("next", "prereq")
+	prereq.Writes = []string{"prereq"}
+	other.Writes = []string{"other"}
+	next.Writes = []string{"next"}
+	g := mustGraph(t, prereq, other, next)
+	g.Concurrency = 1
+	if err := g.Start("prereq"); err != nil {
+		t.Fatal(err)
+	}
+	finish(t, &g, "prereq")
+	if err := g.Start("other"); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.WaitReason("next"); got != "concurrency full" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestWaitReasonPrefersReservedConflictOverConcurrency(t *testing.T) {
+	reader, writer := task("reader"), task("writer")
+	reader.Reads = []string{"src"}
+	writer.Writes = []string{"src/a.go"}
+	g := mustGraph(t, reader, writer)
+	if got := g.WaitReason("writer"); got != "pending" {
+		t.Fatalf("%q", got)
+	}
+	g.Concurrency = 1
+	if err := g.Start("reader"); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.WaitReason("writer"); got != "conflicts with running task reader" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestWaitReasonRunningAcceptedAndReady(t *testing.T) {
+	g := mustGraph(t, task("a"))
+	if got := g.WaitReason("absent"); got != "" {
+		t.Fatalf("%q", got)
+	}
+	if got := g.WaitReason("a"); got != "pending" {
+		t.Fatalf("%q", got)
+	}
+	if err := g.Start("a"); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.WaitReason("a"); got != "running" {
+		t.Fatalf("%q", got)
+	}
+	finish(t, &g, "a")
+	if got := g.WaitReason("a"); got != "" {
+		t.Fatalf("%q", got)
+	}
+}
