@@ -722,12 +722,12 @@ func TestRunLoadsModelSettings(t *testing.T) {
 		{name: "built-in", model: "gpt-6-astra", threshold: 244_800},
 		{name: "Codex built-in", provider: "openai-codex", model: "gpt-6-astra", threshold: 244_800},
 		{name: "provider-specific model", provider: "other", model: "gpt-6-astra", settings: `{"providers":{"other":{"info":{"id":"other","name":"Other"},"models":[{"id":"gpt-6-astra","name":"Other Astra","context_window":200000,"compaction_threshold":75000}]}}}`, threshold: 75_000},
-		{name: "unconfigured provider", provider: "other", model: "gpt-6-astra"},
+		{name: "unconfigured provider", provider: "other", model: "gpt-6-astra", threshold: 64_000},
 		{name: "override", model: "gpt-6-astra", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"gpt-6-astra","name":"GPT-6 Astra","context_window":200000,"compaction_threshold":64000}]}}}`, threshold: 64_000},
 		{name: "custom model", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000,"compaction_threshold":75000}]}}}`, threshold: 75_000},
 		{name: "default threshold", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000}]}}}`, threshold: 100_000},
 		{name: "zero threshold", model: "custom", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"custom","name":"Custom","context_window":200000,"compaction_threshold":0}]}}}`, threshold: 100_000},
-		{name: "unknown model", model: "unknown"},
+		{name: "unknown model", model: "unknown", threshold: 64_000},
 		{name: "invalid settings", model: "gpt-6-astra", settings: `{"providers":{"openai":{"info":{"id":"openai","name":"OpenAI"},"models":[{"id":"gpt-6-astra","name":"GPT-6 Astra","context_window":200000,"compaction_threshold":-1}]}}}`, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -745,6 +745,7 @@ func TestRunLoadsModelSettings(t *testing.T) {
 			if test.provider != "" {
 				config.Providers[0].Name = test.provider
 			}
+			var warnings bytes.Buffer
 			err := Run(t.Context(), []string{"-workspace", workspace, "-session-directory", t.TempDir()}, func(name string) string {
 				if name == llmProviderEnvironment {
 					return test.provider
@@ -756,7 +757,7 @@ func TestRunLoadsModelSettings(t *testing.T) {
 					return "secret"
 				}
 				return ""
-			}, func() []string { return nil }, strings.NewReader(fmt.Sprintf(`{"prompt":"hello","model":%q}`, test.model)), io.Discard, io.Discard, config)
+			}, func() []string { return nil }, strings.NewReader(fmt.Sprintf(`{"prompt":"hello","model":%q}`, test.model)), io.Discard, &warnings, config)
 			if test.wantError {
 				if err == nil || !strings.Contains(err.Error(), "load model settings") || len(requests) != 0 {
 					t.Fatalf("invalid settings: error = %v, requests = %d", err, len(requests))
@@ -765,6 +766,21 @@ func TestRunLoadsModelSettings(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			unknown := test.name == "unknown model" || test.name == "unconfigured provider"
+			if (warnings.Len() > 0) != unknown {
+				t.Fatalf("warnings = %q, unknown = %v", warnings.String(), unknown)
+			}
+			if unknown {
+				provider := test.provider
+				if provider == "" {
+					provider = "openai"
+				}
+				for _, want := range []string{provider, test.model, "64000", filepath.Join(configHome, "unreal-agent", "settings.json")} {
+					if !strings.Contains(warnings.String(), want) {
+						t.Fatalf("warning %q missing %q", warnings.String(), want)
+					}
+				}
 			}
 			select {
 			case request := <-requests:

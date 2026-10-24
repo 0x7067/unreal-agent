@@ -50,6 +50,45 @@ OpenAI is the default provider. Set `UNREAL_HARNESS_LLM_PROVIDER` to `openai`,
 
 Run `unreal-agent-runner -h` for options and the JSON request fields.
 
+## Environment and workspace trust
+
+Workspace `.env` files are **not loaded by default**. Credentials, endpoints,
+proxies and paths inherited from the parent process remain trusted. To explicitly
+trust a workspace's environment:
+
+```sh
+unreal-agent-runner -workspace ./trusted-project -load-dotenv -p 'Summarize this project.'
+```
+
+Migration from older versions: export configuration from a trusted shell, or add
+`-load-dotenv` only after reviewing the workspace's `.env`. Opt-in can redirect
+credentials through endpoint/proxy settings, and change provider/model and
+config/state paths. Variables fill unset environment entries, except
+`SANDBOX_EGRESS_PROXY`, which can replace its inherited value and is copied to
+`HTTPS_PROXY`. Changes are scoped to the run. Flags are parsed before loading;
+help never loads the file, even with `-load-dotenv`. The TUI uses the same opt-in
+flag and also skips loading for `-version`. Subagents always inherit the parent's
+environment and never reload workspace `.env`, even with `-load-dotenv` present.
+The library's `LoadDotEnv(path)` remains available for explicit trusted-file use.
+
+## Model compaction settings
+
+Runner and TUI load built-in model settings, merged with
+`${XDG_CONFIG_HOME:-$HOME/.config}/unreal-agent/settings.json` by provider and model
+ID. Listed models keep their explicit `compaction_threshold`. An omitted or zero
+threshold on a listed model defaults to integer `context_window / 2`.
+
+An unlisted provider/model pair instead uses the documented
+`settings.DefaultCompactionThreshold = 64000` tokens, rather than zero. The runner
+warns only for unlisted pairs, naming the provider, model and settings file to edit;
+the TUI uses the same fallback (including model changes). This conservative default
+is not a discovered context window: configure models with smaller windows explicitly.
+For example, a custom OpenRouter model with a 32,000-token context window:
+
+```json
+{"providers":{"openrouter":{"info":{"id":"openrouter","name":"OpenRouter"},"models":[{"id":"vendor/custom-model","name":"Custom model","context_window":32000,"compaction_threshold":16000}]}}}
+```
+
 ## Subagents
 
 Add `"extra_allowed_tools":["Agent"]` to a request to give the agent the

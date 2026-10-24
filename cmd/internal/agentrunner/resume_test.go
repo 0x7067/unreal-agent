@@ -195,7 +195,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 					}
 					if control.Mode == inbox.UpdateSettings {
 						settings++
-						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, CompactionThreshold: new(int64(0)), ReasoningEffort: effort}) {
+						if !reflect.DeepEqual(control.Parameters, inbox.Settings{Model: model, CompactionThreshold: new(int64(64_000)), ReasoningEffort: effort}) {
 							t.Fatalf("recorded settings = %#v", control.Parameters)
 						}
 					}

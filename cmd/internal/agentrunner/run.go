@@ -167,6 +167,7 @@ func Run(
 		return nil
 	})
 	sessionDirectory := flags.String("session-directory", "", "directory containing session files; defaults to $XDG_STATE_HOME/unreal-agent/sessions, or $HOME/.local/state/unreal-agent/sessions")
+	loadDotEnvFile := flags.Bool("load-dotenv", false, "trust and load workspace .env (may change credential destinations); ignored for subagents")
 	workspaceDirectory := flags.String("workspace", ".", "agent workspace and Bash working directory")
 	logDirectory := flags.String("log-directory", "", "optional session JSONL log directory; unset writes only to stdout")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
@@ -239,8 +240,9 @@ func Run(
 		return fmt.Errorf("workspace %q is not a directory", workspace)
 	}
 	environment := &environmentScope{}
-	if !*isSubagent {
-		// Subagents inherit their parent's environment instead.
+	if *loadDotEnvFile && !*isSubagent {
+		// Only explicit opt-in trusts workspace environment. Subagents inherit
+		// their parent's environment even when -load-dotenv is supplied.
 		environment, err = loadDotEnv(filepath.Join(workspace, ".env"))
 		if err != nil {
 			return err
@@ -297,21 +299,51 @@ func Run(
 	if err != nil {
 		return fmt.Errorf("resolve settings directory: %w", err)
 	}
-	modelSettings, err := settings.Load(filepath.Join(configDirectory, "settings.json"))
+	settingsPath := filepath.Join(configDirectory, "settings.json")
+	modelSettings, err := settings.Load(settingsPath)
 	if err != nil {
 		return fmt.Errorf("load model settings: %w", err)
 	}
 	selectedModel.CompactionThreshold = modelSettings.Model(selected.Name, selectedModel.ID).CompactionThreshold
+	if _, listed := modelSettings.LookupModel(selected.Name, selectedModel.ID); !listed {
+		fmt.Fprintf(flagOutput, "warning: provider %q model %q is not listed; using compaction threshold %d tokens; configure %s\n", selected.Name, selectedModel.ID, settings.DefaultCompactionThreshold, settingsPath)
+	}
 
 	storeDirectory, err := resolveSessionDirectory(*sessionDirectory, getenv)
 	if err != nil {
 		return fmt.Errorf("resolve session directory: %w", err)
 	}
+	// Legacy runner paths may contain platform aliases such as Darwin's /var.
+	// Explicitly resolve existing aliases once, then use only the canonical
+	// path for both lease and store. AcquireLease independently checks that
+	// resolved path's ownership/private ancestry and rejects further symlinks;
+	// the original alias is not a trusted security boundary.
+	storeDirectory, err = canonicalLeaseDirectory(storeDirectory)
+	if err != nil {
+		return fmt.Errorf("canonicalize session directory: %w", err)
+	}
+	// Choose the ID once, before replay or creation, so fresh and resumed
+	// sessions use the same exclusive ownership boundary as worker sessions.
+	requestedID := uuid.New().String()
+	if parsed.SessionID != nil {
+		requestedID = strings.TrimSpace(*parsed.SessionID)
+	}
+	lease, err := localfile.AcquireLease(storeDirectory, session.ID(requestedID))
+	if err != nil {
+		return fmt.Errorf("own session %q: %w", requestedID, err)
+	}
+	// Registered before runtime cleanup: operations and configured tools must
+	// finish shutting down before another process may replay this session.
+	defer func() {
+		if err := lease.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close session lease: %w", err))
+		}
+	}()
 	store, err := localfile.New(storeDirectory)
 	if err != nil {
 		return fmt.Errorf("open session store: %w", err)
 	}
-	sessionID, restored, err := openSession(ctx, store, parsed.SessionID)
+	sessionID, restored, err := openSession(ctx, store, &requestedID)
 	if err != nil {
 		return err
 	}
@@ -436,7 +468,7 @@ func Run(
 		}
 		remoteJobs = append(slices.Clip(remoteJobs), runtime.Handlers()...)
 	}
-	operations := operation.NewLocalOperationManager(runContext, remoteJobs...)
+	operations := operation.NewLocalOperationManagerWithOptions(runContext, operation.LocalOperationManagerOptions{OutputDirectory: operationDirectory}, remoteJobs...)
 	defer func() {
 		cancel()
 		for range operations.Updates() {
@@ -636,6 +668,32 @@ func resolveSessionDirectory(configured string, getenv func(string) string) (str
 	return directory, nil
 }
 
+// canonicalLeaseDirectory resolves the existing prefix without creating any
+// directories through symlinks. Missing suffixes are created later by the secure
+// descriptor-relative lease traversal, not by MkdirAll on the caller's alias.
+func canonicalLeaseDirectory(directory string) (string, error) {
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return "", err
+	}
+	prefix := absolute
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(prefix)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) || filepath.Dir(prefix) == prefix {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(prefix))
+		prefix = filepath.Dir(prefix)
+	}
+}
+
 func openDatetimeLog(directory string, now time.Time) (*os.File, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
@@ -649,7 +707,9 @@ func openDatetimeLog(directory string, now time.Time) (*os.File, error) {
 }
 
 // LoadDotEnv sets the variables in a .env file that the environment does not
-// already set. Close restores the previous environment.
+// already set, except SANDBOX_EGRESS_PROXY (also copied to HTTPS_PROXY).
+// This explicit API trusts the file, including endpoint/proxy settings; CLI
+// callers must opt in with -load-dotenv. Close restores the previous environment.
 func LoadDotEnv(path string) (io.Closer, error) {
 	scope, err := loadDotEnv(path)
 	if err != nil {

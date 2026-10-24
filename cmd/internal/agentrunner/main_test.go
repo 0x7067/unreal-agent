@@ -43,11 +43,13 @@ func TestRunnerSignals(t *testing.T) {
 		name   string
 		signal os.Signal
 		bash   bool
+		forced bool
 	}{
 		{name: "model/SIGINT", signal: os.Interrupt},
 		{name: "model/SIGTERM", signal: syscall.SIGTERM},
 		{name: "bash/SIGINT", signal: os.Interrupt, bash: true},
 		{name: "bash/SIGTERM", signal: syscall.SIGTERM, bash: true},
+		{name: "bash/double-SIGINT", signal: os.Interrupt, bash: true, forced: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -163,6 +165,24 @@ func TestRunnerSignals(t *testing.T) {
 				if err := runner.Process.Signal(test.signal); err != nil {
 					t.Fatal(err)
 				}
+				signaled := time.Now()
+				if test.forced {
+					// The second signal is registered only after the first cancels
+					// the run; the Bash shell above ignores TERM for 5s otherwise.
+					for {
+						time.Sleep(50 * time.Millisecond)
+						if err := runner.Process.Signal(test.signal); err != nil {
+							break
+						}
+						select {
+						case waitErr := <-done:
+							done <- waitErr
+						default:
+							continue
+						}
+						break
+					}
+				}
 				waitErr := <-done
 				waited = true
 				var exit *exec.ExitError
@@ -171,6 +191,16 @@ func TestRunnerSignals(t *testing.T) {
 				}
 				if strings.Contains(output.String(), `"type":"error"`) {
 					t.Fatalf("cancellation emitted an error: %s", &output)
+				}
+				if test.forced {
+					if time.Since(signaled) > 3*time.Second {
+						t.Fatalf("forced exit still waited for the SIGTERM grace: %s", time.Since(signaled))
+					}
+					if !strings.Contains(output.String(), "forced exit") {
+						t.Fatalf("forced exit not reported: %s", &output)
+					}
+					// Graceful tool termination was skipped; the group is reaped by the deferred cleanup.
+					return
 				}
 				if test.bash {
 					if err := syscall.Kill(-ready.pid, 0); !errors.Is(err, syscall.ESRCH) {

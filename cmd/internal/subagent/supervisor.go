@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 	"uuid"
 
@@ -57,6 +58,8 @@ type Supervisor struct {
 	requests chan func(*state)
 	run      *handler
 	message  *handler
+	done     chan struct{}
+	readers  sync.WaitGroup // Adds are owned by loop; joins begin only after it exits.
 }
 
 // New starts a supervisor. Its child processes stop when ctx is canceled.
@@ -67,11 +70,28 @@ func New(ctx context.Context, config Config) (*Supervisor, error) {
 	if config.Inbox == nil {
 		return nil, errors.New("subagent parent inbox must be set")
 	}
-	current := &Supervisor{ctx: ctx, config: config, requests: make(chan func(*state))}
+	current := &Supervisor{ctx: ctx, config: config, requests: make(chan func(*state)), done: make(chan struct{})}
 	current.run = &handler{planType: toolsubagent.RunPlanType, supervisor: current, updates: make(chan operation.Operation)}
 	current.message = &handler{planType: toolsubagent.MessagePlanType, supervisor: current, updates: make(chan operation.Operation)}
 	go current.loop()
 	return current, nil
+}
+
+// Wait waits for the supervisor actor and all started child reader/command.Wait
+// goroutines to finish. It does not cancel the supervisor; cancel the context
+// supplied to New to request shutdown. A wait timeout does not imply completion.
+func (current *Supervisor) Wait(ctx context.Context) error {
+	select {
+	case <-current.done:
+		return nil
+	default:
+	}
+	select {
+	case <-current.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Handlers returns the remote job handlers for the operation manager.
@@ -89,6 +109,12 @@ func (current *Supervisor) do(request func(*state)) error {
 }
 
 func (current *Supervisor) loop() {
+	defer close(current.done)
+	defer close(current.run.updates)
+	defer close(current.message.updates)
+	// Only this actor starts readers. Once it returns no Add can race Wait,
+	// even when callers are concurrently waiting on supervisor termination.
+	defer current.readers.Wait()
 	s := &state{
 		supervisor: current,
 		children:   make(map[string]*child),
@@ -140,6 +166,10 @@ func (current *handler) CancelRemoteJob(id operation.ID, reason string) error {
 }
 
 func (current *handler) RemoteJobUpdates() <-chan operation.Operation { return current.updates }
+
+// Wait lets owners of handler sets join the supervisor itself, not merely an
+// operation manager's update forwarders, which exit as soon as ctx is canceled.
+func (current *handler) Wait(ctx context.Context) error { return current.supervisor.Wait(ctx) }
 
 // state is owned by the supervisor loop.
 type state struct {
@@ -338,6 +368,7 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 		}
 		if err == nil {
 			current.stdin, current.stop = stdin, stop
+			s.supervisor.readers.Add(1)
 			go s.supervisor.read(current, generation, command, stdout)
 			if _, err := stdin.Write(append(encoded, '\n')); err != nil {
 				// The reader reports the exit and fails the owner.
@@ -351,6 +382,7 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 }
 
 func (current *Supervisor) read(target *child, generation int, command *exec.Cmd, stdout io.Reader) {
+	defer current.readers.Done()
 	lines := bufio.NewReader(stdout)
 	for {
 		line, err := lines.ReadBytes('\n')

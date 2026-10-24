@@ -61,6 +61,10 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 			validCalls := make(map[string]bool)
 			for index, action := range actions {
 				response := fuzzLogResponse(t, text, usage, index, action)
+				// This execution plan requires every generated call to settle. A
+				// Failure is diagnostic-only and must not execute partial calls;
+				// dedicated model-failure tests cover that terminal path.
+				response.Failure = nil
 				for callIndex := 0; callIndex < 1+int(action%2); callIndex++ {
 					call := llm.ToolCall{CallID: fmt.Sprintf("call-%d-%d", index, callIndex), Name: tool.SkillUseName, Arguments: `{"name":"journal"}`}
 					switch action % 4 {
