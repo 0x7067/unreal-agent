@@ -49,11 +49,20 @@ func (input Input) Validate() error {
 type ControlMode string
 
 const (
-	StopHard       ControlMode = "hard"
-	StopWhenIdle   ControlMode = "when_idle"
-	Heartbeat      ControlMode = "heartbeat"
-	UpdateSettings ControlMode = "settings"
+	StopHard            ControlMode = "hard"
+	StopWhenIdle        ControlMode = "when_idle"
+	Heartbeat           ControlMode = "heartbeat"
+	UpdateSettings      ControlMode = "settings"
+	Compact             ControlMode = "compact"
+	CompactionDisabled  ControlMode = "compaction_disabled"
+	SetCompactionPolicy ControlMode = "compaction_policy"
 )
+
+// CompactionPolicy is recorded before the first summary request so the retry
+// bound survives replay, including a restart with different dependencies.
+type CompactionPolicy struct {
+	FailureLimit int
+}
 
 type Settings struct {
 	Model               string              `json:",omitzero"`
@@ -81,11 +90,24 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 		return ControlMessage{}, fmt.Errorf("decode control message: %w", err)
 	}
 	request := ControlMessage{Mode: envelope.Mode, Reason: envelope.Reason}
-	if request.Mode != UpdateSettings && len(envelope.Parameters) != 0 {
+	if request.Mode != UpdateSettings && request.Mode != SetCompactionPolicy && len(envelope.Parameters) != 0 {
 		return ControlMessage{}, fmt.Errorf("control mode %q does not accept parameters", request.Mode)
 	}
 	switch request.Mode {
-	case StopHard, StopWhenIdle:
+	case StopHard, StopWhenIdle, Compact:
+	case CompactionDisabled:
+		if strings.TrimSpace(request.Reason) == "" {
+			return ControlMessage{}, fmt.Errorf("compaction disabled reason is empty")
+		}
+	case SetCompactionPolicy:
+		var policy CompactionPolicy
+		if err := json.Unmarshal(envelope.Parameters, &policy, json.RejectUnknownMembers(true)); err != nil {
+			return ControlMessage{}, fmt.Errorf("decode compaction policy: %w", err)
+		}
+		if policy.FailureLimit <= 0 {
+			return ControlMessage{}, fmt.Errorf("compaction failure limit must be positive")
+		}
+		request.Parameters = policy
 	case Heartbeat:
 		if request.Reason == "" {
 			return ControlMessage{}, fmt.Errorf("heartbeat reason is empty")
