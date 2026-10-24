@@ -90,13 +90,13 @@ func TestExchangeRetryHints(t *testing.T) {
 		status                            int
 		want                              time.Duration
 	}{
-		{name: "top-level", kind: "error", code: "rate_limit_exceeded", message: "try again in 1.25s", status: 200, want: 1250 * time.Millisecond},
-		{name: "nested", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 28ms", status: 200, want: 28 * time.Millisecond},
-		{name: "HTTP body", kind: "http", code: "rate_limit_exceeded", message: "try again in 45s", status: 429, want: 30 * time.Second},
-		{name: "HTTP header", kind: "http", status: 503, header: "120", want: 30 * time.Second},
-		{name: "overload header", kind: "http", code: "server_is_overloaded", message: "overloaded", status: 503, header: "90", want: 30 * time.Second},
-		{name: "nested header", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 1s", status: 200, header: "90", want: 30 * time.Second},
-		{name: "HTTP date", kind: "http", status: 503, header: "date", want: 30 * time.Second},
+		{name: "top-level", kind: "error", code: "rate_limit_exceeded", message: "try again in 3.25s", status: 200, want: 3250 * time.Millisecond},
+		{name: "nested", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 2800ms", status: 200, want: 2800 * time.Millisecond},
+		{name: "HTTP body", kind: "http", code: "rate_limit_exceeded", message: "try again in 45s", status: 429, want: 45 * time.Second},
+		{name: "HTTP header", kind: "http", status: 503, header: "120", want: 120 * time.Second},
+		{name: "overload header", kind: "http", code: "server_is_overloaded", message: "overloaded", status: 503, header: "90", want: 90 * time.Second},
+		{name: "nested header", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 1s", status: 200, header: "90", want: 90 * time.Second},
+		{name: "HTTP date", kind: "http", status: 503, header: "date", want: time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -172,6 +172,8 @@ func TestExchangeBackoffCancellation(t *testing.T) {
 	for _, reply := range []retryTestReply{
 		{503, "", nil},
 		{503, "", http.Header{"Retry-After": {"3600"}}},
+		{503, "", http.Header{"Retry-After": {"1e300"}}},
+		{503, "", http.Header{"Retry-After-Ms": {"1e300"}}},
 		{200, retryErrorEvent("response.failed", "rate_limit_exceeded", "try again in 3600s"), nil},
 	} {
 		synctest.Test(t, func(t *testing.T) {

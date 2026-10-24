@@ -32,6 +32,10 @@ type RemoteJobHandler interface {
 }
 
 type RemoteJobState struct {
+	// OutputDirectory is supplied by the operation manager before handler dispatch.
+	OutputDirectory  string `json:",omitzero"`
+	ResultPath       string `json:",omitzero"`
+	ErrorPath        string `json:",omitzero"`
 	Plan             RemoteJobPlan
 	Handle           jsontext.Value `json:",omitzero"`
 	NextInspectionAt time.Time      `json:",omitzero"`
@@ -110,14 +114,15 @@ func UpdateRemoteJob(
 	status Status,
 	dispatches ...PrimitiveDispatch,
 ) (Step, error) {
-	if _, err := DecodeRemoteJobState(current); err != nil {
+	previous, err := DecodeRemoteJobState(current)
+	if err != nil {
 		return Step{}, err
 	}
 	if err := validateRemoteJobPlan(state.Plan); err != nil {
 		return Step{}, fmt.Errorf("validate remote job operation %q state: %w", current.ID, err)
 	}
 	current.Status = status
-	prepareRemoteJobOutput(current, &state)
+	prepareRemoteJobOutput(current, previous, &state)
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return Step{}, fmt.Errorf("encode remote job operation %q state: %w", current.ID, err)

@@ -2,14 +2,17 @@ package operation
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
 )
 
 type LocalOperationManager struct {
 	ctx             context.Context
+	options         LocalOperationManagerOptions
 	remoteJobs      *remoteJobHandlers
 	adds            chan localAddRequest
 	cancellations   chan localCancelRequest
@@ -60,7 +63,18 @@ func (current *localRunningOperation) initialize() error {
 var _ Manager = (*LocalOperationManager)(nil)
 
 func NewLocalOperationManager(ctx context.Context, remoteJobHandlers ...RemoteJobHandler) *LocalOperationManager {
+	return NewLocalOperationManagerWithOptions(ctx, LocalOperationManagerOptions{}, remoteJobHandlers...)
+}
+
+// LocalOperationManagerOptions configures session-scoped output artifacts. An
+// empty OutputDirectory preserves the legacy, inline-only behavior.
+type LocalOperationManagerOptions struct {
+	OutputDirectory string
+}
+
+func NewLocalOperationManagerWithOptions(ctx context.Context, options LocalOperationManagerOptions, remoteJobHandlers ...RemoteJobHandler) *LocalOperationManager {
 	manager := &LocalOperationManager{
+		options:         options,
 		ctx:             ctx,
 		remoteJobs:      newRemoteJobHandlers(ctx, remoteJobHandlers),
 		adds:            make(chan localAddRequest),
@@ -129,7 +143,11 @@ func (manager *LocalOperationManager) run() {
 				remoteJobHandlerIndex: -1,
 			}
 			if request.operation.Type == TypeRemoteJob {
-				handlerIndex, err := manager.remoteJobs.add(request.operation)
+				if err := manager.configureRemoteJob(&current.operation); err != nil {
+					manager.failLocalOperation(operations, current, err)
+					continue
+				}
+				handlerIndex, err := manager.remoteJobs.add(current.operation)
 				if err != nil {
 					manager.failLocalOperation(operations, current, err)
 					continue
@@ -423,4 +441,25 @@ func localPrimitiveCompleted(eventType primitives.PrimitiveEventType) bool {
 	default:
 		return false
 	}
+}
+
+// Configure before AddRemoteJob: handlers may call UpdateRemoteJob themselves,
+// so waiting for their update to arrive would already have lost the full text.
+func (manager *LocalOperationManager) configureRemoteJob(current *Operation) error {
+	state, err := DecodeRemoteJobState(*current)
+	if err != nil {
+		return err
+	}
+	state.OutputDirectory = manager.options.OutputDirectory
+	if state.OutputDirectory != "" {
+		if _, err := remoteJobArtifactName(current.ID, "result", ""); err != nil {
+			return err
+		}
+		state.OutputDirectory, err = filepath.Abs(state.OutputDirectory)
+		if err != nil {
+			return err
+		}
+	}
+	current.State, err = json.Marshal(state)
+	return err
 }
