@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
@@ -16,6 +19,8 @@ import (
 
 func resultState(result tool.Result) (running bool, failure string) {
 	switch result := result.(type) {
+	case tool.UnavailableResult:
+		return false, result.Error
 	case bash.Result:
 		failure = result.Error
 		if failure == "" && result.Output != nil && result.Output.ExitCode != 0 {
@@ -63,6 +68,8 @@ func (m model) readToolResult(card *toolCard, data sessionstore.ToolCallStatus) 
 func resultText(result tool.Result) (string, string) {
 	var parts, paths []string
 	switch result := result.(type) {
+	case tool.UnavailableResult:
+		parts = append(parts, result.Error)
 	case bash.Result:
 		if result.Running {
 			parts = append(parts, "Command is still running.")
@@ -114,4 +121,71 @@ func resultText(result tool.Result) (string, string) {
 		}
 	}
 	return boundedDetail(strings.Join(parts, "\n\n"), 32000), strings.Join(paths, "\n")
+}
+
+// shellDetail keeps stream boundaries separate from text emitted by the command.
+// Its strings are safe, bounded terminal text, never Markdown.
+type shellDetail struct {
+	running                 bool
+	exitCode                *int
+	stdout, stderr, failure string
+}
+
+func newShellDetail(result tool.Result) *shellDetail {
+	shell, ok := result.(bash.Result)
+	if !ok {
+		return nil
+	}
+	detail := &shellDetail{running: shell.Running, failure: shell.Error}
+	if shell.Output != nil {
+		code := shell.Output.ExitCode
+		detail.exitCode = &code
+		detail.stdout = shell.Output.Out
+		detail.stderr = shell.Output.Err
+	}
+	// Share the existing display budget across streams, retaining head and tail
+	// for each. Bound the raw capture before sanitizing so even control-heavy
+	// output stays within the display budget. BoundOutput can split an escape
+	// sequence: sanitize after bounding, before adding trusted headings or resets.
+	total := utf8.RuneCountInString(detail.stdout) + utf8.RuneCountInString(detail.stderr) + utf8.RuneCountInString(detail.failure)
+	for _, text := range []*string{&detail.stdout, &detail.stderr, &detail.failure} {
+		limit := 32000
+		if total > limit {
+			limit = limit * utf8.RuneCountInString(*text) / total
+		}
+		bounded, shortened := operation.BoundOutput(*text, limit)
+		*text = terminaltext.CleanOutput(bounded)
+		if shortened {
+			*text += ansi.ResetStyle + "\n[display shortened; inspect run files for full text]"
+		}
+	}
+	return detail
+}
+
+func (m model) renderShellDetail(detail shellDetail) string {
+	var sections []string
+	if detail.running {
+		sections = append(sections, textStyle(m.theme.Muted).Render("Command is still running."))
+	}
+	if detail.exitCode != nil {
+		color := m.theme.Success
+		if *detail.exitCode != 0 {
+			color = m.theme.Error
+		}
+		sections = append(sections, textStyle(color).Bold(true).Render(fmt.Sprintf("Exit code: %d", *detail.exitCode)))
+	}
+	for _, stream := range []struct{ heading, color, text string }{
+		{"Stdout", m.theme.Accent, detail.stdout},
+		{"Stderr", m.theme.Error, detail.stderr},
+	} {
+		if stream.text != "" {
+			sections = append(sections, textStyle(stream.color).Bold(true).Render(stream.heading+":")+"\n"+stream.text+ansi.ResetStyle)
+		}
+	}
+	if detail.failure != "" {
+		sections = append(sections, textStyle(m.theme.Error).Render(detail.failure+ansi.ResetStyle))
+	}
+	// Explicit resets isolate unclosed command styles from stderr, paths, and UI
+	// chrome, including when a command ends in a non-reset SGR such as bold.
+	return ansi.ResetStyle + strings.Join(sections, ansi.ResetStyle+"\n\n") + ansi.ResetStyle
 }

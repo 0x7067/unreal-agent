@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
 	"time"
-	"uuid"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -19,6 +17,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/workerhost"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
@@ -55,6 +54,7 @@ var (
 )
 
 type submitted struct {
+	id   inbox.ID
 	text string
 	err  error
 }
@@ -65,15 +65,19 @@ type callKey struct {
 
 type message struct {
 	label, text string
-	// block caches the styled entry at width; messages never change after append.
-	block string
-	width int
+	// block caches the styled entry at width; submission state changes invalidate width.
+	inputID    inbox.ID
+	submission submissionState
+	block      string
+	width      int
 }
 
 type model struct {
 	registry                            tool.Registry
 	ctx                                 context.Context
 	inputs                              inbox.Writer
+	submissionQueue                     *submissionQueue
+	pendingSubmissions                  map[inbox.ID]struct{}
 	composer                            textarea.Model
 	files                               filePicker
 	conversation                        viewport.Model
@@ -98,6 +102,12 @@ type model struct {
 	workStarted                         time.Time
 	responding, sending, ended          bool
 	turn                                session.TurnID
+	workerEvents                        *workerEvents
+	workerGeneration                    uint64
+	workerBuild, workerStatus           string
+	reloadError, sessionID              string
+	reloading, workerStopped            bool
+	workerStatusError                   bool
 }
 
 func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, workspace, directory string, opts options) model {
@@ -118,7 +128,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	conversation.MouseWheelDelta = 1
 	m := model{ctx: ctx, inputs: inputs, registry: registry, composer: composer, conversation: conversation,
 		width: 80, height: 24, details: viewport.New(), theme: opts.theme,
-		workspace: singleLine(workspace), directory: singleLine(directory),
+		workspace: singleLine(workspace), directory: singleLine(directory), sessionID: opts.sessionID,
 		configuration: singleLine(strings.Join([]string{opts.provider, opts.model, opts.effort}, " · ")),
 	}
 	m.files.root = workspace
@@ -128,7 +138,12 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 	return m
 }
 
-func (m model) Init() tea.Cmd { return m.composer.Focus() }
+func (m model) Init() tea.Cmd {
+	if m.workerEvents != nil {
+		return tea.Batch(m.composer.Focus(), m.workerEvents.next)
+	}
+	return m.composer.Focus()
+}
 
 func (m *model) mouseViewport(msg tea.Mouse) *viewport.Model {
 	x, _ := m.padding()
@@ -149,6 +164,13 @@ func (m *model) mouseViewport(msg tea.Mouse) *viewport.Model {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if event, ok := msg.(workerEvent); ok {
+		if event.message == nil {
+			return m, nil
+		}
+		updated, cmd := m.Update(event.message)
+		return updated, tea.Batch(cmd, m.workerEvents.next)
+	}
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case fileIndexReady:
@@ -190,13 +212,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.workSpinner.Tick
 		}
 	case submitted:
-		m.sending = false
+		m.finishSubmission(msg)
+	case workerhost.Status:
+		m.applyWorkerStatus(msg)
+	case reloadFinished:
+		m.reloading = false
+		m.reloadError = ""
 		if msg.err != nil {
-			m.append("Send failed", msg.err.Error())
-			m.composer.SetValue(strings.TrimSpace(msg.text + "\n" + m.composer.Value()))
+			m.reloadError = singleLine(msg.err.Error())
 		}
 	case runEnded:
+		// Legacy test writers can still signal completion; resident-host worker
+		// retirement is handled only through generation-aware status events.
+		if m.workerEvents != nil || m.workerGeneration != 0 {
+			return m, nil
+		}
 		m.ended, m.responding = true, false
+		m.endSubmissions()
 		m.refreshDetails()
 		if msg.err != nil {
 			m.runError = singleLine(msg.err.Error())
@@ -327,18 +359,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case key.Matches(msg, sendKey):
 			text := m.composer.Value()
-			if m.ended || m.sending || strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "/reload" {
+				if !m.reloading {
+					m.composer.Reset()
+					cmd = m.startReload()
+				}
 				break
 			}
-			m.composer.Reset()
-			m.sending = true
-			cmd = func() tea.Msg {
-				payload, err := json.Marshal(text)
-				if err == nil {
-					err = m.inputs.Submit(m.ctx, inbox.Input{ID: inbox.ID(uuid.New().String()), Kind: inbox.InputExternal, Payload: payload})
-				}
-				return submitted{text: text, err: err}
+			if m.ended || strings.TrimSpace(text) == "" {
+				break
 			}
+			cmd = m.startSubmission(text)
 		case key.Matches(msg, newlineKey):
 			m.composer.InsertString("\n")
 		case key.Matches(msg, scrollKey):
@@ -376,14 +407,15 @@ func (m *model) append(label, text string) {
 func (m *model) apply(item sessionstore.Item) {
 	switch data := item.Data.(type) {
 	case inbox.Input:
-		if data.Kind == inbox.InputExternal {
-			var text string
-			if json.Unmarshal(data.Payload, &text) == nil {
-				label := "You"
-				if strings.HasPrefix(text, subagentMessagePrefix) {
-					label = "Subagent"
+		m.applyInput(data)
+		if data.Kind == inbox.InputControl {
+			if request, err := data.DecodeControlMessage(); err == nil {
+				switch request.Mode {
+				case inbox.Compact:
+					m.append("Compaction", "Manual compaction requested.")
+				case inbox.CompactionDisabled:
+					m.append("Compaction", request.Reason)
 				}
-				m.append(label, text)
 			}
 		}
 	case session.Turn:
@@ -408,6 +440,9 @@ func (m *model) apply(item sessionstore.Item) {
 					m.append(label, value.Display.Text)
 				}
 			case llm.ToolCall:
+				if data.Response.Failure != nil {
+					continue
+				}
 				card := m.card(callKey{data.TurnID, value.CallID})
 				card.name, card.arguments = value.Name, value.Arguments
 				card.summary = toolSummary(value.Name, value.Arguments)
@@ -424,6 +459,7 @@ func (m *model) apply(item sessionstore.Item) {
 		card := m.card(callKey{data.TurnID, data.CallID})
 		result := m.readToolResult(card, data)
 		card.output, card.paths = resultText(result)
+		card.shell = newShellDetail(result)
 		if card.output == "" {
 			card.output = boundedDetail(card.failure, 32000)
 		}
@@ -453,6 +489,12 @@ func (m *model) renderConversation() {
 	offset := m.introTextOffset()
 	textWidth := max(1, width-offset)
 	paths := m.labelValue(textWidth, "Workspace", m.workspace) + "\n" + m.labelValue(textWidth, "Run Files", m.directory)
+	if m.sessionID != "" {
+		paths += "\n" + m.labelValue(textWidth, "Session", m.sessionID)
+	}
+	if m.workerBuild != "" {
+		paths += "\n" + m.labelValue(textWidth, "Worker", fmt.Sprintf("generation %d · %s", m.workerGeneration, m.workerBuild))
+	}
 	title := textStyle(m.theme.Accent).Bold(true).Render("Unreal Agent") +
 		textStyle(m.theme.Muted).Render(" · "+m.configuration)
 	logo := textStyle(m.theme.Accent).Padding(0, 2, 1, 1).MaxWidth(max(1, width)).Render(mascot)
@@ -491,6 +533,9 @@ func (m *model) renderConversation() {
 				style = style.Foreground(lipgloss.Color(m.theme.Muted))
 			}
 			content := entry.text
+			if status := entry.submission.status(); status != "" {
+				content += "\n\n" + textStyle(m.theme.UserForeground).Italic(true).Render(status)
+			}
 			markdown, err := renderer, renderErr
 			if entry.label == "Reasoning" {
 				markdown, err = reasoningRenderer, reasoningErr
@@ -637,6 +682,17 @@ func (m model) View() tea.View {
 	}
 	if m.sending {
 		status, color = "Sending message", m.theme.StatusAccent
+	}
+	if m.workerStatus != "" && (!pending && !m.responding && !m.sending || m.workerStopped) {
+		status, color = m.workerStatus, m.theme.StatusForeground
+		if m.workerStatusError {
+			color = m.theme.StatusError
+		}
+	}
+	if m.reloading {
+		status, color = "Reloading worker · checking candidate and idle boundary", m.theme.StatusAccent
+	} else if m.reloadError != "" {
+		status, color = "Reload failed · "+m.reloadError, m.theme.StatusError
 	}
 	status = textStyle(color).Render(status)
 	if m.ended {

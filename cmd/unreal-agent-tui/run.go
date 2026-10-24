@@ -2,34 +2,31 @@ package main
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
+	"syscall"
 	"uuid"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/workerhost"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning"
-	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol"
-	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
-	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/settings"
 	"github.com/unreallabsai/unreal-agent/harness/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
@@ -41,21 +38,30 @@ import (
 
 type options struct {
 	provider, model, effort, baseURL string
-	version, setup                   bool
+	version, setup, loadDotEnv       bool
 	modelExplicit, effortExplicit    bool
 	maxAttempts                      int
 	subagents                        bool
 	theme                            theme
+	workerExecutable, sessionID      string
 }
 
 const defaultTheme = "turbo-vision"
 const defaultCodexModel = "gpt-6.1-sol"
 
 func parseOptions(args []string, getenv func(string) string, output io.Writer) (options, error) {
+	return parseOptionsWithLoader(args, getenv, output, nil)
+}
+
+// The loader runs only after flags have been parsed, never for help/version.
+func parseOptionsWithLoader(args []string, getenv func(string) string, output io.Writer, loadEnvironment func() error) (options, error) {
 	var opts options
 	var themeName string
 	flags := flag.NewFlagSet("unreal-agent-tui", flag.ContinueOnError)
 	flags.SetOutput(output)
+	flags.BoolVar(&opts.loadDotEnv, "load-dotenv", false, "trust and load workspace .env (may change credential destinations)")
+	flags.StringVar(&opts.workerExecutable, "worker-executable", "", "trusted executable path to use for explicit /reload (never selected from workspace config)")
+	flags.StringVar(&opts.sessionID, "session", "", "resume this session ID after restarting the frontend")
 	flags.BoolVar(&opts.version, "version", false, "print version")
 	flags.BoolVar(&opts.setup, "setup", false, "choose and remember Codex model and reasoning settings")
 	flags.StringVar(&opts.provider, "provider", getenv("UNREAL_HARNESS_LLM_PROVIDER"), "provider name (default use saved choice or discover Codex subscription)")
@@ -74,6 +80,41 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 	}
 	if flags.NArg() != 0 {
 		return opts, errors.New("unexpected positional arguments; send prompts inside the TUI")
+	}
+	if opts.loadDotEnv && loadEnvironment != nil {
+		if err := loadEnvironment(); err != nil {
+			return opts, err
+		}
+		// Refresh environment defaults after explicit opt-in, preserving CLI flags.
+		explicit := make(map[string]bool)
+		flags.Visit(func(option *flag.Flag) { explicit[option.Name] = true })
+		for _, item := range []struct {
+			flag, env string
+			value     *string
+		}{
+			{"provider", "UNREAL_HARNESS_LLM_PROVIDER", &opts.provider},
+			{"model", "UNREAL_HARNESS_LLM_MODEL", &opts.model},
+			{"effort", "UNREAL_HARNESS_LLM_REASONING_EFFORT", &opts.effort},
+			{"base-url", "UNREAL_HARNESS_LLM_BASE_URL", &opts.baseURL},
+		} {
+			if !explicit[item.flag] {
+				*item.value = getenv(item.env)
+			}
+		}
+	}
+	if opts.sessionID != "" {
+		for _, c := range opts.sessionID {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return opts, errors.New("session ID must contain only ASCII letters, digits, or hyphens")
+			}
+		}
+	}
+	if opts.workerExecutable != "" {
+		var err error
+		opts.workerExecutable, err = filepath.Abs(opts.workerExecutable)
+		if err != nil {
+			return opts, fmt.Errorf("resolve trusted worker executable: %w", err)
+		}
 	}
 	opts.modelExplicit = strings.TrimSpace(opts.model) != ""
 	opts.effortExplicit = strings.TrimSpace(opts.effort) != ""
@@ -123,17 +164,20 @@ func parseOptions(args []string, getenv func(string) string, output io.Writer) (
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) (err error) {
-	// Like the runner, read the workspace .env before any settings; subagents inherit it.
-	workingDirectory, err := os.Getwd()
-	if err != nil {
+	var environment io.Closer
+	defer func() {
+		if environment != nil {
+			err = errors.Join(err, environment.Close())
+		}
+	}()
+	opts, err := parseOptionsWithLoader(args, getenv, output, func() error {
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		environment, err = agentrunner.LoadDotEnv(filepath.Join(workingDirectory, ".env"))
 		return err
-	}
-	environment, err := agentrunner.LoadDotEnv(filepath.Join(workingDirectory, ".env"))
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, environment.Close()) }()
-	opts, err := parseOptions(args, getenv, output)
+	})
 	if err != nil {
 		return err
 	}
@@ -172,8 +216,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		}
 		return err
 	}
-	defer func() { _ = client.Close() }()
-	modelSettings, err := settings.Load(filepath.Join(configDirectory, "settings.json"))
+	// Preserve provider/login validation before the startup dialog, but execution
+	// belongs exclusively to the resident worker, not this retained frontend.
+	if err := client.Close(); err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(configDirectory, "settings.json")
+	modelSettings, err := settings.Load(settingsPath)
 	if err != nil {
 		return fmt.Errorf("load model settings: %w", err)
 	}
@@ -204,7 +253,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		}
 	}
 	selectedModel := llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort),
-		CompactionThreshold: modelSettings.Model(provider.Name, opts.model).CompactionThreshold}
+		CompactionThreshold: compactionThreshold(modelSettings, provider.Name, opts.model, settingsPath, output)}
 	workspace, err := os.Getwd()
 	if err != nil {
 		return err
@@ -213,104 +262,92 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err != nil {
 		return err
 	}
-	store, err := localfile.New(directory)
-	if err != nil {
-		return err
+	if opts.sessionID == "" {
+		opts.sessionID = uuid.New().String()
 	}
-	id := session.ID(uuid.New().String())
-	snapshot, err := store.Create(ctx, id)
-	if err != nil {
-		return err
-	}
+	id := session.ID(opts.sessionID)
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
-	inputs, err := inbox.New(runCtx, nil)
-	if err != nil {
-		return err
-	}
-	settingsPayload, err := json.Marshal(inbox.ControlMessage{
-		Mode:       inbox.UpdateSettings,
-		Parameters: inbox.Settings{Model: opts.model, CompactionThreshold: new(selectedModel.CompactionThreshold), ReasoningEffort: llm.ReasoningEffort(opts.effort)},
-	})
-	if err != nil {
-		return err
-	}
-	if err := inputs.Submit(runCtx, inbox.Input{
-		ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: settingsPayload,
-	}); err != nil {
-		return err
-	}
-	operationDirectory := filepath.Join(directory, "operations", string(id))
-	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
-		return err
-	}
 	shell := strings.TrimSpace(getenv("SHELL"))
 	if shell == "" {
 		shell = "/bin/sh"
 	}
 	skills, skillErrors := tool.DiscoverSkills(filepath.Join(workspace, ".harness", "skills"))
-	var newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
-	if opts.subagents {
-		factory, stderr, err := newSubagentFactory(opts, directory, workspace, operationDirectory, inputs)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = stderr.Close() }()
-		newAgentHandlers = factory
-	}
-	registry, operations, err := newTaskOperations(runCtx, workspace, operationDirectory, shell, inputs, len(skills) > 0, newAgentHandlers)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		cancel()
-		for range operations.Updates() {
-		}
-	}()
+	// Definitions and skill metadata are enough for rendering. Never launch
+	// supervisors, operation managers, shell tools, or graph runtimes in the UI.
+	registry := newUIRegistry(opts.subagents, len(skills) > 0)
 	for _, skill := range skills {
 		if _, err := registry.RegisterSkill(skill); err != nil {
 			return fmt.Errorf("register skill %q: %w", skill.Name, err)
 		}
 	}
-	builder := contextbuilder.NewBuilder(skills...)
-	builder.SetSystemPrompt("Before starting long-running tools, give the user one brief progress update in the same response as the tool calls. Do not repeat waiting messages.")
-	builder.SetModel(selectedModel)
-	for _, definition := range registry.StaticDefinitions() {
-		builder.AddTool(definition.Tool)
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve worker executable: %w", err)
 	}
-	current := coordinator.New(coordinator.Dependencies{
-		SessionID: id, Restored: sessionstore.ResumeState{Snapshot: snapshot}, Sessions: store,
-		Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: client,
-		ToolHeartbeatInterval: 10 * time.Minute,
+	var candidate []string
+	if opts.workerExecutable != "" {
+		candidate = []string{opts.workerExecutable, "worker"}
+	}
+	events := newWorkerEvents(runCtx)
+	host, err := workerhost.Start(runCtx, workerhost.Config{
+		Command: []string{executable, "worker"}, Candidate: candidate,
+		Bootstrap: workerproto.Bootstrap{
+			SessionID: id, Directory: directory, Workspace: workspace,
+			Provider: opts.provider, BaseURL: opts.baseURL, Model: selectedModel,
+			MaxAttempts: opts.maxAttempts, Shell: shell, Subagents: opts.subagents,
+			SystemPrompt: "Before starting long-running tools, give the user one brief progress update in the same response as the tool calls. Do not repeat waiting messages.",
+		},
+		OnItem: events.item, OnStatus: events.status, Stderr: os.Stderr,
 	})
-	ui := newModel(runCtx, inputs, registry, workspace, directory, opts)
+	if err != nil {
+		return err
+	}
+	submissions := newSubmissionQueue(runCtx)
+	defer func() {
+		submissions.Cancel()
+		// The terminal is cooked again once the program has exited, so a second
+		// Ctrl+C arrives as SIGINT here. Register only now: a signal that already
+		// ended the program must not also skip the graceful worker stop.
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(signals)
+		err = errors.Join(err, shutdown(host, submissions.Wait, signals, os.Stderr, defaultShutdownTiming))
+	}()
+	ui := newModel(runCtx, host, registry, workspace, directory, opts)
+	ui.submissionQueue = submissions
+	ui.workerEvents = events
 	for _, err := range skillErrors {
 		ui.append("Skill error", err.Error())
 	}
 	screen := &mouseScreen{model: ui}
 	program := tea.NewProgram(screen,
 		tea.WithContext(ctx), tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(outputTTY), tea.WithFilter(screen.filter))
-	observer := store.AddObserver(func(_ session.ID, item sessionstore.Item) { program.Send(item) })
-	defer store.RemoveObserver(observer)
-	done := make(chan error, 1)
-	go func() {
-		err := current.Run(runCtx)
-		cancel()
-		done <- err
-		close(done)
-		program.Send(runEnded{err: err})
-	}()
 	_, uiErr := program.Run()
-	stopCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
-	defer stop()
-	runErr := runcontrol.Stop(stopCtx, inputs, done, "Unreal Agent exited")
-	cancel()
-	for range done {
-	}
 	if ctx.Err() != nil || errors.Is(uiErr, tea.ErrProgramKilled) {
 		uiErr = nil
 	}
-	return errors.Join(runErr, uiErr)
+	return uiErr
+}
+
+// newUIRegistry describes capabilities without constructing executable runtimes.
+func newUIRegistry(subagents, hasSkills bool) tool.Registry {
+	enabled := []string{tool.BashName, tool.ViewImageName, tool.TaskGraphName}
+	if hasSkills {
+		enabled = append(enabled, tool.SkillUseName)
+	}
+	if subagents {
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+	}
+	// These inert translators only decode worker-owned operation state here.
+	// Do not construct execution runtimes or submit work in the frontend.
+	return tool.NewRegistry(tool.StaticTranslators{
+		Bash:        bash.New(bash.Config{}),
+		ViewImage:   viewimage.New(viewimage.Config{}),
+		Agent:       toolsubagent.NewAgent(),
+		SendMessage: toolsubagent.NewSendMessage(),
+		TaskGraph:   tooltaskgraph.New(),
+	}, enabled...)
 }
 
 // newTaskOperations connects the same registry capabilities to graph and direct work.
@@ -340,7 +377,7 @@ func newTaskOperations(ctx context.Context, workspace, operationDirectory, shell
 		return nil, nil, err
 	}
 	remoteJobs = append(remoteJobs, runtime.Handlers()...)
-	return registry, operation.NewLocalOperationManager(ctx, remoteJobs...), nil
+	return registry, operation.NewLocalOperationManagerWithOptions(ctx, operation.LocalOperationManagerOptions{OutputDirectory: operationDirectory}, remoteJobs...), nil
 }
 
 // newSubagentFactory captures child configuration and a single caller-owned log.
@@ -368,4 +405,12 @@ func newSubagentFactory(opts options, directory, workspace, operationDirectory s
 		return supervisor.Handlers(), nil
 	}
 	return factory, stderr, nil
+}
+
+// compactionThreshold shares Settings.Model's fallback with startup and model switches.
+func compactionThreshold(configured settings.Settings, provider, model, path string, output io.Writer) int64 {
+	if _, listed := configured.LookupModel(provider, model); !listed {
+		fmt.Fprintf(output, "warning: provider %q model %q is not listed; using compaction threshold %d tokens; configure %s\n", provider, model, settings.DefaultCompactionThreshold, path)
+	}
+	return configured.Model(provider, model).CompactionThreshold
 }

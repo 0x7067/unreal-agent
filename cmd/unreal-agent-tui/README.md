@@ -57,10 +57,43 @@ directories and directory symlinks. Scanning and searching run in process;
 they do not launch Git, a shell, or other subprocesses.
 File references insert paths into the message; file contents are not attached.
 
+## Bash output
+
+Bash tool details show stdout and stderr as literal terminal text, preserving
+ANSI colors, indentation, and blank lines rather than interpreting Markdown.
+For stable viewport layout, each tab displays as four spaces (not terminal tab
+stops); raw captures retain the original tabs. Exit codes and stream headings
+are styled separately; full capture paths point to unabridged output when the
+display is shortened. Commands run with piped output, not a PTY,
+so programs often need an explicit option such as `--color=always` to emit colors.
+Terminal controls and hyperlinks are removed for safety.
+
 ## Environment
 
-Like the runner, the TUI reads `.env` in the directory it starts from. Its
-variables apply only where the environment does not already set them.
+Workspace `.env` files are **not loaded by default**, including for help/version.
+The inherited process environment remains trusted, including credentials and
+`UNREAL_HARNESS_LLM_BASE_URL`. To trust a workspace's environment explicitly:
+
+```sh
+unreal-agent-tui -load-dotenv
+```
+
+Migration from older versions: export configuration from a trusted shell or add
+`-load-dotenv` only for reviewed workspaces. Opt-in can change credential destinations
+(endpoint/proxy), provider, model, and config/state paths. Variables fill unset
+environment entries, except `SANDBOX_EGRESS_PROXY`, which can replace its inherited
+value and is copied to `HTTPS_PROXY`. CLI flags still take precedence. Loading is
+scoped to the run and skipped for help/version even when opt-in is supplied.
+Subagents inherit the parent environment and never reload workspace `.env`, even
+if their runner receives `-load-dotenv`.
+
+## Model compaction settings
+
+The TUI shares the runner's [model settings and fallback](../unreal-agent-runner/README.md#model-compaction-settings).
+Unlisted provider/model pairs use `DefaultCompactionThreshold = 64000` tokens,
+including model changes in the TUI. Listed settings retain their configured
+threshold, or `context_window / 2` when omitted/zero. Configure smaller-context
+models explicitly; the fallback is not a claim about the actual context window.
 
 ## Subagents
 
@@ -82,3 +115,68 @@ Credentials come from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`;
 override with `OPENAI_CODEX_AUTH_FILE`. Alternatively use
 `OPENAI_CODEX_ACCESS_TOKEN` and `OPENAI_CODEX_ACCOUNT_ID`.
 Renew credentials with Codex, then restart the agent.
+
+## Sending messages
+
+Enter immediately shows your message with **Submitting · not yet persisted**.
+**Queued · not yet persisted** means the retained frontend accepted it into
+durable ingress, not that the worker persisted it to session history or delivered
+it to the model. The status clears only when the session store
+observes the matching input ID; this does not imply a model response.
+**Send failed · not persisted** retains the message and restores its text in the
+composer. If the run ends first, **Run ended · persistence unconfirmed** keeps
+the unresolved message visible without claiming delivery. The visual pending states are
+process-local; durable ingress survives frontend/worker replacement and is
+reconciled against session history when the same session is resumed.
+
+Sending reveals the latest message; background acknowledgments preserve manual
+scroll. `/compact` requests manual compaction and uses the same submission
+acknowledgment states.
+
+## Explicit worker reload
+
+The terminal UI stays in place while a resident worker owns session/model/tool
+execution. Type `/reload` on its own and press Enter to explicitly replace the
+worker. This is a local UI command: it is never sent to the model or recorded as
+chat/session input. Reload preserves the transcript, tool/details panes, manual
+scroll, and any draft typed while replacement is in progress.
+
+By default `/reload` stages the current executable path again, so a trusted
+installed binary can be upgraded without restarting the frontend. To choose a
+separate trusted candidate explicitly:
+
+```sh
+unreal-agent-tui -worker-executable /absolute/path/to/new/unreal-agent-tui
+```
+
+The flag is a trusted executable path, not a shell command. It selects the reload
+candidate only; initial startup uses the frontend's own binary. It is never read
+from workspace settings or environment variables. Candidates must support the
+private `worker-probe`, `worker`, and embedded `agent-runner` subcommands. The
+probe checks protocol/session compatibility without consulting auth, config,
+workspace dotenv, or opening a terminal. Worker identity/generation is shown in
+the transcript header; reload progress, busy rejection, and errors appear in the
+status row.
+
+Reload is allowed only at a proven idle boundary. Active model calls, graph/tool
+work, or input not yet proven session-persisted block replacement rather than
+canceling work. Probe failures leave the old worker running. If replacement fails
+after old-worker retirement, the session stays stopped; there is no automatic
+binary downgrade. New text still receives conservative session-persistence
+status. Explicit Ctrl+C shutdown, unlike reload, may cancel active work and waits
+for bounded worker cleanup (shells that ignore SIGTERM take 5s; a stuck worker is
+killed after 20s). When the stop takes more than a second, stderr says so; a
+second Ctrl+C kills the worker's process group at once instead of waiting, which
+may leave detached shell commands running.
+
+The Session ID is shown in the transcript header. To resume its history and
+pending durable ingress after restarting the frontend:
+
+```sh
+unreal-agent-tui -session YOUR-SESSION-ID
+```
+
+Only a safely terminal session can resume; interrupted nonterminal model/tool
+work is refused rather than silently rerun. Use the same trusted workspace,
+provider, and state directory. Worker replacements launch descendants from the
+replacement binary, not the original frontend's executable.

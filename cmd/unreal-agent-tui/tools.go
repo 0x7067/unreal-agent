@@ -19,6 +19,7 @@ type toolCard struct {
 	key                                       callKey
 	name, arguments, summary, status, failure string
 	output, paths                             string
+	shell                                     *shellDetail
 }
 
 func (m *model) card(key callKey) *toolCard {
@@ -112,7 +113,11 @@ func (m *model) refreshDetails() {
 	title := textStyle(m.theme.Accent).Bold(true).Render(singleLine(card.name)) +
 		textStyle(m.theme.Muted).Render(" · ") + textStyle(color).Render(status)
 	output := terminaltext.Clean(card.output)
-	if renderer, err := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, m.details.Width()-1)), glamour.WithChromaFormatter("terminal16m")); err == nil {
+	if card.name == "Bash" {
+		if card.shell != nil {
+			output = m.renderShellDetail(*card.shell)
+		}
+	} else if renderer, err := glamour.NewTermRenderer(glamour.WithStyles(m.theme.markdownStyles()), glamour.WithWordWrap(max(1, m.details.Width()-1)), glamour.WithChromaFormatter("terminal16m")); err == nil {
 		if rendered, err := renderer.Render(output); err == nil {
 			output = strings.Trim(terminaltext.CleanStyled(rendered), "\n")
 		}
@@ -120,8 +125,11 @@ func (m *model) refreshDetails() {
 	if card.paths != "" {
 		output += "\n\n" + textStyle(m.theme.Muted).Render(card.paths)
 	}
+	// Expand each tab to four spaces before wrapping for stable layout. Lipgloss
+	// also expands tabs during multiline alignment, even with NoTabConversion.
+	// The shell capture and literal helper retain the original tab characters.
 	output = renderSurface(textStyle(m.theme.Foreground).Background(lipgloss.Color(m.theme.Background)).
-		Width(m.details.Width()).Padding(0, 0, 1, 1), output)
+		Width(m.details.Width()).TabWidth(4).Padding(0, 0, 1, 1), output)
 	content := title + "\n\n" +
 		m.labelValue(m.details.Width(), "Call", singleLine(card.key.call)) + "\n" +
 		m.labelValue(m.details.Width(), "Arguments", boundedDetail(arguments, 16000)) +
