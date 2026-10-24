@@ -31,7 +31,8 @@ type Config struct {
 type Runtime struct {
 	ctx          context.Context
 	config       Config
-	requests     chan func(*runtimeState)
+	requests     *runtimeRequests
+	done         chan struct{}
 	run, control *runtimeHandler
 }
 type runtimeHandler struct {
@@ -51,12 +52,7 @@ func (h *runtimeHandler) CancelRemoteJob(id operation.ID, reason string) error {
 	return h.runtime.request(func(s *runtimeState) { s.cancelOperation(h, id, reason) })
 }
 func (r *Runtime) request(fn func(*runtimeState)) error {
-	select {
-	case r.requests <- fn:
-		return nil
-	case <-r.ctx.Done():
-		return r.ctx.Err()
-	}
+	return r.requests.submit(fn)
 }
 func (r *Runtime) Handlers() []operation.RemoteJobHandler {
 	return []operation.RemoteJobHandler{r.run, r.control}
@@ -92,11 +88,36 @@ func New(ctx context.Context, c Config) (*Runtime, error) {
 	if c.Shell == "" {
 		c.Shell = "/bin/sh"
 	}
-	r := &Runtime{ctx: ctx, config: c, requests: make(chan func(*runtimeState))}
+	r := &Runtime{ctx: ctx, config: c, requests: newRuntimeRequests(ctx), done: make(chan struct{})}
 	r.run = &runtimeHandler{runtime: r, typ: RunPlanType, updates: make(chan operation.Operation)}
 	r.control = &runtimeHandler{runtime: r, typ: ControlPlanType, updates: make(chan operation.Operation)}
 	go r.loop()
 	return r, nil
+}
+
+// Wait waits for actual runtime termination. It does not cancel the runtime.
+// Completion includes the mailbox, executing callbacks, every nested operation
+// manager (including terminal graphs), and lifecycle-aware remote handlers.
+// A callback or handler that ignores cancellation can keep Wait blocked; ctx
+// bounds only this wait, never reports unfinished work as complete.
+func (r *Runtime) Wait(ctx context.Context) error {
+	select {
+	case <-r.done:
+		return nil
+	default:
+	}
+	select {
+	case <-r.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// A manager's forwarding goroutines do not own the underlying remote handler
+// actors or their children. Lifecycle-aware handlers must be joined separately.
+type runtimeWaiter interface {
+	Wait(context.Context) error
 }
 
 type attempt struct {
@@ -125,12 +146,33 @@ type runtimeState struct {
 	graphs  map[string]*graphExecution
 	active  *graphExecution
 	seen    map[operation.ID]bool
+	waiters []runtimeWaiter
 }
 
 func (r *Runtime) loop() {
 	s := &runtimeState{runtime: r, graphs: map[string]*graphExecution{}, seen: map[operation.ID]bool{}}
+	defer close(r.done)
 	defer close(r.run.updates)
 	defer close(r.control.updates)
+	defer func() {
+		// Stop every execution before joining any of them. Terminal graphs
+		// leave s.active but can still own shutting-down managers/handlers.
+		for _, g := range s.graphs {
+			g.stop()
+		}
+		for _, g := range s.graphs {
+			// Manager updates close only after dispatched primitives and its
+			// remote forwarding goroutines have finished. Drain, don't wait
+			// on a forwarder alone or depend on an external update consumer.
+			for range g.manager.Updates() {
+			}
+		}
+		for _, waiter := range s.waiters {
+			// The runtime's cancellation must not short-circuit child joins.
+			_ = waiter.Wait(context.Background())
+		}
+		<-r.requests.done
+	}()
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	done := r.ctx.Done()
@@ -150,8 +192,10 @@ func (r *Runtime) loop() {
 			children = s.active.manager.Updates()
 		}
 		select {
-		case fn := <-r.requests:
-			fn(s)
+		case fn := <-r.requests.output:
+			if r.ctx.Err() == nil {
+				fn(s)
+			}
 		case runOut <- runOp:
 			r.run.queue = r.run.queue[1:]
 		case controlOut <- controlOp:
@@ -168,13 +212,12 @@ func (r *Runtime) loop() {
 			}
 		case <-done:
 			done = nil
-			if s.active == nil {
-				return
-			}
-			s.cancelGraph(s.active)
-			// Nested manager drains all dispatched primitives before closing its updates.
-			s.active.stop()
-			for range s.active.manager.Updates() {
+			if s.active != nil {
+				// Cancel may wait behind a handler call in the nested manager.
+				// Its context is deliberately detached from r.ctx, so stop it
+				// first to unblock cancellation-aware handlers and children.
+				s.active.stop()
+				s.cancelGraph(s.active)
 			}
 			return
 		}
@@ -194,6 +237,7 @@ func (s *runtimeState) emit(h *runtimeHandler, op operation.Operation, status op
 			return
 		}
 	}
+	state.ResultTruncated, state.ErrorTruncated = false, false
 	state.TerminalResult = result
 	if err != nil {
 		state.TerminalError = err.Error()
@@ -287,12 +331,18 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 	if s.runtime.config.NewAgentHandlers != nil {
 		handlers, err = s.runtime.config.NewAgentHandlers(nestedCtx)
 	}
+	// Retain joins even when setup returns an error after creating handlers.
+	for _, handler := range handlers {
+		if waiter, ok := handler.(runtimeWaiter); ok {
+			s.waiters = append(s.waiters, waiter)
+		}
+	}
 	if err != nil {
 		stop()
 		s.emit(h, op, operation.StatusFailed, nil, "", err)
 		return
 	}
-	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManager(nestedCtx, handlers...), stop: stop}
+	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManagerWithOptions(nestedCtx, operation.LocalOperationManagerOptions{OutputDirectory: s.runtime.config.BaseDirectory}, handlers...), stop: stop}
 	s.graphs[p.Name] = g
 	s.active = g
 	for _, n := range g.Graph.Nodes {

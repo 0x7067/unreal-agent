@@ -114,7 +114,10 @@ func TestRuntimeAcceptedDependencyLaunchesWhileSiblingRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := operation.NewLocalOperationManager(ctx, r.Handlers()...)
-	tasks := []Task{{ID: "a", Command: "printf a > a", Reads: []string{}, Writes: []string{"a"}, Acceptance: "a exists"}, {ID: "b", Command: "printf started > b; sleep 2", Reads: []string{}, Writes: []string{"b"}, Acceptance: "b complete"}, {ID: "c", Command: "cat a > c", DependsOn: []string{"a"}, Reads: []string{"a"}, Writes: []string{"c"}, Acceptance: "c matches a"}}
+	// Running is a logical admission state, not proof that the shell has
+	// executed its first write. Gate A on B's marker and keep B alive until
+	// the assertion, rather than relying on process scheduling or a sleep.
+	tasks := []Task{{ID: "a", Command: "printf a > a; while [ ! -f b ]; do sleep .01; done", Reads: []string{}, Writes: []string{"a"}, Acceptance: "a exists"}, {ID: "b", Command: "printf started > b; while [ ! -f release-b ]; do sleep .01; done", Reads: []string{}, Writes: []string{"b"}, Acceptance: "b complete"}, {ID: "c", Command: "cat a > c", DependsOn: []string{"a"}, Reads: []string{"a"}, Writes: []string{"c"}, Acceptance: "c matches a"}}
 	m.Add(runtimeOperation(t, "run", RunPlanType, RunPlan{Name: "g", Tasks: tasks, Concurrency: 2}))
 	runtimeWait(t, m, func(op operation.Operation) bool {
 		g := runtimeGraph(t, op)
@@ -134,6 +137,9 @@ func TestRuntimeAcceptedDependencyLaunchesWhileSiblingRuns(t *testing.T) {
 	g := runtimeGraph(t, op)
 	if g.Find("b").Status != Running {
 		t.Fatal("c waited for unrelated b")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release-b"), nil, 0600); err != nil {
+		t.Fatal(err)
 	}
 }
 func TestRuntimeFreshnessBeforeAcceptance(t *testing.T) {
