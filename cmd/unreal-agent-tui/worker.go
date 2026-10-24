@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,4 +107,21 @@ func (m *model) applyWorkerStatus(status workerhost.Status) {
 	offset := m.conversation.YOffset()
 	m.renderConversation()
 	m.conversation.SetYOffset(offset)
+}
+
+// workerLabel is presentation-only: the full build metadata and executable
+// fingerprint remain unchanged in the model and host.
+func workerLabel(generation uint64, build string) string {
+	metadata := build
+	fingerprint := ""
+	if i := strings.LastIndex(build, " ["); i >= 0 && strings.HasSuffix(build, "]") {
+		metadata = build[:i]
+		fingerprint = build[i+2 : len(build)-1]
+	}
+	version, _, _ := strings.Cut(metadata, "+")
+	label := fmt.Sprintf("#%d · %s", generation, version)
+	if fingerprint != "" {
+		label += " · " + fingerprint[:min(8, len(fingerprint))]
+	}
+	return label
 }

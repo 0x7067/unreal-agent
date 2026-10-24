@@ -5,7 +5,7 @@ It is kept short on purpose - every line here is paid on every session.
 
 ## Learnings
 
-- None recorded yet. backpass adds evidence-backed entries here from real sessions.
+- User preference: after code changes, always rebuild and reinstall before finishing. In this environment, use `make build` and atomically replace both binaries in `~/.local/bin`; UI changes require a frontend restart.
 
 ## Maintaining this file
 

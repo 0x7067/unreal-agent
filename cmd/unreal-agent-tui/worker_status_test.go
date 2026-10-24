@@ -195,3 +195,54 @@ func workerStatusForegrounds(t *testing.T, rendered, message string) []string {
 	start := strings.Index(text, message)
 	return foregrounds[start : start+len(message)]
 }
+
+func TestWorkerLabel(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		generation uint64
+		build      string
+		want       string
+	}{
+		{"development", 1, "dev+unknown+unknown [a81b3c92de40]", "#1 · dev · a81b3c92"},
+		{"release", 2, "v0.4.0+abcdef012345+2026-10-24T03:00:00Z [a81b3c92de40]", "#2 · v0.4.0 · a81b3c92"},
+		{"prerelease", 12, "v0.4.0-rc.1+abcdef+2026-10-24 [0123456789ab]", "#12 · v0.4.0-rc.1 · 01234567"},
+		{"no fingerprint", 1, "dev+unknown+unknown", "#1 · dev"},
+		{"opaque build", 2, "replacement", "#2 · replacement"},
+		{"short fingerprint", 3, "dev+unknown+unknown [abc]", "#3 · dev · abc"},
+		{"empty fingerprint", 3, "dev+unknown+unknown []", "#3 · dev"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workerLabel(tt.generation, tt.build); got != tt.want {
+				t.Fatalf("workerLabel() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkerIdentityDisplayKeepsFullBuild(t *testing.T) {
+	for _, palette := range []string{"github-dark", "turbo-vision"} {
+		t.Run(palette, func(t *testing.T) {
+			m := toolsModel(t, palette, 160, 40, 0)
+			for _, status := range []workerhost.Status{
+				{Generation: 1, Build: "dev+unknown+unknown [a81b3c92de40]", Message: "Worker ready"},
+				{Generation: 2, Build: "v0.4.0+abcdef012345+2026-10-24T03:00:00Z [0123456789ab]", Message: "Worker ready"},
+			} {
+				m = submissionUpdate(m, status)
+				if m.workerBuild != status.Build {
+					t.Fatalf("full build identity changed: got %q, want %q", m.workerBuild, status.Build)
+				}
+				content := ansi.Strip(m.conversation.GetContent())
+				want := "#1 · dev · a81b3c92"
+				if status.Generation == 2 {
+					want = "#2 · v0.4.0 · 01234567"
+				}
+				if !strings.Contains(content, "Worker") || !strings.Contains(content, want) {
+					t.Fatalf("missing compact Worker label %q in:\n%s", want, content)
+				}
+				if strings.Contains(content, "unknown") || strings.Contains(content, "2026-10-24") || strings.Contains(content, "generation ") {
+					t.Fatalf("verbose build metadata still visible:\n%s", content)
+				}
+			}
+		})
+	}
+}

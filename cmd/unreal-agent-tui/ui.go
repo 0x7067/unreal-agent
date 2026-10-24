@@ -493,7 +493,7 @@ func (m *model) renderConversation() {
 		paths += "\n" + m.labelValue(textWidth, "Session", m.sessionID)
 	}
 	if m.workerBuild != "" {
-		paths += "\n" + m.labelValue(textWidth, "Worker", fmt.Sprintf("generation %d · %s", m.workerGeneration, m.workerBuild))
+		paths += "\n" + m.labelValue(textWidth, "Worker", workerLabel(m.workerGeneration, m.workerBuild))
 	}
 	title := textStyle(m.theme.Accent).Bold(true).Render("Unreal Agent") +
 		textStyle(m.theme.Muted).Render(" · "+m.configuration)

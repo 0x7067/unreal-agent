@@ -392,9 +392,16 @@ func validateAttempts(cp checkpoint) error {
 	if cp.Attempts == nil {
 		return errors.New("checkpoint lacks attempt map")
 	}
+	currentChildren := map[operation.ID]string{}
 	for _, n := range cp.Graph.Nodes {
 		a := cp.Attempts[n.Task.ID]
 		if a != nil && a.Generation == n.Generation {
+			// child routes updates by operation ID among current attempts. An
+			// obsolete attempt cannot receive them and does not reserve its ID.
+			if owner, exists := currentChildren[a.ChildOperation.ID]; exists {
+				return fmt.Errorf("tasks %s and %s have duplicate current child operation ID %q", owner, n.Task.ID, a.ChildOperation.ID)
+			}
+			currentChildren[a.ChildOperation.ID] = n.Task.ID
 			var err error
 			switch a.ChildOperation.Type {
 			case operation.TypeShell:

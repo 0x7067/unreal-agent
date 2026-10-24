@@ -88,6 +88,7 @@ func (g Graph) Validate() error {
 	if err := next.validate(); err != nil {
 		return err
 	}
+	activeCount := 0
 	for i := range g.Nodes {
 		n := &g.Nodes[i]
 		if !reflect.DeepEqual(n.Task, next.Nodes[i].Task) {
@@ -105,9 +106,29 @@ func (g Graph) Validate() error {
 			if strings.TrimSpace(n.Evidence) == "" {
 				return fmt.Errorf("task %s lacks acceptance evidence", n.Task.ID)
 			}
+		}
+		// Invalidation leaves active descendants stale until their children
+		// terminate. Only those stale attempts may outlive accepted prerequisites.
+		if n.Status == Accepted || n.Status == Completed || (active(n) && !n.Stale) {
 			for _, id := range n.Task.DependsOn {
-				if next.Find(id).Status != Accepted {
-					return fmt.Errorf("accepted task %s has unaccepted prerequisite %s", n.Task.ID, id)
+				p := next.Find(id)
+				if p.Status != Accepted || p.Stale {
+					return fmt.Errorf("%s task %s has unaccepted or stale prerequisite %s", n.Status, n.Task.ID, id)
+				}
+			}
+		}
+		if active(n) {
+			activeCount++
+			if activeCount > g.Concurrency {
+				return errors.New("active tasks exceed graph concurrency")
+			}
+		}
+		// Completed candidates and stale active attempts still own their claims.
+		if reserved(n) {
+			for j := 0; j < i; j++ {
+				other := &g.Nodes[j]
+				if reserved(other) && conflicts(n.Task, other.Task) {
+					return fmt.Errorf("reserved tasks %s and %s have conflicting claims", other.Task.ID, n.Task.ID)
 				}
 			}
 		}
