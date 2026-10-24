@@ -108,7 +108,23 @@ func (current *builder) SetSystemPrompt(prompt string) {
 }
 
 func (current *builder) AddModelResponse(response llm.Response) {
-	current.committedPrefix = append(current.committedPrefix, response.Output...)
+	output := response.Output
+	if response.Failure != nil {
+		// MessagesAPI represents refusals with both StopRefused and Failure.
+		// Their assistant text is conversation history, not a terminal model
+		// failure. Keep only messages: failed responses must not introduce
+		// partial calls (or other opaque provider state) into future requests.
+		if response.Stop != llm.StopRefused {
+			return
+		}
+		output = nil
+		for _, item := range response.Output {
+			if message, ok := item.Data.(llm.Message); item.Type == llm.ItemMessage && ok && message.Role == llm.RoleAssistant {
+				output = append(output, item)
+			}
+		}
+	}
+	current.committedPrefix = append(current.committedPrefix, output...)
 	current.prefixTokens = append(current.prefixTokens, prefixToken{
 		committedPrefixIndex: len(current.committedPrefix),
 		Tokens:               response.Usage.InputTokens + response.Usage.OutputTokens,

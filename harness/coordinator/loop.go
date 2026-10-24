@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 	"uuid"
 
@@ -35,6 +36,12 @@ type coordinator struct {
 	state        loopState
 	stop         stopState
 	cancelModel  context.CancelFunc
+
+	// Lifecycle synchronization never protects loopState: only Run owns it.
+	lifecycleOnce sync.Once
+	quiesce       chan quiesceRequest
+	runDone       chan struct{}
+	runResult     error // Published by closing runDone.
 }
 
 type stopState struct {
@@ -43,16 +50,26 @@ type stopState struct {
 }
 
 type loopState struct {
-	currentTurnID     session.TurnID
-	currentTurnType   session.TurnType
-	toolCalls         map[toolCallKey]toolCallState
-	operations        map[operation.ID]operation.Operation
-	availableInputs   int
-	deliveredInputs   int
-	currentTurnInputs int
-	callModel         bool
-	grace             <-chan time.Time
-	graceToolCalls    map[toolCallKey]struct{}
+	failedTurns               map[session.TurnID]struct{}
+	rejectedOperations        map[operation.ID]struct{}
+	respondedTurns            map[session.TurnID]struct{}
+	externalInputs            int
+	currentTurnExternalInputs int
+	lastFailure               *ModelFailureError
+	compactionFailures        int
+	compactionFailureLimit    int
+	compactionDisabled        bool
+	manualCompaction          bool
+	currentTurnID             session.TurnID
+	currentTurnType           session.TurnType
+	toolCalls                 map[toolCallKey]toolCallState
+	operations                map[operation.ID]operation.Operation
+	availableInputs           int
+	deliveredInputs           int
+	currentTurnInputs         int
+	callModel                 bool
+	grace                     <-chan time.Time
+	graceToolCalls            map[toolCallKey]struct{}
 }
 
 type toolCallState struct {
@@ -80,18 +97,44 @@ var _ Coordinator = (*coordinator)(nil)
 
 func newLoopState() loopState {
 	return loopState{
-		toolCalls:      make(map[toolCallKey]toolCallState),
-		operations:     make(map[operation.ID]operation.Operation),
-		graceToolCalls: make(map[toolCallKey]struct{}),
+		respondedTurns:     make(map[session.TurnID]struct{}),
+		failedTurns:        make(map[session.TurnID]struct{}),
+		rejectedOperations: make(map[operation.ID]struct{}),
+		toolCalls:          make(map[toolCallKey]toolCallState),
+		operations:         make(map[operation.ID]operation.Operation),
+		graceToolCalls:     make(map[toolCallKey]struct{}),
 	}
 }
 
-func (current *coordinator) Run(ctx context.Context) error {
+func (current *coordinator) Run(ctx context.Context) (result error) {
+	current.initLifecycle()
+	defer func() {
+		current.runResult = result
+		close(current.runDone)
+	}()
+	if current.dependencies.CompactionFailureLimit < 0 {
+		return fmt.Errorf("compaction failure limit must not be negative")
+	}
 	if current.dependencies.ToolHeartbeatInterval < 0 {
 		return fmt.Errorf("tool heartbeat interval must not be negative")
 	}
 	if err := current.restore(ctx); err != nil {
 		return err
+	}
+
+	// Accept queued new user input before surfacing a restored failure. Do not
+	// schedule or dispatch any recorded tool work merely to retry a failed turn.
+	if current.state.lastFailure != nil {
+		inputs, err := slurpChannel(ctx, current.dependencies.Inbox.Output())
+		if err != nil {
+			return err
+		}
+		if err := current.processInputs(ctx, inputs); err != nil {
+			return err
+		}
+		if current.state.lastFailure != nil {
+			return current.state.lastFailure
+		}
 	}
 
 	modelContext, cancelModels := context.WithCancel(ctx)
@@ -142,6 +185,15 @@ func (current *coordinator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
+		case request := <-current.quiesce:
+			retired, err := current.handleQuiesce(ctx, request)
+			if err != nil {
+				return err
+			}
+			if retired {
+				return ErrQuiesced
+			}
 
 		case received, open := <-inboxOutput:
 			if !open {
@@ -212,7 +264,12 @@ func (current *coordinator) processEvents(ctx context.Context) (bool, error) {
 			current.state.grace = time.After(toolCallCompletionGracePeriod)
 		}
 	}
-	return current.state.callModel || (current.pendingInputs() > 0 && current.cancelModel == nil && len(current.state.graceToolCalls) == 0), nil
+	if current.state.manualCompaction && current.cancelModel == nil {
+		if _, err := current.dependencies.ContextBuilder.BuildCompaction(); err != nil {
+			current.state.manualCompaction = false
+		}
+	}
+	return (current.state.manualCompaction && current.cancelModel == nil) || current.state.callModel || (current.pendingInputs() > 0 && current.cancelModel == nil && len(current.state.graceToolCalls) == 0), nil
 }
 
 func (current *coordinator) processInputs(ctx context.Context, inputs []inbox.Input) error {
@@ -229,6 +286,9 @@ func (current *coordinator) processOperations(ctx context.Context, updates []ope
 }
 
 func (current *coordinator) processModelResponse(ctx context.Context, modelResponse modelResponseResult) error {
+	if _, duplicate := current.state.respondedTurns[modelResponse.turnID]; duplicate {
+		return nil
+	}
 	current.interruptModel()
 	if modelResponse.err != nil {
 		if err := ctx.Err(); err != nil {
@@ -350,7 +410,7 @@ func (current *coordinator) cancelOperations() error {
 }
 
 func (current *coordinator) buildModelRequest() (llm.Request, session.TurnType, error) {
-	if current.dependencies.ContextBuilder.NeedsCompaction() {
+	if current.state.manualCompaction || (!current.state.compactionDisabled && current.dependencies.ContextBuilder.NeedsCompaction()) {
 		if built, err := current.dependencies.ContextBuilder.BuildCompaction(); err == nil {
 			return built.Request, session.TurnCompaction, nil
 		}
@@ -367,10 +427,23 @@ func (current *coordinator) requestModelResponse(
 	results chan<- modelResponseResult,
 ) error {
 	current.interruptModel()
+	if err := current.disableUnusableCompaction(ctx); err != nil {
+		return err
+	}
 	request, turnType, err := current.buildModelRequest()
 	if err != nil {
 		return err
 	}
+	if turnType == session.TurnCompaction && current.state.compactionFailureLimit == 0 {
+		if err := current.recordControl(ctx, inbox.ControlMessage{
+			Mode:       inbox.SetCompactionPolicy,
+			Parameters: inbox.CompactionPolicy{FailureLimit: current.compactionFailureLimit()},
+		}); err != nil {
+			return err
+		}
+	}
+	// Manual requests are one-shot, including when no history is eligible.
+	current.state.manualCompaction = false
 	turn := session.Turn{
 		ID:             session.TurnID(uuid.New().String()),
 		PreviousTurnID: current.state.currentTurnID,
@@ -426,6 +499,9 @@ func (current *coordinator) handleInboxInput(ctx context.Context, input inbox.In
 			return err
 		}
 		switch request.Mode {
+		case inbox.Compact:
+			// Do not interrupt an active request; run the manual request next.
+			return nil
 		case inbox.UpdateSettings:
 			if current.cancelModel != nil {
 				current.state.callModel = true
@@ -476,6 +552,9 @@ func (current *coordinator) handleModelResponse(
 	ctx context.Context,
 	response sessionstore.ModelResponse,
 ) ([]sessionstore.ToolCallStatus, error) {
+	if _, duplicate := current.state.respondedTurns[response.TurnID]; duplicate {
+		return nil, nil
+	}
 	item, err := current.addItemToLocalState(sessionstore.Item{
 		Kind: sessionstore.ItemModelResponse,
 		Data: response,
@@ -486,22 +565,18 @@ func (current *coordinator) handleModelResponse(
 	if err := current.storeItemInSessionStore(ctx, item); err != nil {
 		return nil, err
 	}
+	if current.state.currentTurnType != session.TurnCompaction && terminalModelFailure(response.Response) {
+		return nil, &ModelFailureError{TurnID: response.TurnID, Failure: *response.Response.Failure}
+	}
+	if err := current.disableUnusableCompaction(ctx); err != nil {
+		return nil, err
+	}
 	statuses, err := current.scheduleToolCalls(ctx)
 	if err != nil {
 		return nil, err
 	}
 	current.state.callModel = toolCallStatusesRequireModelResponse(statuses)
 	return statuses, nil
-}
-
-func (current *coordinator) applyCompactionResponse(response llm.Response) {
-	if response.Stop != llm.StopComplete {
-		return
-	}
-	rebuilt, compacted := current.dependencies.ContextBuilder.Compact(response)
-	if compacted {
-		current.dependencies.ContextBuilder = rebuilt
-	}
 }
 
 func (current *coordinator) handleOperationUpdate(
@@ -517,6 +592,9 @@ func (current *coordinator) restore(ctx context.Context) error {
 		return err
 	}
 	for _, value := range current.dependencies.Restored.Operations {
+		if _, rejected := current.state.rejectedOperations[value.ID]; rejected {
+			continue
+		}
 		current.addOperationToLocalState(value)
 	}
 	return nil
@@ -603,6 +681,8 @@ func (current *coordinator) addItemToLocalState(
 				)
 			}
 			current.state.availableInputs++
+			current.state.externalInputs++
+			current.state.lastFailure = nil
 		}
 		if input.Kind == inbox.InputControl {
 			request, err := input.DecodeControlMessage()
@@ -610,6 +690,14 @@ func (current *coordinator) addItemToLocalState(
 				return sessionstore.Item{}, err
 			}
 			current.dependencies.ContextBuilder.AddControlMessage(request)
+			switch request.Mode {
+			case inbox.SetCompactionPolicy:
+				current.state.compactionFailureLimit = request.Parameters.(inbox.CompactionPolicy).FailureLimit
+			case inbox.CompactionDisabled:
+				current.state.compactionDisabled = true
+			case inbox.Compact:
+				current.state.manualCompaction = true
+			}
 			if request.Mode == inbox.Heartbeat {
 				current.state.availableInputs++
 			}
@@ -626,6 +714,9 @@ func (current *coordinator) addItemToLocalState(
 		current.state.currentTurnID = turn.ID
 		current.state.currentTurnType = turn.Type
 		current.state.currentTurnInputs = current.state.availableInputs
+		current.state.currentTurnExternalInputs = current.state.externalInputs
+		// A turn consumes any pending manual compaction request during replay.
+		current.state.manualCompaction = false
 		if turn.Type != session.TurnCompaction {
 			current.dependencies.ContextBuilder.Commit()
 		}
@@ -638,14 +729,25 @@ func (current *coordinator) addItemToLocalState(
 				item.Data,
 			)
 		}
+		if _, duplicate := current.state.respondedTurns[response.TurnID]; duplicate {
+			return item, nil
+		}
+		current.state.respondedTurns[response.TurnID] = struct{}{}
 		if current.state.currentTurnType == session.TurnCompaction && response.TurnID == current.state.currentTurnID {
 			current.applyCompactionResponse(response.Response)
 			return item, nil
+		}
+		if response.Response.Failure != nil {
+			current.state.failedTurns[response.TurnID] = struct{}{}
 		}
 		// The complete output includes messages, reasoning, and tool calls.
 		current.dependencies.ContextBuilder.AddModelResponse(response.Response)
 		if response.TurnID == current.state.currentTurnID {
 			current.state.deliveredInputs = current.state.currentTurnInputs
+			current.state.lastFailure = nil
+			if terminalModelFailure(response.Response) && current.state.externalInputs == current.state.currentTurnExternalInputs {
+				current.state.lastFailure = &ModelFailureError{TurnID: response.TurnID, Failure: *response.Response.Failure}
+			}
 		}
 		current.addToolCallsToLocalState(response)
 
@@ -656,6 +758,14 @@ func (current *coordinator) addItemToLocalState(
 				"tool-call status data is %T, want sessionstore.ToolCallStatus",
 				item.Data,
 			)
+		}
+		// Older versions could schedule partial calls from failed responses.
+		// Never revive that work, even when a legacy status was recorded.
+		if _, failed := current.state.failedTurns[status.TurnID]; failed {
+			for _, value := range status.Operations {
+				current.state.rejectedOperations[value.ID] = struct{}{}
+			}
+			return item, nil
 		}
 		for _, value := range status.Operations {
 			current.addOperationToLocalState(value)
@@ -673,6 +783,9 @@ func (current *coordinator) addItemToLocalState(
 }
 
 func (current *coordinator) addToolCallsToLocalState(response sessionstore.ModelResponse) {
+	if response.Response.Failure != nil {
+		return
+	}
 	for _, output := range response.Response.Output {
 		if output.Type != llm.ItemToolCall {
 			continue

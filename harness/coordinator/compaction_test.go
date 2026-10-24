@@ -137,7 +137,7 @@ func TestCompactionResponseStatusOnLiveAndReplay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if test.stop != llm.StopComplete {
+			if test.stop != llm.StopComplete || len(test.output) == 0 {
 				if current.dependencies.ContextBuilder != oldBuilder || !reflect.DeepEqual(live, before) {
 					t.Fatal("unsuccessful compaction changed live context")
 				}

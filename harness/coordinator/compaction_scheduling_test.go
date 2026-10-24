@@ -169,7 +169,7 @@ func TestCompactionResponsePreservesPendingWork(t *testing.T) {
 				current.dependencies.ContextBuilder = newStopTestRun(t, 0).current.dependencies.ContextBuilder
 			}
 			previous := current.dependencies.ContextBuilder
-			response := llm.Response{Stop: llm.StopComplete}
+			response := llm.Response{Stop: llm.StopComplete, Output: textResponse("Summary").Output}
 			if outcome == "refused" {
 				response.Stop = llm.StopRefused
 			}
@@ -189,8 +189,8 @@ func TestCompactionResponsePreservesPendingWork(t *testing.T) {
 					t.Fatal("completed compaction did not reconstruct context")
 				}
 				rebuilt := current.dependencies.ContextBuilder
-				if err := current.processModelResponse(t.Context(), modelResponseResult{turnID: "compact", response: response}); err == nil {
-					t.Fatal("duplicate response was persisted")
+				if err := current.processModelResponse(t.Context(), modelResponseResult{turnID: "compact", response: response}); err != nil {
+					t.Fatalf("duplicate response was not ignored: %v", err)
 				}
 				if current.pendingInputs() != 1 || current.dependencies.ContextBuilder != rebuilt {
 					t.Fatal("duplicate response changed pending input or context")

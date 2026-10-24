@@ -14,6 +14,10 @@ import (
 //go:embed default_settings.json
 var defaultSettingsJSON []byte
 
+// DefaultCompactionThreshold is the conservative token threshold used when a
+// provider/model pair is not listed. Configure settings for smaller context windows.
+const DefaultCompactionThreshold int64 = 64_000
+
 type Settings struct {
 	Providers map[string]Provider `json:"providers"`
 }
@@ -67,13 +71,23 @@ func Load(path string) (Settings, error) {
 	return configured, nil
 }
 
+// Model returns listed settings, or a safe compaction threshold for an unknown pair.
+// The fallback does not claim to know the model's context window.
 func (configured Settings) Model(providerID, modelID string) Model {
+	if model, listed := configured.LookupModel(providerID, modelID); listed {
+		return model
+	}
+	return Model{CompactionThreshold: DefaultCompactionThreshold}
+}
+
+// LookupModel distinguishes listed settings from the fallback returned by Model.
+func (configured Settings) LookupModel(providerID, modelID string) (Model, bool) {
 	for _, model := range configured.Providers[providerID].Models {
 		if model.ID == modelID {
-			return model
+			return model, true
 		}
 	}
-	return Model{}
+	return Model{}, false
 }
 
 func decodeSettings(data []byte) (Settings, error) {

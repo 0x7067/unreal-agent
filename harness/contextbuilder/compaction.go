@@ -49,8 +49,9 @@ func (current *builder) NeedsCompaction() bool {
 
 // Compact rebuilds from a compaction response without changing the original builder.
 func (current *builder) Compact(response llm.Response) (Builder, bool) {
+	summary := compactionSummary(response)
 	cutoff, ok := current.compactionCutoff()
-	if !ok {
+	if !ok || summary == "" {
 		return current, false
 	}
 	start := current.prefixTokens[cutoff].committedPrefixIndex
@@ -60,26 +61,27 @@ func (current *builder) Compact(response llm.Response) (Builder, bool) {
 	for _, tool := range current.request.Tools {
 		rebuilt.AddTool(tool)
 	}
-	rebuilt.addCompactionSummary(response)
+	rebuilt.stageItems(llm.Item{Type: llm.ItemMessage, Data: llm.Message{
+		Role: llm.RoleUser, Text: summary,
+	}})
 	rebuilt.carryForwardContext(current, start)
 	return rebuilt, true
 }
 
-func (current *builder) addCompactionSummary(response llm.Response) {
-	var summary string
+// compactionSummary accepts only completed, non-failed assistant text.
+func compactionSummary(response llm.Response) string {
+	if response.Stop != llm.StopComplete || response.Failure != nil {
+		return ""
+	}
 	for _, item := range slices.Backward(response.Output) {
 		if item.Type == llm.ItemMessage {
-			message := item.Data.(llm.Message)
-			if message.Role == llm.RoleAssistant && strings.TrimSpace(message.Text) != "" {
-				summary = message.Text
-				break
+			message, ok := item.Data.(llm.Message)
+			if ok && message.Role == llm.RoleAssistant && strings.TrimSpace(message.Text) != "" {
+				return message.Text
 			}
 		}
 	}
-	current.stageItems(llm.Item{Type: llm.ItemMessage, Data: llm.Message{
-		Role: llm.RoleUser,
-		Text: summary,
-	}})
+	return ""
 }
 
 // compactionCutoff returns the last checkpoint to summarize, retaining whole turns within the budget.
@@ -97,6 +99,9 @@ func (current *builder) compactionCutoff() (int, bool) {
 			break
 		}
 		start = index
+	}
+	if current.prefixTokens[start].committedPrefixIndex <= 1 {
+		return 0, false // Usage alone is not history beyond the system prompt.
 	}
 	return start, true
 }

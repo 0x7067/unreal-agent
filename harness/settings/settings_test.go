@@ -182,8 +182,8 @@ func TestLoadMergesModelsWithinProviders(t *testing.T) {
 		{provider: "other", model: "gpt-6-astra", threshold: 50_000},
 		{provider: "openai", model: "custom", threshold: 100_000},
 		{provider: "other", model: "custom", threshold: 40_000},
-		{provider: "missing", model: "gpt-6-astra"},
-		{provider: "openai", model: "missing"},
+		{provider: "missing", model: "gpt-6-astra", threshold: DefaultCompactionThreshold},
+		{provider: "openai", model: "missing", threshold: DefaultCompactionThreshold},
 	} {
 		if got := configured.Model(test.provider, test.model).CompactionThreshold; got != test.threshold {
 			t.Fatalf("%s/%s threshold = %d, want %d", test.provider, test.model, got, test.threshold)
@@ -224,5 +224,20 @@ func writeSettings(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestModelFallbackAndListedCheck(t *testing.T) {
+	for _, configured := range []Settings{{}, {Providers: map[string]Provider{"empty": {}}}} {
+		if got := configured.Model("empty", "unknown"); got.CompactionThreshold != DefaultCompactionThreshold || got.ContextWindow != 0 {
+			t.Fatalf("fallback = %#v", got)
+		}
+		if _, listed := configured.LookupModel("empty", "unknown"); listed {
+			t.Fatal("unknown model reported listed")
+		}
+	}
+	configured := Settings{Providers: map[string]Provider{"p": {Models: []Model{{ID: "listed", CompactionThreshold: 0}}}}}
+	if got, listed := configured.LookupModel("p", "listed"); !listed || got.CompactionThreshold != 0 || configured.Model("p", "listed") != got {
+		t.Fatalf("listed settings changed: %#v, %v", got, listed)
 	}
 }
