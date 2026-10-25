@@ -204,3 +204,35 @@ func TestResultLifecycleAndProtocolBoundary(t *testing.T) {
 		t.Fatal("accepted missing operation")
 	}
 }
+
+func TestFailureMessagesWithoutNewWireFields(t *testing.T) {
+	ctx := &recordingContext{}
+	status := New().Translate(ctx, llm.ToolCall{Arguments: `{"action":"status","name":"goal"}`})
+	spec := ctx.specs[0]
+	for _, phase := range []operation.Status{operation.StatusFailed, operation.StatusCanceled} {
+		for _, message := range []string{"", "task inspection failed: permission denied"} {
+			current := operation.Operation{ID: "legacy", Type: spec.Type, Version: spec.Version, State: spec.State, MaxOutputLength: spec.MaxOutputLength, Status: phase}
+			state, err := operation.DecodeRemoteJobState(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.TerminalError, state.TerminalResult = message, "partial status"
+			current.State, err = json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := New().TranslateResult("call", status, []operation.Operation{current})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := message
+			if want == "" {
+				want = "TaskGraph operation " + string(phase)
+			}
+			result := got.(Result)
+			if result.Error != want || result.Text != "partial status" || result.Running {
+				t.Fatalf("result = %+v, want error %q", result, want)
+			}
+		}
+	}
+}

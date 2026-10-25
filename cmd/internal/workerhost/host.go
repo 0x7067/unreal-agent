@@ -513,7 +513,10 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 	closing := p.host.closing
 	p.host.mu.Unlock()
 	p.host.discardStage(p.command.Path)
-	reportStopped := owner && !closing && (!p.retired.Load() || failure != nil)
+	// Every joined retirement must be visible even if its Reload caller has
+	// already canceled. A clean retirement is recoverable, not a host run end.
+	reportStopped := owner && !closing
+	finishHost := reportStopped && (!p.retired.Load() || failure != nil)
 	if reportStopped {
 		p.host.status(Status{Generation: p.generation, Build: p.build, Message: "Worker stopped; durable inputs retained", Err: failure, Stopped: true})
 	}
@@ -524,7 +527,7 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 	}
 	p.host.mu.Unlock()
 	close(p.done)
-	if reportStopped {
+	if finishHost {
 		p.host.finish(errors.Join(ErrStopped, failure))
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
@@ -562,7 +563,17 @@ func shellPrimitiveFailure(event primitives.PrimitiveEvent) error {
 	if !ok {
 		return errors.New("shell primitive failed with an invalid result")
 	}
-	return errors.New(failure.Error)
+	// A primitive can fail before capture files exist. Keep its diagnostics, but
+	// do not turn an empty error into a successful-looking tool result or direct
+	// the user to files that may never have been created.
+	switch strings.TrimSpace(failure.Error) {
+	case "":
+		return errors.New("shell primitive failed without an error message")
+	case "error", "unknown error":
+		return fmt.Errorf("shell primitive failed: %s", failure.Error)
+	default:
+		return errors.New(failure.Error)
+	}
 }
 
 func (shell *Shell) dispatch(dispatch PrimitiveDispatch) (Step, error) {

@@ -1,0 +1,2 @@
+# Lake's generated compiler/build cache; keep all Lean sources and the manifest.
+/lean/.lake/

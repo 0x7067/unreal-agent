@@ -125,6 +125,13 @@ func (m *model) refreshDetails() {
 	if card.paths != "" {
 		output += "\n\n" + textStyle(m.theme.Muted).Render(card.paths)
 	}
+	// Reuse the translated error, including for old sessions that only store
+	// TerminalError. Keep it visible before potentially long output and render
+	// it as bounded literal text, not model-controlled Markdown or terminal ANSI.
+	if card.failure != "" {
+		output = textStyle(m.theme.Error).Bold(true).Render("Failure:") + "\n" +
+			textStyle(m.theme.Foreground).Render(boundedDetail(card.failure, 4000)) + "\n\n" + output
+	}
 	// Expand each tab to four spaces before wrapping for stable layout. Lipgloss
 	// also expands tabs during multiline alignment, even with NoTabConversion.
 	// The shell capture and literal helper retain the original tab characters.

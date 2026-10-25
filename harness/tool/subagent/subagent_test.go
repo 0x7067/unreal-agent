@@ -282,3 +282,37 @@ func noStatus() tool.CallStatus {
 func errorStatus(text string) tool.CallStatus {
 	return tool.CallStatus{Error: text}
 }
+
+func TestFailureMessagesPreserveLegacyDiagnosticsAndStatus(t *testing.T) {
+	for _, translator := range []tool.Translator{NewAgent(), NewSendMessage()} {
+		for _, phase := range []operation.Status{operation.StatusFailed, operation.StatusCanceled} {
+			for _, message := range []string{"", "worker exited: permission denied"} {
+				state, err := json.Marshal(operation.RemoteJobState{Plan: operation.RemoteJobPlan{Type: RunPlanType, Version: PlanVersion, Data: []byte(`{}`)}, TerminalResult: "partial output", TerminalError: message})
+				if err != nil {
+					t.Fatal(err)
+				}
+				current := operation.Operation{ID: "legacy", Type: operation.TypeRemoteJob, Version: operation.VersionRemoteJob, MaxOutputLength: 1000, Status: phase, State: state}
+				got, err := translator.TranslateResult("call", noStatus(), []operation.Operation{current})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := message
+				if want == "" {
+					want = "subagent operation " + string(phase)
+				}
+				result := got.(Result)
+				if result.Error != want || result.Text != "partial output" || result.Running {
+					t.Fatalf("result = %+v, want error %q", result, want)
+				}
+			}
+			// SendToParent uses a value operation, not a remote-job state.
+			got, err := NewSendToParent().TranslateResult("call", noStatus(), []operation.Operation{{Status: phase}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result := got.(Result); result.Error != "SendMessage operation "+string(phase) || result.Running {
+				t.Fatalf("value result = %+v", result)
+			}
+		}
+	}
+}

@@ -1,5 +1,8 @@
 # Supervisor asynchronous-behavior audit
 
+Planned residual I/O work: [upstream-first follow-up](supervisor-io-follow-up.md).
+This link is a plan, not evidence that the residual risks below are resolved.
+
 ## Baseline and contract
 
 The comparison baseline is commit `8828795`, before the worker-host feature in
@@ -28,6 +31,7 @@ acknowledgment; local acceptance is not a crash-durability promise.
 | Exit transcript drain | A proposed one-second post-exit stdout cutoff could discard committed frames. A negative overlay regression reproduced loss of the second of two persisted items. | Process exit and ordered output drain are separate barriers. Do not close a live decoder merely because a callback is slow. |
 | Inherited stdin shutdown | In-process `os.Pipe` tests masked inherited blocking stdin that cannot accept read deadlines. | Prepare a private pollable input descriptor on supported platforms, join its reader, restore flags, and preserve the caller's descriptor. |
 | Graceful session shutdown | Signal cancellation bypassed the baseline hard-stop protocol: processes exited but Bash/TaskGraph/subagent operations remained durably awaiting, making the session unresumable. A negative overlay reproduced all three cases repeatedly. | Request hard stop while the coordinator can still persist proven cancellation outcomes, then cancel/join infrastructure. Verify terminal restored operations and actual same-session restart; forced/unconfirmed termination stays fail-closed. |
+| Abandoned successful retirement status | The original consumer suppressed stopped publication for a clean retired owner after Reload had returned, leaving stale ready status. | Publish stopped for an owning, non-closing generation before clearing current/closing its process-done barrier. Keep host finish conditional on non-retirement or failure: clean retirement leaves Done open, preserves durable admission, and permits later explicit reload recovery. The [formal models](../formal/handoff/tla/README.md) retain historical defect witnesses and a corrected-status candidate reflecting the shipped repair; they do not prove Go refinement. |
 | Worker exit ownership | Waiting for stdout EOF before `Wait` could prevent escalation; clean stdout EOF did not prove process exit. | Join the process independently, cancel on unexpected EOF, isolate worker/probe process groups, and retain sufficient frontend deadline headroom for reaping. |
 
 ## Preserved asynchronous paths
@@ -76,6 +80,9 @@ Use race-enabled root and TUI suites. The targeted regressions must demonstrate:
 - a blocked observer does not prevent a second real model request, including
   output larger than the pipe buffer;
 - final frames survive worker exit while an earlier callback remains blocked;
+- abandoned successful retirement publishes the correct generation/build stopped
+  status before the process-done barrier, keeps host Done open, and permits
+  durable submission and later explicit reload recovery;
 - slow durable admission does not prevent shutdown cancellation or deadline
   reporting;
 - shutdown deadlines retain ownership until a successful retry joins remaining
