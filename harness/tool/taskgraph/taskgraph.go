@@ -131,7 +131,11 @@ func (translator) TranslateResult(callID string, status tool.CallStatus, operati
 	}
 	switch current.Status {
 	case operation.StatusReady, operation.StatusAwaiting, operation.StatusCanceling:
-		return Result{CallID: callID, Running: true, Text: "Task graph operation is running. Progress and completed candidates arrive in your inbox. Use TaskGraph status to inspect tasks and their current generation; accept or reject candidates with current evidence while independent tasks continue. A completed candidate is not accepted automatically."}, nil
+		text := fmt.Sprintf("Task graph operation is unfinished (status: %s). This does not prove that a command has started. Use TaskGraph status to inspect scan phases, timings, blockers, warnings, and current generations. Progress and completed candidates arrive in your inbox; accept or reject candidates with current evidence while independent tasks continue. A completed candidate is not accepted automatically.", current.Status)
+		if state.TerminalResult != "" {
+			text += "\nRuntime update:\n" + state.TerminalResult
+		}
+		return Result{CallID: callID, Running: true, Text: text}, nil
 	case operation.StatusCompleted:
 		return Result{CallID: callID, Text: state.TerminalResult}, nil
 	case operation.StatusFailed, operation.StatusCanceled:
@@ -145,7 +149,8 @@ func (translator) TranslateResult(callID string, status tool.CallStatus, operati
 }
 
 type Result struct {
-	CallID  string
+	CallID string
+	// Running means this tool operation is unfinished, not that a child process has started.
 	Running bool
 	Text    string
 	Error   string

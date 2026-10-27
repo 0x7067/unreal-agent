@@ -1,10 +1,13 @@
 package taskgraph
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func fingerprintWrite(t *testing.T, dir, name, value string) {
@@ -159,5 +162,59 @@ func TestFingerprintReadFailuresAndTypes(t *testing.T) {
 	}
 	if _, err := Fingerprint(dir, []string{"regular"}); err == nil {
 		t.Fatal("returned fingerprint for unreadable input")
+	}
+}
+
+// Deterministic two-observation regression: sibling writers may change the
+// ancestor directory's metadata, but not a directory actually claimed.
+func TestFingerprintAncestorMetadataDoesNotClaimSiblings(t *testing.T) {
+	dir := t.TempDir()
+	fingerprintWrite(t, dir, "src/input", "stable")
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	first, err := fingerprintSnapshot(root, []string{"src/input"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := fingerprintSnapshot(root, []string{"."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprintWrite(t, dir, "sibling", "new")
+	// Force metadata difference even on filesystems with coarse timestamps.
+	before := first.observed["."]
+	now := before.ModTime().Add(time.Hour)
+	if err := os.Chtimes(dir, now, now); err != nil {
+		t.Fatal(err)
+	}
+	second, err := fingerprintSnapshot(root, []string{"src/input"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.digest != second.digest || !first.sameObservation(".", before, second.observed["."]) {
+		t.Fatal("unclaimed sibling invalidated an ancestor observation")
+	}
+	if whole.sameObservation(".", whole.observed["."], second.observed["."]) {
+		t.Fatal("claimed directory lost mutation detection")
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := root.Lstat(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Mode() != changed.Mode() && first.sameObservation(".", before, changed) {
+		t.Fatal("ancestor mode change ignored")
+	}
+}
+func TestFingerprintContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := fingerprintContext(ctx, t.TempDir(), []string{}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }

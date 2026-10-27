@@ -9,8 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -27,12 +29,16 @@ type Config struct {
 	Inbox            inbox.Writer
 	AllowBash        bool
 	NewAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
+	// scanHook is a private deterministic test gate, run only on the scan worker.
+	scanHook func(context.Context, string) error
 }
 type Runtime struct {
 	ctx          context.Context
 	config       Config
 	requests     *runtimeRequests
 	done         chan struct{}
+	scans        sync.WaitGroup
+	scanResults  chan scanResult
 	run, control *runtimeHandler
 }
 type runtimeHandler struct {
@@ -88,7 +94,7 @@ func New(ctx context.Context, c Config) (*Runtime, error) {
 	if c.Shell == "" {
 		c.Shell = "/bin/sh"
 	}
-	r := &Runtime{ctx: ctx, config: c, requests: newRuntimeRequests(ctx), done: make(chan struct{})}
+	r := &Runtime{ctx: ctx, config: c, requests: newRuntimeRequests(ctx), done: make(chan struct{}), scanResults: make(chan scanResult, 1)}
 	r.run = &runtimeHandler{runtime: r, typ: RunPlanType, updates: make(chan operation.Operation)}
 	r.control = &runtimeHandler{runtime: r, typ: ControlPlanType, updates: make(chan operation.Operation)}
 	go r.loop()
@@ -97,7 +103,8 @@ func New(ctx context.Context, c Config) (*Runtime, error) {
 
 // Wait waits for actual runtime termination. It does not cancel the runtime.
 // Completion includes the mailbox, executing callbacks, every nested operation
-// manager (including terminal graphs), and lifecycle-aware remote handlers.
+// manager (including terminal graphs), filesystem scan workers, and
+// lifecycle-aware remote handlers.
 // A callback or handler that ignores cancellation can keep Wait blocked; ctx
 // bounds only this wait, never reports unfinished work as complete.
 func (r *Runtime) Wait(ctx context.Context) error {
@@ -126,6 +133,14 @@ type attempt struct {
 	BeforeReads       string              `json:"before_reads"`
 	OutputFingerprint string              `json:"output_fingerprint,omitempty"`
 	Blocker           string              `json:"blocker,omitempty"`
+	Phase             string              `json:"phase,omitempty"`
+	CommandDispatched bool                `json:"command_dispatched"`
+	FailureCategory   string              `json:"failure_category,omitempty"`
+	FailureReason     string              `json:"failure_reason,omitempty"`
+	ExitCode          *int                `json:"exit_code,omitempty"`
+	StartedAt         time.Time           `json:"started_at,omitzero"`
+	PhaseStartedAt    time.Time           `json:"phase_started_at,omitzero"`
+	FinishedAt        time.Time           `json:"finished_at,omitzero"`
 }
 type checkpoint struct {
 	Version   int                 `json:"version"`
@@ -140,13 +155,18 @@ type graphExecution struct {
 	stop           context.CancelFunc
 	cancelControls []operation.Operation
 	terminal       bool
+	epoch          uint64
+	pendingAccept  *acceptRequest
+	acceptQueue    []*acceptRequest
+	finalFresh     bool
 }
 type runtimeState struct {
-	runtime *Runtime
-	graphs  map[string]*graphExecution
-	active  *graphExecution
-	seen    map[operation.ID]bool
-	waiters []runtimeWaiter
+	runtime  *Runtime
+	graphs   map[string]*graphExecution
+	active   *graphExecution
+	seen     map[operation.ID]bool
+	waiters  []runtimeWaiter
+	scanning *scanJob
 }
 
 func (r *Runtime) loop() {
@@ -155,11 +175,19 @@ func (r *Runtime) loop() {
 	defer close(r.run.updates)
 	defer close(r.control.updates)
 	defer func() {
-		// Stop every execution before joining any of them. Terminal graphs
+		if s.scanning != nil {
+			s.scanning.cancel()
+		}
+		// Stop every execution before ANY join, including scans. Terminal graphs
 		// leave s.active but can still own shutting-down managers/handlers.
 		for _, g := range s.graphs {
 			g.stop()
 		}
+		if s.active != nil {
+			// Cancel may block behind a handler; all nested contexts are now stopped.
+			s.cancelGraph(s.active)
+		}
+		r.scans.Wait()
 		for _, g := range s.graphs {
 			// Manager updates close only after dispatched primitives and its
 			// remote forwarding goroutines have finished. Drain, don't wait
@@ -177,6 +205,9 @@ func (r *Runtime) loop() {
 	defer tick.Stop()
 	done := r.ctx.Done()
 	for {
+		if r.ctx.Err() != nil {
+			return
+		}
 		var runOut, controlOut chan operation.Operation
 		var runOp, controlOp operation.Operation
 		if len(r.run.queue) > 0 {
@@ -200,6 +231,8 @@ func (r *Runtime) loop() {
 			r.run.queue = r.run.queue[1:]
 		case controlOut <- controlOp:
 			r.control.queue = r.control.queue[1:]
+		case result := <-r.scanResults:
+			s.scanned(result)
 		case child, ok := <-children:
 			if ok {
 				s.child(child)
@@ -211,14 +244,7 @@ func (r *Runtime) loop() {
 				}
 			}
 		case <-done:
-			done = nil
-			if s.active != nil {
-				// Cancel may wait behind a handler call in the nested manager.
-				// Its context is deliberately detached from r.ctx, so stop it
-				// first to unblock cancellation-aware handlers and children.
-				s.active.stop()
-				s.cancelGraph(s.active)
-			}
+			// The defer stops ALL nested contexts before cancellation calls or joins.
 			return
 		}
 	}
@@ -346,6 +372,14 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 	s.graphs[p.Name] = g
 	s.active = g
 	for _, n := range g.Graph.Nodes {
+		if a := g.Attempts[n.Task.ID]; a != nil && a.Generation == n.Generation && a.Phase == "" {
+			// Older checkpoints cannot prove a prelaunch boundary. Never replay Ready.
+			a.CommandDispatched = true
+			a.Phase = "execution"
+			if n.Status == Completed || n.Status == Accepted {
+				a.Phase = "awaiting_acceptance"
+			}
+		}
 		if !active(&n) {
 			if n.Status == Completed || n.Status == Failed {
 				s.notify(g, g.Graph.Find(n.Task.ID))
@@ -354,9 +388,17 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		}
 		a := g.Attempts[n.Task.ID]
 		child := a.ChildOperation
-		if terminal(child.Status) {
+		if a.Phase == "input_validation" && !a.CommandDispatched {
+			// This checkpoint proves no child was dispatched. Revalidate, never
+			// reinterpret an old Ready child without this explicit marker as safe.
+			if n.Status == Canceling {
+				g.Graph.Canceled(n.Task.ID, n.Generation)
+			}
+		} else if terminal(child.Status) {
+			a.CommandDispatched = true
 			s.child(child)
 		} else if child.Type == operation.TypeShell {
+			a.CommandDispatched = true
 			state, err := operation.DecodeShellState(child)
 			// Only output collection proves the command already exited. A
 			// persisted Ready or preparation phase can lag a live launch.
@@ -370,6 +412,7 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 				s.notify(g, g.Graph.Find(n.Task.ID))
 			}
 		} else {
+			a.CommandDispatched = true
 			a.Blocker = "resumed child outcome unknown; reservation retained"
 			if child.Type == operation.TypeRemoteJob {
 				a.Blocker = "resumed agent has no process reattachment proof; reservation retained"
@@ -388,6 +431,19 @@ func shellOutputPhase(phase operation.ShellPhase) bool {
 		return false
 	}
 }
+
+// JSON round-trips empty byte slices as non-nil; both represent no output.
+func initialShellState(shell operation.ShellState) bool {
+	if len(shell.InlineOut)+len(shell.InlineErr)+len(shell.InlineOutTail)+len(shell.InlineErrTail) != 0 {
+		return false
+	}
+	shell.InlineOut, shell.InlineErr, shell.InlineOutTail, shell.InlineErrTail = nil, nil, nil, nil
+	return reflect.DeepEqual(shell, operation.ShellState{
+		Input: shell.Input, BaseDirectory: shell.BaseDirectory,
+		OutTruncated: true, ErrTruncated: true,
+	})
+}
+
 func validateAttempts(cp checkpoint) error {
 	if cp.Attempts == nil {
 		return errors.New("checkpoint lacks attempt map")
@@ -396,6 +452,30 @@ func validateAttempts(cp checkpoint) error {
 	for _, n := range cp.Graph.Nodes {
 		a := cp.Attempts[n.Task.ID]
 		if a != nil && a.Generation == n.Generation {
+			switch a.Phase {
+			case "": // Version 1 checkpoints before structured diagnostics.
+			case "input_validation":
+				if a.CommandDispatched || a.ChildOperation.Status != operation.StatusReady || a.BeforeReads != "" || a.OutputFingerprint != "" || n.Status == Completed || n.Status == Accepted {
+					return fmt.Errorf("task %s has inconsistent prelaunch checkpoint", n.Task.ID)
+				}
+				if a.ChildOperation.Type == operation.TypeShell {
+					shell, err := operation.DecodeShellState(a.ChildOperation)
+					if err != nil || !initialShellState(shell) {
+						return fmt.Errorf("task %s prelaunch shell has execution state", n.Task.ID)
+					}
+				} else if a.ChildOperation.Type == operation.TypeRemoteJob {
+					remote, err := operation.DecodeRemoteJobState(a.ChildOperation)
+					if err != nil || !reflect.DeepEqual(remote, operation.RemoteJobState{Plan: remote.Plan}) {
+						return fmt.Errorf("task %s prelaunch agent has execution state", n.Task.ID)
+					}
+				}
+			case "execution", "output_validation", "awaiting_acceptance":
+				if !a.CommandDispatched {
+					return fmt.Errorf("task %s execution phase lacks dispatch marker", n.Task.ID)
+				}
+			default:
+				return fmt.Errorf("task %s has unknown attempt phase %q", n.Task.ID, a.Phase)
+			}
 			// child routes updates by operation ID among current attempts. An
 			// obsolete attempt cannot receive them and does not reserve its ID.
 			if owner, exists := currentChildren[a.ChildOperation.ID]; exists {
@@ -434,13 +514,16 @@ func validateAttempts(cp checkpoint) error {
 	return nil
 }
 func (s *runtimeState) save(g *graphExecution) {
-	s.emit(s.runtime.run, g.owner, operation.StatusAwaiting, &g.checkpoint, "", nil)
+	s.emit(s.runtime.run, g.owner, operation.StatusAwaiting, &g.checkpoint, strings.Join(planWarnings(g.Graph), "; "), nil)
 }
 func (s *runtimeState) notify(g *graphExecution, n *Node) {
 	if s.runtime.config.Inbox == nil {
 		return
 	}
 	text := fmt.Sprintf("Task graph %s task %s generation %d: %s. Candidate result: %s. Acceptance conditions: %s. Evidence: %s. Blockers: %s", g.Graph.Name, n.Task.ID, n.Generation, n.Status, n.Result, n.Task.Acceptance, n.Evidence, s.blockers(g))
+	if a := g.Attempts[n.Task.ID]; a != nil {
+		text += fmt.Sprintf(". Phase: %s. Command dispatched: %t. Failure: %s: %s", a.Phase, a.CommandDispatched, a.FailureCategory, a.FailureReason)
+	}
 	payload, _ := json.Marshal(text)
 	id := fmt.Sprintf("taskgraph-%s-%s-%d-%s", g.owner.ID, n.Task.ID, n.Generation, n.Status)
 	// Inbox actor owns deduplication; submitting this notification precedes its
@@ -454,6 +537,8 @@ func (s *runtimeState) blockers(g *graphExecution) string {
 			reason := n.Status
 			if a := g.Attempts[n.Task.ID]; a != nil && a.Blocker != "" {
 				reason = a.Blocker
+			} else if a := g.Attempts[n.Task.ID]; a != nil && a.FailureReason != "" {
+				reason = a.FailureCategory + ": " + a.FailureReason
 			} else if wait := g.Graph.WaitReason(n.Task.ID); wait != "" {
 				reason = wait
 			}
@@ -472,13 +557,19 @@ func unionClaims(a, b []string) []string {
 // Read-only inputs exclude declared writable subtrees. Expanding directories
 // on each check detects added and removed input files as well as changed bytes.
 func readOnlyFingerprint(workspace string, t Task) (string, error) {
+	return readOnlyFingerprintContext(context.Background(), workspace, t)
+}
+func readOnlyFingerprintContext(ctx context.Context, workspace string, t Task) (string, error) {
 	if len(claims(t.Reads)) == 0 {
-		return Fingerprint(workspace, []string{})
+		return fingerprintContext(ctx, workspace, []string{})
 	}
 	paths := []string{}
 	directories := map[string]bool{}
 	for _, read := range claims(t.Reads) {
 		err := filepath.WalkDir(filepath.Join(workspace, filepath.FromSlash(read)), func(full string, d fs.DirEntry, e error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			rel, err := filepath.Rel(workspace, full)
 			if err != nil {
 				return err
@@ -516,7 +607,7 @@ func readOnlyFingerprint(workspace string, t Task) (string, error) {
 			return "", err
 		}
 	}
-	fingerprint, err := Fingerprint(workspace, paths)
+	fingerprint, err := fingerprintContext(ctx, workspace, paths)
 	if err != nil {
 		return "", err
 	}
@@ -532,99 +623,6 @@ func readOnlyFingerprint(workspace string, t Task) (string, error) {
 	}
 	sum := sha256.Sum256(append([]byte(fingerprint), encoded...))
 	return fmt.Sprintf("%x", sum), nil
-}
-func (s *runtimeState) fresh(g *graphExecution, n *Node) error {
-	a := g.Attempts[n.Task.ID]
-	if a == nil || a.Generation != n.Generation {
-		return errors.New("missing current result attempt")
-	}
-	now, err := Fingerprint(s.runtime.config.Workspace, unionClaims(n.Task.Reads, n.Task.Writes))
-	if err != nil {
-		return err
-	}
-	if now != a.OutputFingerprint {
-		return errors.New("result inputs or outputs changed")
-	}
-	return nil
-}
-func (s *runtimeState) recheck(g *graphExecution) bool {
-	changed := false
-	for i := range g.Graph.Nodes {
-		n := &g.Graph.Nodes[i]
-		if n.Status == Accepted {
-			if err := s.fresh(g, n); err != nil {
-				g.Graph.Invalidate(n.Task.ID)
-				changed = true
-			}
-		}
-	}
-	return changed
-}
-func (s *runtimeState) advance(g *graphExecution) {
-	if g.terminal {
-		return
-	}
-	s.recheck(g)
-	if g.Canceling {
-		for _, n := range g.Graph.Nodes {
-			if active(&n) {
-				s.save(g)
-				return
-			}
-		}
-		g.terminal = true
-		s.emit(s.runtime.run, g.owner, operation.StatusCanceled, &g.checkpoint, "", nil)
-		for _, op := range g.cancelControls {
-			s.emit(s.runtime.control, op, operation.StatusCompleted, &g.checkpoint, "graph canceled after children terminated", nil)
-		}
-		g.stop()
-		if s.active == g {
-			s.active = nil
-		}
-		return
-	}
-	if g.Graph.AllAccepted() {
-		g.terminal = true
-		s.emit(s.runtime.run, g.owner, operation.StatusCompleted, &g.checkpoint, "all current task generations accepted", nil)
-		g.stop()
-		if s.active == g {
-			s.active = nil
-		}
-		return
-	}
-	for _, id := range g.Graph.Ready() {
-		n := g.Graph.Find(id)
-		// Validate the complete ownership claim, including writable aliases,
-		// before launching a process that could otherwise follow a symlink.
-		_, err := Fingerprint(s.runtime.config.Workspace, unionClaims(n.Task.Reads, n.Task.Writes))
-		before := ""
-		if err == nil {
-			before, err = readOnlyFingerprint(s.runtime.config.Workspace, n.Task)
-		}
-		if err != nil {
-			g.Graph.Start(id)
-			g.Graph.Complete(id, n.Generation, "", err)
-			s.notify(g, n)
-			continue
-		}
-		child, err := s.newChild(g, n)
-		if err != nil {
-			g.Graph.Start(id)
-			g.Graph.Complete(id, n.Generation, "", err)
-			s.notify(g, n)
-			continue
-		}
-		if err = g.Graph.Start(id); err != nil {
-			continue
-		}
-		g.Attempts[id] = &attempt{Generation: n.Generation, ChildOperation: child, BeforeReads: before}
-		s.save(g)
-		if err = g.manager.Add(child); err != nil {
-			g.Graph.Complete(id, n.Generation, "", err)
-			s.notify(g, n)
-		}
-	}
-	s.save(g)
 }
 func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation, error) {
 	key := fmt.Sprintf("%s/%s/%d", g.owner.ID, n.Task.ID, n.Generation)
@@ -657,6 +655,9 @@ func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation
 	return operation.Operation{ID: operation.ID(id), Type: spec.Type, Version: spec.Version, State: spec.State, Status: operation.StatusReady, MaxOutputLength: spec.MaxOutputLength}, nil
 }
 func (s *runtimeState) child(child operation.Operation) {
+	if s.runtime.ctx.Err() != nil {
+		return
+	}
 	g := s.active
 	if g == nil {
 		return
@@ -673,22 +674,14 @@ func (s *runtimeState) child(child operation.Operation) {
 			return
 		}
 		a.Blocker = ""
-		result, runErr := childResult(child)
 		if n.Status == Canceling {
-			g.Graph.Canceled(n.Task.ID, n.Generation)
+			if s.scanning == nil || s.scanning.id != n.Task.ID {
+				g.Graph.Canceled(n.Task.ID, n.Generation)
+			}
 		} else if n.Status == Running {
-			after, err := readOnlyFingerprint(s.runtime.config.Workspace, n.Task)
-			if err != nil {
-				runErr = err
-			} else if after != a.BeforeReads {
-				runErr = errors.New("read-only inputs changed during execution; result is stale")
-			}
-			a.OutputFingerprint, err = Fingerprint(s.runtime.config.Workspace, unionClaims(n.Task.Reads, n.Task.Writes))
-			if err != nil {
-				runErr = err
-			}
-			g.Graph.Complete(n.Task.ID, n.Generation, result, runErr)
+			a.setPhase("output_validation")
 		}
+
 		s.notify(g, n)
 		s.advance(g)
 		return
@@ -737,16 +730,14 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 	if g == nil {
 		return errors.New("unknown graph")
 	}
-	var err error
-	if g.terminal && p.Action != "status" {
+	if p.Action == "status" {
+		return s.snapshot(op, g)
+	} // Pure snapshot: no advancement or filesystem work.
+	if g.terminal {
 		return errors.New("graph is terminal; only status is available")
 	}
-	invalidated := false
-	if p.Action == "accept" && !g.terminal {
-		invalidated = s.recheck(g)
-	}
+	var err error
 	switch p.Action {
-	case "status":
 	case "revise":
 		err = s.permissions(p.Tasks)
 		if err == nil {
@@ -754,20 +745,26 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 		}
 	case "accept":
 		n, e := g.Graph.attempt(p.TaskID, p.Generation)
-		err = e
-		if err == nil && n.Status != Completed {
-			err = errors.New("task has no current completed result")
+		if e != nil {
+			return e
 		}
-		if err == nil {
-			err = s.fresh(g, n)
-			if err != nil {
-				g.Graph.Invalidate(p.TaskID)
-				invalidated = true
+		if n.Status != Completed {
+			return errors.New("task has no current completed result")
+		}
+		if strings.TrimSpace(p.Evidence) == "" {
+			return errors.New("acceptance evidence is required")
+		}
+		if g.pendingAccept != nil {
+			if len(g.acceptQueue) >= 64 {
+				return errors.New("acceptance validation queue full; wait for pending results")
 			}
+			g.acceptQueue = append(g.acceptQueue, &acceptRequest{op: op, plan: p})
+		} else {
+			g.pendingAccept = &acceptRequest{op: op, plan: p}
 		}
-		if err == nil {
-			err = g.Graph.Accept(p.TaskID, p.Generation, p.Evidence)
-		}
+		// Acceptance completes after the worker returns; status stays available meanwhile.
+		s.advance(g)
+		return nil
 	case "reject":
 		err = g.Graph.Reject(p.TaskID, p.Generation, p.Evidence)
 	case "invalidate":
@@ -777,35 +774,37 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 	case "cancel":
 		if p.TaskID == "" {
 			g.cancelControls = append(g.cancelControls, op)
+			s.emit(s.runtime.control, op, operation.StatusAwaiting, &g.checkpoint, "cancellation requested; waiting for scans and children to drain", nil)
 			s.cancelGraph(g)
 			s.advance(g)
 			return nil
 		}
 		err = g.Graph.Cancel(p.TaskID)
 		if err == nil {
-			a := g.Attempts[p.TaskID]
-			if a != nil && active(g.Graph.Find(p.TaskID)) {
-				err = g.manager.Cancel(a.ChildOperation.ID, "task canceled")
-			}
+			s.cancelTask(g, p.TaskID)
 		}
 	default:
-		err = fmt.Errorf("unsupported graph action %q", p.Action)
+		return fmt.Errorf("unsupported graph action %q", p.Action)
 	}
 	if err != nil {
-		if invalidated {
-			// The acceptance may be stale because its precheck invalidated
-			// prerequisites. Persist and admit reruns even when it fails.
-			s.advance(g)
-		}
 		return err
 	}
-	if !g.terminal {
-		s.advance(g)
+	g.epoch++
+	if s.scanning != nil {
+		s.scanning.cancel()
 	}
+	s.advance(g)
+	return s.snapshot(op, g)
+}
+func (s *runtimeState) snapshot(op operation.Operation, g *graphExecution) error {
 	snapshot, err := json.Marshal(struct {
-		Graph    Graph  `json:"graph"`
-		Blockers string `json:"blockers"`
-	}{g.Graph, s.blockers(g)})
+		Graph    Graph               `json:"graph"`
+		Blockers string              `json:"blockers"`
+		Attempts map[string]*attempt `json:"attempts"`
+		Warnings []string            `json:"warnings"`
+		Scanning bool                `json:"scanning"`
+		Scan     *scanStatus         `json:"scan,omitempty"`
+	}{g.Graph, s.blockers(g), g.Attempts, planWarnings(g.Graph), s.scanning != nil, s.scanStatus()})
 	if err != nil {
 		return err
 	}
@@ -814,18 +813,32 @@ func (s *runtimeState) control(op operation.Operation, p ControlPlan) error {
 }
 func (s *runtimeState) cancelGraph(g *graphExecution) {
 	g.Canceling = true
+	g.epoch++
+	if s.scanning != nil {
+		s.scanning.cancel()
+	}
 	for i := range g.Graph.Nodes {
-		n := &g.Graph.Nodes[i]
-		wasActive := active(n)
-		g.Graph.Cancel(n.Task.ID)
-		if wasActive {
-			a := g.Attempts[n.Task.ID]
-			if a != nil && a.Blocker == "" {
-				g.manager.Cancel(a.ChildOperation.ID, "graph canceled")
-			}
-		}
+		id := g.Graph.Nodes[i].Task.ID
+		g.Graph.Cancel(id)
+		s.cancelTask(g, id)
 	}
 	s.save(g)
+}
+func (s *runtimeState) cancelTask(g *graphExecution, id string) {
+	n := g.Graph.Find(id)
+	a := g.Attempts[id]
+	if a == nil || !active(n) {
+		return
+	}
+	if s.scanning != nil && s.scanning.id == id {
+		s.scanning.cancel()
+		return
+	}
+	if !a.CommandDispatched && a.Phase == "input_validation" || (a.CommandDispatched && terminal(a.ChildOperation.Status)) {
+		g.Graph.Canceled(id, n.Generation)
+	} else if a.Blocker == "" {
+		g.manager.Cancel(a.ChildOperation.ID, "task canceled")
+	}
 }
 func (s *runtimeState) cancelOperation(h *runtimeHandler, id operation.ID, reason string) {
 	if h.typ == RunPlanType {
@@ -837,8 +850,26 @@ func (s *runtimeState) cancelOperation(h *runtimeHandler, id operation.ID, reaso
 			}
 		}
 	}
-	// Control operations complete atomically in the actor. Canceling a pending
-	// graph cancellation does not revoke the already requested graph shutdown.
+	// Acceptance is asynchronous; cancel its validation, not the task candidate.
+	for _, g := range s.graphs {
+		if g.pendingAccept != nil && g.pendingAccept.op.ID == id {
+			g.pendingAccept.canceled = true
+			g.epoch++
+			if s.scanning != nil && s.scanning.kind == "accept" {
+				s.scanning.cancel()
+			}
+			s.advance(g)
+			return
+		}
+		for i, pending := range g.acceptQueue {
+			if pending.op.ID == id {
+				g.acceptQueue = append(g.acceptQueue[:i], g.acceptQueue[i+1:]...)
+				s.emit(h, pending.op, operation.StatusCanceled, &g.checkpoint, "acceptance canceled", nil)
+				return
+			}
+		}
+	}
+	// Canceling a pending graph cancellation does not revoke shutdown.
 	for _, g := range s.graphs {
 		for i, op := range g.cancelControls {
 			if op.ID == id {

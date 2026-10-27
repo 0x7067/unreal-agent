@@ -1,6 +1,7 @@
 package taskgraph
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -22,6 +23,13 @@ import (
 // Two complete observations must agree, including metadata used only to detect
 // concurrent mutations. Errors never produce a fingerprint suitable for reuse.
 func Fingerprint(workspace string, paths []string) (string, error) {
+	return fingerprintContext(context.Background(), workspace, paths)
+}
+
+func fingerprintContext(ctx context.Context, workspace string, paths []string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	claims, err := normalizeClaims(paths)
 	if err != nil {
 		return "", err
@@ -42,11 +50,11 @@ func Fingerprint(workspace string, paths []string) (string, error) {
 		return "", err
 	}
 	defer root.Close()
-	first, err := fingerprintSnapshot(root, claims)
+	first, err := fingerprintSnapshotContext(ctx, root, claims)
 	if err != nil {
 		return "", err
 	}
-	second, err := fingerprintSnapshot(root, claims)
+	second, err := fingerprintSnapshotContext(ctx, root, claims)
 	if err != nil {
 		return "", err
 	}
@@ -55,7 +63,7 @@ func Fingerprint(workspace string, paths []string) (string, error) {
 	}
 	for name, before := range first.observed {
 		after, exists := second.observed[name]
-		if !exists || !fingerprintSameInfo(before, after) {
+		if !exists || !first.sameObservation(name, before, after) {
 			return "", fmt.Errorf("workspace path %q changed while fingerprinting", name)
 		}
 	}
@@ -63,14 +71,19 @@ func Fingerprint(workspace string, paths []string) (string, error) {
 }
 
 type fingerprintScan struct {
+	ctx      context.Context
 	root     *os.Root
 	hash     hash.Hash
 	observed map[string]os.FileInfo
+	full     map[string]bool
 	digest   string
 }
 
 func fingerprintSnapshot(root *os.Root, claims []string) (*fingerprintScan, error) {
-	s := &fingerprintScan{root: root, hash: sha256.New(), observed: map[string]os.FileInfo{}}
+	return fingerprintSnapshotContext(context.Background(), root, claims)
+}
+func fingerprintSnapshotContext(ctx context.Context, root *os.Root, claims []string) (*fingerprintScan, error) {
+	s := &fingerprintScan{ctx: ctx, root: root, hash: sha256.New(), observed: map[string]os.FileInfo{}, full: map[string]bool{}}
 	s.field("taskgraph-fingerprint-v1")
 	for _, name := range claims {
 		s.field("claim")
@@ -97,14 +110,27 @@ func fingerprintSameInfo(a, b os.FileInfo) bool {
 	}
 	return os.SameFile(a, b) && a.Mode() == b.Mode() && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
+
+// Ancestors establish path identity, not ownership of their other children.
+// Checking ancestor mtime/size would spuriously reject disjoint sibling writes.
+// A directory actually visited by a claim still receives strict observations.
+func (s *fingerprintScan) sameObservation(name string, a, b os.FileInfo) bool {
+	if !s.full[name] && a != nil && b != nil && a.IsDir() && b.IsDir() {
+		return os.SameFile(a, b) && a.Mode() == b.Mode()
+	}
+	return fingerprintSameInfo(a, b)
+}
 func (s *fingerprintScan) observe(name string, info os.FileInfo) error {
-	if old, exists := s.observed[name]; exists && !fingerprintSameInfo(old, info) {
+	if old, exists := s.observed[name]; exists && !s.sameObservation(name, old, info) {
 		return fmt.Errorf("workspace path %q changed while fingerprinting", name)
 	}
 	s.observed[name] = info
 	return nil
 }
 func (s *fingerprintScan) stat(name string) (os.FileInfo, error) {
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
 	info, err := s.root.Lstat(name)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := s.observe(name, nil); err != nil {
@@ -147,6 +173,7 @@ func (s *fingerprintScan) ancestors(name string) error {
 	return nil
 }
 func (s *fingerprintScan) visit(name string) error {
+	s.full[name] = true
 	info, err := s.stat(name)
 	if err != nil {
 		return err
@@ -191,7 +218,7 @@ func (s *fingerprintScan) visit(name string) error {
 		var size [8]byte
 		binary.BigEndian.PutUint64(size[:], uint64(info.Size()))
 		s.hash.Write(size[:])
-		n, err := io.Copy(s.hash, file)
+		n, err := io.Copy(s.hash, &scanReader{ctx: s.ctx, reader: file})
 		if err != nil {
 			return err
 		}
@@ -214,4 +241,21 @@ func (s *fingerprintScan) visit(name string) error {
 		return fmt.Errorf("workspace path %q changed after reading", name)
 	}
 	return s.ancestors(name)
+}
+
+// Check cancellation between bounded reads; a blocked kernel filesystem call
+// itself cannot be interrupted. Runtime.Wait still joins that worker.
+type scanReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *scanReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(p) > 64*1024 {
+		p = p[:64*1024]
+	}
+	return r.reader.Read(p)
 }
