@@ -93,19 +93,23 @@ unique line in `local.go` (verify with `grep -c`); restore from a copy —
 
 ## Coverage record
 
-Verified on 2026-10-27 at baseline **385e908** plus the supervision-control
-working-tree changes: `inbox.go` blob
+Verified on 2026-10-27; the verified content is committed at **d24507b** (the
+supervision-control change the earlier record carried as working-tree edits on
+baseline `385e908`). `inbox.go` blob
 `5b666ce31f262a6ca337efaba7551eba32dafea4`, `local.go` blob
 `c1a632a45cb8bea9f962aac243947077ca1ad627` (check with
 `git hash-object harness/inbox/<file>`; move the record forward only to
-content you have re-verified). Covers in `harness/inbox/local.go`: `New`,
-`run` (admission, dedup, FIFO output, freeze/thaw control handling,
-shutdown), `Freeze`, `Thaw`, `changeAdmission`; in `harness/inbox/inbox.go`
-the `Input`/admission contract the explorer exercises. When those change,
-rerun the check, update this record, and only then advance it. When the
-actor gains a new event (say, a drain or peek control), add it to the
-explorer's `enabled` list and to `mcAdvance`, and add a row to the
-spot-check table.
+content you have re-verified). `d24507b` also added the `InvokeTool` /
+`ToolInvocationFinished` structural-control modes — pre-actor validation in
+`DecodeControlMessage` (`inbox.go`), covered by `structural_control_test.go`,
+not by the exploration: the actor still does not consult the kind. Covers in
+`harness/inbox/local.go`: `New`, `run` (admission, dedup, FIFO output,
+freeze/thaw control handling, shutdown), `Freeze`, `Thaw`, `changeAdmission`;
+in `harness/inbox/inbox.go` the `Input`/admission contract the explorer
+exercises. When those change, rerun the check, update this record, and only
+then advance it. When the actor gains a new event (say, a drain or peek
+control), add it to the explorer's `enabled` list and to `mcAdvance`, and add
+a row to the spot-check table.
 
 ## Upkeep
 

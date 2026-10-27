@@ -2,11 +2,14 @@ package taskgraph
 
 // Exhaustive model check of the taskgraph reducer (graph.go).
 //
-// The reducer is pure and the runtime (runtime.go Runtime.loop) drives it from a
-// single goroutine through exactly the public events enumerated here, so every
-// possible runtime interleaving maps to a sequence of these events. This test
-// explores all such sequences (BFS over states with memoization) for the seed
-// graphs below and asserts the safety promises at every reachable state:
+// The reducer is pure and the runtime drives it from a single goroutine —
+// Runtime.loop is the only mutator; handlers funnel through the
+// runtimeRequests mailbox (request_mailbox.go) and scan workers publish
+// immutable scanResult values that the loop applies (scans.go "scanned").
+// Every mutation goes through exactly the public events enumerated here, so
+// every possible runtime interleaving maps to a sequence of these events. This
+// test explores all such sequences (BFS over states with memoization) for the
+// seed graphs below and asserts the safety promises at every reachable state:
 //
 //  1. Claim exclusion: no two reserved tasks (Running, Canceling, or Completed
 //     awaiting acceptance) have overlapping effective claims in any direction.
@@ -21,7 +24,11 @@ package taskgraph
 //  5. Checkpoint validity: every reachable state passes Graph.Validate(), the
 //     same check the runtime applies to a restored checkpoint on resume.
 //  6. Ready/Start agreement: starting the batch returned by Ready() in order
-//     always succeeds, which is what runtimeState.advance assumes.
+//     always succeeds, which is what runtimeState.advance (scans.go) assumes.
+//  7. Query purity: Ready, Find, WaitReason, AllAccepted, and Validate leave
+//     the state unchanged. The enumeration treats them as observations, not
+//     events, so an impure query would open transitions this model never
+//     explores.
 //
 // Bounds (a pass covers these, not all imaginable graphs):
 //   - the seed graphs listed in mcShapes below;
@@ -32,7 +39,10 @@ package taskgraph
 //     own generation, so resets are not evenly distributed;
 //   - result and evidence text do not affect reducer control flow and are
 //     represented by fixed strings; state identity keeps only whether
-//     acceptance evidence is nonblank;
+//     acceptance evidence is nonblank. Complete(id, gen, "", nil) — a
+//     scan-phase success with empty result text (scans.go) — is therefore
+//     state-identical to Complete(id, gen, "ok", nil) and is not enumerated
+//     separately; no property or Validate reads Node.Result;
 //   - Revise is explored through the fixed single-task proposals per shape
 //     (upserts of existing task IDs only; adding new tasks is not covered);
 //   - events that return an error without changing the state (stale
@@ -152,6 +162,24 @@ func mcReserved(n *Node) bool {
 
 func mcViolations(g Graph) []string {
 	var out []string
+	// Promise 7, checked first: an impure query would corrupt every other
+	// property evaluated after it, so report it alone.
+	before := mcStateKey(g, map[string]int{})
+	ids := make([]string, 0, len(g.Nodes)+1)
+	for i := range g.Nodes {
+		ids = append(ids, g.Nodes[i].Task.ID)
+	}
+	ids = append(ids, "mc-missing")
+	for _, id := range ids {
+		_ = g.WaitReason(id)
+		_ = g.Find(id)
+	}
+	_ = g.Ready()
+	_ = g.AllAccepted()
+	_ = g.Validate()
+	if after := mcStateKey(g, map[string]int{}); after != before {
+		return []string{"query purity: Ready, Find, WaitReason, AllAccepted, or Validate changed state-key-visible graph state"}
+	}
 	for i := range g.Nodes {
 		for j := i + 1; j < len(g.Nodes); j++ {
 			a, b := &g.Nodes[i], &g.Nodes[j]

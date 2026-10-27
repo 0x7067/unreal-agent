@@ -6,11 +6,13 @@ description: Use when a change touches harness/taskgraph/graph.go (the task DAG 
 # Taskgraph reducer safety
 
 `harness/taskgraph/graph.go` is a pure reducer that decides when tasks in a
-dependency DAG may run. The runtime (`harness/taskgraph/runtime.go`,
-`Runtime.loop`) drives it from a single goroutine through its public methods, so
-every possible runtime interleaving is a sequence of those events. The model
-check explores **all** such sequences (BFS over reachable states, memoized) and
-asserts the reducer's safety promises at every state:
+dependency DAG may run. The runtime drives it from a single goroutine:
+`Runtime.loop` (`runtime.go`) is the only mutator — handler callbacks funnel
+through the `runtimeRequests` mailbox (`request_mailbox.go`) and scan workers
+publish immutable `scanResult` values that the loop applies (`scans.go`,
+`scanned`) — so every possible runtime interleaving is a sequence of those
+events. The model check explores **all** such sequences (BFS over reachable
+states, memoized) and asserts the reducer's safety promises at every state:
 
 1. **Claim exclusion** — no two tasks that hold claims (Running, Canceling, or
    Completed awaiting acceptance) have overlapping read/write claims. Harm if
@@ -26,7 +28,11 @@ asserts the reducer's safety promises at every state:
    the same check the runtime applies when resuming a persisted checkpoint, so
    no crash can strand the graph in a state the next run would reject.
 6. **Ready/Start agreement** — the batch from `Ready()` can be started in order,
-   which `runtimeState.advance` assumes.
+   which `runtimeState.advance` (in `scans.go`) assumes.
+7. **Query purity** — `Ready`, `Find`, `WaitReason`, `AllAccepted`, and
+   `Validate` leave the graph unchanged. The enumeration treats them as
+   observations, not events, so an impure query would open transitions the
+   model never explores.
 
 ## Run it
 
@@ -34,7 +40,7 @@ asserts the reducer's safety promises at every state:
 go test ./harness/taskgraph -run TestGraphExhaustiveSafety -count=1 -v
 ```
 
-~19 s, ~55,000 states over four seed graphs, no network, no credentials. It
+~20 s, ~55,000 states over four seed graphs, no network, no credentials. It
 also runs as part of the normal package tests. The checker is
 `harness/taskgraph/graph_modelcheck_internal_test.go` (package `taskgraph`, so
 it can reach unexported helpers; its invariants are deliberately independent
@@ -59,7 +65,10 @@ re-implementations).
 - Seed graphs in `mcShapes()`: a chain with an outside reader of a shared
   claim, three independent tasks under the concurrency cap, nil-vs-empty
   claims, and directory-prefix claims. Result text is fixed (`"ok"`/error);
-  state identity keeps only whether acceptance evidence is nonblank.
+  state identity keeps only whether acceptance evidence is nonblank, and
+  `Complete(id, gen, "", nil)` — the scan pipeline's empty-result success in
+  `scans.go` — is state-identical to the modeled `"ok"` success because no
+  property or `Validate` reads `Node.Result`; it is not enumerated separately.
 - `mcGenerationCap = 3`: any successor in which some task's generation would
   exceed 3 is not explored (each task reset at most twice per path). The filter
   must be a *post*-filter: `Cancel` on a non-active task resets its descendants
@@ -72,17 +81,19 @@ re-implementations).
 ## Prove the check still bites (spot-check)
 
 After changing the checker or the reducer, break the reducer on purpose and
-confirm a counterexample appears, then restore. Each mutation below is one
-unique line in `graph.go` (verify with `grep -c`); restore with
+confirm a counterexample appears, then restore. Each row below names one line
+in `graph.go`; rows with a qualifier need it because the same text appears in
+more than one function (verify with `grep -c`); restore with
 `git checkout -- harness/taskgraph/graph.go` afterwards:
 
 | Break | Edit the unique line | Expect |
 | --- | --- | --- |
-| Start ignores claims | `if reserved(other) && conflicts(n.Task, other.Task) {` → prefix `false &&` | claim exclusion, 2-step trace |
+| Start ignores claims | the `if reserved(other) && conflicts(n.Task, other.Task) {` inside `Start` (the same line also appears in `Validate` and `WaitReason` — aim at `Start`'s) → prefix `false && ` | claim exclusion, 2-step trace; checkpoint validity fires on the same trace via `Validate`'s own copy |
 | eligible ignores deps | `if p == nil \|\| p.Status != Accepted \|\| p.Stale {` (inside `eligible`) → `if p == nil {` | dependency gating, 1-step trace |
 | Start ignores cap | `if count >= g.Concurrency {` → prefix `false &&` | concurrency bound |
 | Cancel keeps descendants | `for descendant := range g.affected(map[string]bool{id: true}) {` → iterate an empty map | dependency gating first; accepted closure appears in the same break once the shorter gating traces are exhausted (disable the gating assertion temporarily to see it) |
-| Canceled keeps stale | `n.Stale = false` inside `func (g *Graph) Canceled` → `n.Stale = true` | checkpoint validity |
+| Canceled keeps stale | `n.Stale = false` inside `func (g *Graph) Canceled` (the same text also appears in `reset`) → `n.Stale = true` | checkpoint validity |
+| WaitReason mutates | `unmet = append(unmet, status+" task "+dep)` inside `WaitReason` → prefix `n.Generation++; ` | query purity, 0-step trace |
 
 Known result, not a bug: removing `Accept`'s own prerequisite re-check alone
 (`if p.Status != Accepted || p.Stale {` inside `Accept`) produces **no**
@@ -92,16 +103,23 @@ code changing.
 
 ## Coverage record
 
-Verified at commit **8828795** (`graph.go` byte-identical to `HEAD`; the
-working tree also carries unrelated uncommitted changes to `runtime.go` that do
-not touch the reducer). Covers in `harness/taskgraph/graph.go`: `NewGraph`,
-`Validate`, `Find`, `validate`, `normalizeClaims`, `eligible`, `Ready`,
-`Start`, `Complete`, `Accept`, `Reject`, `Revise`, `Invalidate`, `Retry`,
-`Cancel`, `Canceled`, `AllAccepted`, `affected`, `reset`, `reserved`,
-`conflicts`, `intersects`, `overlaps`, `claims`. The runtime's event set (the
-argument that reducer-level exploration covers every interleaving) is
-`advance`, `recheck`, `child`, `control`, `cancelGraph`, `probe` in
-`runtime.go`.
+Verified at commit **d24507b** (the previous record's `8828795` predated the
+checker itself and two later `graph.go` changes; re-synced 2026-10-27).
+`graph.go` blob `2315afc35788160fc81bf84657f2600bd61c9e86` (check with
+`git hash-object harness/taskgraph/graph.go`; move the record forward only to
+content you have re-verified). Covers in `harness/taskgraph/graph.go`:
+`NewGraph`, `Validate`, `Find`, `WaitReason`, `validate`, `normalizeClaims`,
+`eligible`, `Ready`, `Start`, `Complete`, `Accept`, `Reject`, `Revise`,
+`Invalidate`, `Retry`, `Cancel`, `Canceled`, `AllAccepted`, `affected`,
+`reset`, `reserved`, `conflicts`, `intersects`, `overlaps`, `claims`. The
+runtime's event sources (the argument that reducer-level exploration covers
+every interleaving): all mutations run on `Runtime.loop` — `child`,
+`control`, `cancelGraph`/`cancelTask`, `probe` in `runtime.go`, plus `advance`,
+`scanned`, and `startScan` dispatch in `scans.go`, fed by the `runtimeRequests`
+mailbox (`request_mailbox.go`) and the buffered `scanResults` channel;
+`snapshot` (`runtime.go`) is pure. The scan pipeline calls only enumerated
+reducer methods, and `Complete(id, gen, "", nil)` is state-identical to the
+modeled success (see Bounds).
 
 When a change touches these functions, rerun the check, update this record,
 and move the sync commit forward **only after** the check passes (or its new
