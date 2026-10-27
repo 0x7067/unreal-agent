@@ -49,13 +49,15 @@ func (input Input) Validate() error {
 type ControlMode string
 
 const (
-	StopHard            ControlMode = "hard"
-	StopWhenIdle        ControlMode = "when_idle"
-	Heartbeat           ControlMode = "heartbeat"
-	UpdateSettings      ControlMode = "settings"
-	Compact             ControlMode = "compact"
-	CompactionDisabled  ControlMode = "compaction_disabled"
-	SetCompactionPolicy ControlMode = "compaction_policy"
+	InvokeTool             ControlMode = "invoke_tool"
+	ToolInvocationFinished ControlMode = "tool_invocation_finished"
+	StopHard               ControlMode = "hard"
+	StopWhenIdle           ControlMode = "when_idle"
+	Heartbeat              ControlMode = "heartbeat"
+	UpdateSettings         ControlMode = "settings"
+	Compact                ControlMode = "compact"
+	CompactionDisabled     ControlMode = "compaction_disabled"
+	SetCompactionPolicy    ControlMode = "compaction_policy"
 )
 
 // CompactionPolicy is recorded before the first summary request so the retry
@@ -69,6 +71,22 @@ type Settings struct {
 	CompactionThreshold *int64              `json:",omitzero"`
 	MaxOutputTokens     *int64              `json:",omitzero"`
 	ReasoningEffort     llm.ReasoningEffort `json:",omitzero"`
+}
+
+// ToolInvocation requests a registered structural control without a model turn.
+// Only AgentControl is admitted; ordinary execution still uses model tool calls.
+type ToolInvocation struct {
+	Call llm.ToolCall
+}
+
+// ToolInvocationResult is emitted only after an operation checkpoint is durable.
+// A completed stop operation may acknowledge a request, not descendant drain.
+type ToolInvocationResult struct {
+	InputID ID
+	CallID  string
+	Status  string
+	Text    string
+	Error   string
 }
 
 type ControlMessage struct {
@@ -90,10 +108,31 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 		return ControlMessage{}, fmt.Errorf("decode control message: %w", err)
 	}
 	request := ControlMessage{Mode: envelope.Mode, Reason: envelope.Reason}
-	if request.Mode != UpdateSettings && request.Mode != SetCompactionPolicy && len(envelope.Parameters) != 0 {
+	if request.Mode != UpdateSettings && request.Mode != SetCompactionPolicy && request.Mode != InvokeTool && request.Mode != ToolInvocationFinished && len(envelope.Parameters) != 0 {
 		return ControlMessage{}, fmt.Errorf("control mode %q does not accept parameters", request.Mode)
 	}
 	switch request.Mode {
+	case InvokeTool:
+		var invocation ToolInvocation
+		if err := json.Unmarshal(envelope.Parameters, &invocation, json.RejectUnknownMembers(true)); err != nil {
+			return ControlMessage{}, fmt.Errorf("decode tool invocation: %w", err)
+		}
+		if invocation.Call.Name != "AgentControl" || strings.TrimSpace(invocation.Call.CallID) == "" || len(invocation.Call.CallID) > 128 || len(invocation.Call.Arguments) > 64<<10 {
+			return ControlMessage{}, fmt.Errorf("invalid structural AgentControl invocation")
+		}
+		if !jsontext.Value(invocation.Call.Arguments).IsValid() {
+			return ControlMessage{}, fmt.Errorf("invalid structural control arguments JSON")
+		}
+		request.Parameters = invocation
+	case ToolInvocationFinished:
+		var result ToolInvocationResult
+		if err := json.Unmarshal(envelope.Parameters, &result, json.RejectUnknownMembers(true)); err != nil {
+			return ControlMessage{}, fmt.Errorf("decode tool invocation result: %w", err)
+		}
+		if result.InputID == "" || result.CallID == "" || (result.Status != "completed" && result.Status != "failed" && result.Status != "canceled") || len(result.Text) > 4096 || len(result.Error) > 2048 {
+			return ControlMessage{}, fmt.Errorf("invalid structural control result")
+		}
+		request.Parameters = result
 	case StopHard, StopWhenIdle, Compact:
 	case CompactionDisabled:
 		if strings.TrimSpace(request.Reason) == "" {

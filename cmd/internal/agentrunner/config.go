@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
@@ -18,6 +19,12 @@ type Config struct {
 	// SubagentCommand starts a subagent runner: an executable and its leading
 	// arguments. Nil runs this executable with no leading arguments.
 	SubagentCommand []string
+	// Optional process-local operation policy. A zero Budget selects executable
+	// defaults (environment thresholds accept explicit 0). Sharing ResourceAccount with an
+	// embedding runner bounds all of its nested managers together. Remote child
+	// process internals are not claimed to be counted by this live account.
+	ResourceAccount *executionbudget.Account
+	Budget          executionbudget.Policy
 }
 
 type ToolConfig struct {

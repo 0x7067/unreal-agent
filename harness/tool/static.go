@@ -60,7 +60,9 @@ func staticDefinitions() []Definition {
 						"type":        "string",
 						"description": "The shell command to execute.",
 					},
-					"max_output_length": maxOutputLengthSchema(),
+					"max_output_length":  maxOutputLengthSchema(),
+					"warn_after_seconds": map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Optional elapsed wall-time warning threshold; must precede timeout_seconds. Silence is not proof of a stall."},
+					"timeout_seconds":    map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Optional elapsed wall budget. Expiry requests cancellation but does not prove process or output drain. Independent of output caps."},
 				},
 				"required": []any{"command"},
 			},
@@ -110,6 +112,10 @@ func staticDefinitions() []Definition {
 						"type":        "string",
 						"description": "The complete task for the subagent. It cannot see your conversation, so include every detail it needs.",
 					},
+					"purpose":         map[string]any{"type": "string", "description": "Why this helper is necessary and its expected result."},
+					"parent_task":     map[string]any{"type": "string", "description": "The request or task that owns this helper."},
+					"lifetime":        map[string]any{"type": "string", "enum": []any{"task", "background"}, "description": "Task-scoped helper or intentionally retained background work. Omission preserves legacy behavior."},
+					"owned_resources": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Declared owned resources; informational, not execution confinement."},
 				},
 				"required": []any{"name", "prompt"},
 			},
@@ -133,6 +139,7 @@ func staticDefinitions() []Definition {
 				"required": []any{"to", "message"},
 			},
 		}},
+		agentControlDefinition(),
 		taskGraphDefinition(),
 	}
 }
@@ -180,4 +187,21 @@ func maxOutputLengthSchema() map[string]any {
 		"maximum":     operation.MaxOutputLength,
 		"default":     operation.DefaultMaxOutputLength,
 	}
+}
+
+// Agent controls translate into durable remote plans, never direct callbacks.
+func agentControlDefinition() Definition {
+	return Definition{Tool: llm.Tool{
+		Type: llm.ToolFunction, Name: AgentControlName,
+		Description: "Inspect or structurally control direct and graph agents in this session. List returns opaque handles and generations; names are labels, not authority. Message success records its stated delivery barrier, not model consumption. Stop requests cancellation; only confirmed drain is terminal cleanup. Status is a bounded live snapshot, not evidence of semantic acceptance.",
+		Parameters: map[string]any{
+			"type": "object", "additionalProperties": false, "required": []any{"action"},
+			"properties": map[string]any{
+				"action":     map[string]any{"type": "string", "enum": []any{"list", "status", "message", "stop"}},
+				"handle":     map[string]any{"type": "string", "description": "Opaque handle returned by list. Required except for list."},
+				"generation": map[string]any{"type": "integer", "minimum": 1, "description": "Exact observed generation; required except for list."},
+				"message":    map[string]any{"type": "string", "description": "Required for message; steering is not cancellation."},
+			},
+		},
+	}}
 }

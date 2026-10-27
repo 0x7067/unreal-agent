@@ -32,8 +32,8 @@ func TestCoordinatorHeartbeatsWhileWaitingForTools(t *testing.T) {
 		}
 		advanceHeartbeatTime(time.Nanosecond + (2 * slurpIdleTimeout))
 		assertHeartbeatCount(t, run, 1)
-		wantReason := "Heartbeat: waited 60 seconds for tool calls.\nRunning: " +
-			`[{"CallID":"call-0","Name":"ViewImage","Arguments":"{}"},{"CallID":"call-1","Name":"ViewImage","Arguments":"{}"}]`
+		wantReason := "Heartbeat: waited 60 seconds for tool calls.\nPending (execution phase unconfirmed): " +
+			`[{"CallID":"call-0","Name":"ViewImage"},{"CallID":"call-1","Name":"ViewImage"}]`
 		if reason := latestHeartbeatReason(t, run); reason != wantReason {
 			t.Fatalf("heartbeat reason = %q, want %q", reason, wantReason)
 		}
@@ -119,8 +119,8 @@ func TestCoordinatorHeartbeatYieldsToSteeringAndResults(t *testing.T) {
 		assertHeartbeatCount(t, run, 0)
 		advanceHeartbeatTime(time.Nanosecond + (2 * slurpIdleTimeout))
 		assertHeartbeatCount(t, run, 1)
-		wantReason := "Heartbeat: waited 60 seconds for tool calls.\nRunning: " +
-			`[{"CallID":"call-1","Name":"ViewImage","Arguments":"{}"}]`
+		wantReason := "Heartbeat: waited 60 seconds for tool calls.\nPending (execution phase unconfirmed): " +
+			`[{"CallID":"call-1","Name":"ViewImage"}]`
 		if reason := latestHeartbeatReason(t, run); reason != wantReason {
 			t.Fatalf("heartbeat reason = %q, want only the remaining call: %q", reason, wantReason)
 		}
@@ -446,4 +446,22 @@ func newHeartbeatTestRun(t *testing.T, pending int) *heartbeatTestRun {
 
 func (run *stopTestRun) requestCount() int {
 	return len(run.current.dependencies.LLM.(*fakeAdapter).requestSnapshot())
+}
+
+func TestHeartbeatSummaryIsRedactedBoundedAndDoesNotInferRunning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		run := newHeartbeatTestRun(t, 1)
+		run.current.dependencies.ToolHeartbeatInterval = time.Second
+		run.current.dependencies.ActivitySummary = func() string { return strings.Repeat("x", 5000) }
+		for key, call := range run.current.state.toolCalls {
+			call.toolCall.Arguments = `{"command":"SECRET_TOKEN"}`
+			run.current.state.toolCalls[key] = call
+		}
+		run.start(t)
+		advanceHeartbeatTime(time.Second + 2*slurpIdleTimeout)
+		reason := latestHeartbeatReason(t, run)
+		if strings.Contains(reason, "SECRET_TOKEN") || strings.Contains(reason, "Running:") || len(reason) > 4500 || !strings.Contains(reason, "Activity observations:") {
+			t.Fatalf("unsafe heartbeat %q", reason)
+		}
+	})
 }

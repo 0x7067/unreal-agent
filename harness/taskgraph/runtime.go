@@ -10,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
@@ -23,11 +25,15 @@ import (
 // Config supplies execution capabilities. Agent handlers must be fresh for each
 // graph because every local manager owns its handlers' update channels.
 type Config struct {
-	Workspace        string
-	Shell            string
-	BaseDirectory    string
-	Inbox            inbox.Writer
-	AllowBash        bool
+	Workspace     string
+	Shell         string
+	BaseDirectory string
+	Inbox         inbox.Writer
+	AllowBash     bool
+	// Budget and ResourceAccount are live execution policy, not reducer state or
+	// checkpoint data. The account remains owned until actual manager drain.
+	Budget           executionbudget.Policy
+	ResourceAccount  *executionbudget.Account
 	NewAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
 	// scanHook is a private deterministic test gate, run only on the scan worker.
 	scanHook func(context.Context, string) error
@@ -66,6 +72,12 @@ func (r *Runtime) Handlers() []operation.RemoteJobHandler {
 func New(ctx context.Context, c Config) (*Runtime, error) {
 	if ctx == nil {
 		return nil, errors.New("runtime context required")
+	}
+	if err := c.Budget.Validate(); err != nil {
+		return nil, err
+	}
+	if c.ResourceAccount == nil {
+		c.ResourceAccount = executionbudget.AccountFromContext(ctx)
 	}
 	if c.Workspace == "" || c.BaseDirectory == "" {
 		return nil, errors.New("workspace and operation base directory required")
@@ -352,7 +364,7 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		s.emit(h, op, operation.StatusFailed, nil, "", err)
 		return
 	}
-	nestedCtx, stop := context.WithCancel(context.WithoutCancel(s.runtime.ctx))
+	nestedCtx, stop := context.WithCancel(executionbudget.ContextWithAccount(context.WithoutCancel(s.runtime.ctx), s.runtime.config.ResourceAccount))
 	var handlers []operation.RemoteJobHandler
 	if s.runtime.config.NewAgentHandlers != nil {
 		handlers, err = s.runtime.config.NewAgentHandlers(nestedCtx)
@@ -368,7 +380,7 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		s.emit(h, op, operation.StatusFailed, nil, "", err)
 		return
 	}
-	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManagerWithOptions(nestedCtx, operation.LocalOperationManagerOptions{OutputDirectory: s.runtime.config.BaseDirectory}, handlers...), stop: stop}
+	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManagerWithOptions(nestedCtx, operation.LocalOperationManagerOptions{OutputDirectory: s.runtime.config.BaseDirectory, Budget: s.runtime.config.Budget, ResourceAccount: s.runtime.config.ResourceAccount}, handlers...), stop: stop}
 	s.graphs[p.Name] = g
 	s.active = g
 	for _, n := range g.Graph.Nodes {
@@ -643,7 +655,10 @@ func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation
 			prompt += fmt.Sprintf("\nAccepted prerequisite %s generation %d: %s\nAcceptance evidence: %s", dependency, parent.Generation, parent.Result, parent.Evidence)
 		}
 		prompt += "\nTask instructions: " + n.Task.Prompt
-		data, e := json.Marshal(toolsubagent.RunPlan{Name: id, Prompt: prompt})
+		data, e := json.Marshal(toolsubagent.RunPlan{Name: id, Prompt: prompt,
+			Purpose: n.Task.Description, ParentTask: g.Graph.Name + "/" + n.Task.ID,
+			Lifetime: "task", OwnedResources: slices.Clone(n.Task.Writes),
+			GraphID: g.Graph.Name, TaskID: n.Task.ID, TaskGeneration: n.Generation})
 		if e != nil {
 			return operation.Operation{}, e
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json/v2"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -20,6 +21,8 @@ type toolCard struct {
 	name, arguments, summary, status, failure string
 	output, paths                             string
 	shell                                     *shellDetail
+	terminal                                  bool
+	diagnostic                                string
 }
 
 func (m *model) card(key callKey) *toolCard {
@@ -47,18 +50,31 @@ func toolSummary(name, arguments string) string {
 		Prompt  string `json:"prompt"`
 		To      string `json:"to"`
 		Message string `json:"message"`
+		Action  string `json:"action"`
+		Handle  string `json:"handle"`
 	}
-	if json.Unmarshal([]byte(arguments), &input) == nil {
+	decoded := json.Unmarshal([]byte(arguments), &input) == nil
+	if decoded {
 		switch name {
 		case "Bash":
-			arguments = input.Command
+			arguments = safeExecutableSummary(input.Command)
 		case "ViewImage":
 			arguments = input.Path
 		case "Agent":
-			arguments = input.Name + ": " + input.Prompt
+			arguments = input.Name + " · supervised execution"
 		case "SendMessage":
-			arguments = "to " + input.To + ": " + input.Message
+			arguments = "to " + input.To + " · message contents hidden"
+		case "AgentControl":
+			arguments = input.Action + " · " + input.Handle + " · structural control"
+		case "TaskGraph":
+			arguments = input.Action + " · " + input.Name + " · task graph"
 		}
+	}
+	if !decoded && (name == "Agent" || name == "SendMessage" || name == "AgentControl" || name == "TaskGraph") {
+		arguments = "arguments hidden"
+	}
+	if name == "Bash" && !strings.HasSuffix(arguments, " · arguments hidden") {
+		arguments = "shell command · arguments hidden"
 	}
 	return ansi.Truncate(singleLine(arguments), 160, "…")
 }
@@ -272,4 +288,24 @@ func (m model) toolPane(width, height int) string {
 		return m.framedPane("Tools", "Shift+Tab ›", content, m.theme.Surface, width+2)
 	}
 	return content
+}
+
+// Summaries are a diagnostic surface, not a command viewer. Only a simple
+// executable basename is retained; assignments, expansions and shell syntax
+// fall back to a generic label. Arguments can contain credentials.
+func safeExecutableSummary(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "shell command · arguments hidden"
+	}
+	executable := filepath.Base(fields[0])
+	if len(executable) == 0 || len(executable) > 48 {
+		return "shell command · arguments hidden"
+	}
+	for _, r := range executable {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+			return "shell command · arguments hidden"
+		}
+	}
+	return executable + " · arguments hidden"
 }

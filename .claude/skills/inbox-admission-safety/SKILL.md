@@ -93,9 +93,9 @@ unique line in `local.go` (verify with `grep -c`); restore from a copy —
 
 ## Coverage record
 
-Verified at commit **8828795** plus the then-uncommitted working-tree state
-of the inbox (the freeze/thaw work): `inbox.go` blob
-`8086ff42f9577d46efc7fc26a18e41cd1ae4d7d6`, `local.go` blob
+Verified on 2026-10-27 at baseline **385e908** plus the supervision-control
+working-tree changes: `inbox.go` blob
+`5b666ce31f262a6ca337efaba7551eba32dafea4`, `local.go` blob
 `c1a632a45cb8bea9f962aac243947077ca1ad627` (check with
 `git hash-object harness/inbox/<file>`; move the record forward only to
 content you have re-verified). Covers in `harness/inbox/local.go`: `New`,

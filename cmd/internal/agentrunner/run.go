@@ -24,6 +24,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
@@ -361,7 +362,18 @@ func Run(
 		observedOutput = io.MultiWriter(logFile, output)
 	}
 
-	runContext, cancel := context.WithCancel(ctx)
+	policy, maxOperations, err := executionPolicy(config, getenv)
+	if err != nil {
+		return err
+	}
+	account := config.ResourceAccount
+	if account == nil {
+		account = executionbudget.AccountFromContext(ctx)
+	}
+	if account == nil {
+		account = executionbudget.NewAccount(executionbudget.Limits{MaxOperations: maxOperations})
+	}
+	runContext, cancel := context.WithCancel(executionbudget.ContextWithAccount(ctx, account))
 	defer cancel()
 	operationDirectory := filepath.Join(storeDirectory, "operations", string(sessionID))
 	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
@@ -391,8 +403,9 @@ func Run(
 		names = append(names, tool.TaskGraphName)
 		translators.TaskGraph = tooltaskgraph.New()
 		if slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
-			names = append(names, tool.AgentName, tool.SendMessageName)
+			names = append(names, tool.AgentName, tool.SendMessageName, tool.AgentControlName)
 			translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+			translators.AgentControl = toolsubagent.NewAgentControl()
 		}
 	}
 	toolConfig := ToolConfig{SessionID: sessionID, Getenv: getenv, Names: names, Translators: translators}
@@ -426,6 +439,7 @@ func Run(
 	}
 	remoteJobs := configuredTools.RemoteJobs
 	var newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
+	var hub *subagent.Hub
 	if _, enabled := registry.Resolve(tool.AgentName); enabled && !*isSubagent && slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
 		command := config.SubagentCommand
 		if command == nil {
@@ -441,8 +455,15 @@ func Run(
 				denied = append(denied, name)
 			}
 		}
-		denied = append(denied, tool.AgentName, tool.TaskGraphName)
+		denied = append(denied, tool.AgentName, tool.TaskGraphName, tool.AgentControlName)
+		hub = subagent.NewHub(runContext)
+		defer func() {
+			cancel()
+			runErr = errors.Join(runErr, hub.Wait(context.Background()))
+		}()
+		remoteJobs = append(slices.Clip(remoteJobs), hub.Handlers()...)
 		childConfig := subagent.Config{
+			Hub:     hub,
 			Command: command, SessionDirectory: storeDirectory, Workspace: workspace,
 			Model: model, ThinkingLevel: parsed.ThinkingLevel, Inbox: inputs, Stderr: flagOutput,
 			DisallowedTools: denied,
@@ -462,13 +483,13 @@ func Run(
 	}
 	if _, enabled := registry.Resolve(tool.TaskGraphName); enabled && !*isSubagent && !slices.Contains(parsed.DisallowedTools, tool.TaskGraphName) {
 		_, allowBash := registry.Resolve(tool.BashName)
-		runtime, err := taskgraph.New(runContext, taskgraph.Config{Workspace: workspace, Shell: shell, BaseDirectory: operationDirectory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: newAgentHandlers})
+		runtime, err := taskgraph.New(runContext, taskgraph.Config{Workspace: workspace, Shell: shell, BaseDirectory: operationDirectory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: newAgentHandlers, ResourceAccount: account, Budget: policy})
 		if err != nil {
 			return err
 		}
 		remoteJobs = append(slices.Clip(remoteJobs), runtime.Handlers()...)
 	}
-	operations := operation.NewLocalOperationManagerWithOptions(runContext, operation.LocalOperationManagerOptions{OutputDirectory: operationDirectory}, remoteJobs...)
+	operations := operation.NewLocalOperationManagerWithOptions(runContext, operation.LocalOperationManagerOptions{OutputDirectory: operationDirectory, ResourceAccount: account, Budget: policy}, remoteJobs...)
 	defer func() {
 		cancel()
 		for range operations.Updates() {
@@ -545,6 +566,7 @@ func Run(
 	defer store.RemoveObserver(observerID)
 	current := coordinator.New(coordinator.Dependencies{
 		ToolHeartbeatInterval: *toolHeartbeatInterval,
+		ActivitySummary:       func() string { return runnerActivitySummary(hub, operations) },
 		SessionID:             sessionID,
 		Inbox:                 inputs,
 		Restored:              restored,

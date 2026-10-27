@@ -31,7 +31,7 @@ func TestSubagentChildProcess(t *testing.T) {
 	os.Args = append(os.Args[:1], os.Args[separator+1:]...)
 	client := &fakeClient{}
 	client.respond = func(_ context.Context, request llm.Request) (llm.Response, error) {
-		if containsTool(request.Tools, tool.AgentName) || containsTool(request.Tools, tool.TaskGraphName) {
+		if containsTool(request.Tools, tool.AgentName) || containsTool(request.Tools, tool.TaskGraphName) || containsTool(request.Tools, tool.AgentControlName) {
 			return messageResponse("recursive tools available"), nil
 		}
 		if os.Getenv("HARNESS_SUBAGENT_PERMISSION_TEST") == "1" {

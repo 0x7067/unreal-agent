@@ -5,8 +5,11 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
@@ -31,7 +34,11 @@ func (translator *translator) Translate(ctx tool.Context, call llm.ToolCall) too
 	if err != nil {
 		return tool.ErrorStatus(err.Error(), limit)
 	}
-	spec, err := translator.buildOperation(command, limit)
+	budget, err := parseBudget(call.Arguments)
+	if err != nil {
+		return tool.ErrorStatus(err.Error(), limit)
+	}
+	spec, err := translator.buildBudgetOperation(command, limit, budget)
 	if err != nil {
 		return tool.ErrorStatus(err.Error(), limit)
 	}
@@ -161,8 +168,13 @@ func validateArguments(encoded string) (string, int, error) {
 }
 
 func (translator *translator) buildOperation(command string, limit int) (operation.Spec, error) {
+	return translator.buildBudgetOperation(command, limit, executionbudget.Policy{})
+}
+
+func (translator *translator) buildBudgetOperation(command string, limit int, budget executionbudget.Policy) (operation.Spec, error) {
 	spec, err := operation.NewShellSpec(operation.ShellInput{
 		Command:   command,
+		Budget:    budget,
 		Shell:     translator.config.Shell,
 		Directory: translator.config.Directory,
 	}, translator.config.BaseDirectory, limit)
@@ -170,4 +182,38 @@ func (translator *translator) buildOperation(command string, limit int) (operati
 		return operation.Spec{}, fmt.Errorf("build Bash operation: %w", err)
 	}
 	return spec, nil
+}
+
+// Explicit wall thresholds are independent of max_output_length. Parsing is
+// pure: translators must never start timers or inspect the filesystem.
+func parseBudget(encoded string) (executionbudget.Policy, error) {
+	var args map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(encoded), &args); err != nil {
+		return executionbudget.Policy{}, err
+	}
+	var p executionbudget.Policy
+	for _, field := range []struct {
+		name string
+		dst  *time.Duration
+	}{{"timeout_seconds", &p.Timeout}, {"warn_after_seconds", &p.WarnAfter}} {
+		raw, ok := args[field.name]
+		if !ok {
+			continue
+		}
+		var value float64
+		if string(raw) == "null" {
+			return p, fmt.Errorf("bash argument %q must be positive seconds", field.name)
+		}
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return p, fmt.Errorf("bash argument %q must be positive seconds: %w", field.name, err)
+		}
+		if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 || value >= float64(math.MaxInt64)/float64(time.Second) {
+			return p, fmt.Errorf("bash argument %q is out of range", field.name)
+		}
+		*field.dst = time.Duration(value * float64(time.Second))
+		if *field.dst <= 0 {
+			return p, fmt.Errorf("bash argument %q is below clock resolution", field.name)
+		}
+	}
+	return p, p.Validate()
 }

@@ -395,7 +395,7 @@ func TestLocalOperationManagerRejectsInvalidOperations(t *testing.T) {
 	}, t.TempDir(), 64)
 	unsupportedVersion := valid
 	unsupportedVersion.ID = "local-version"
-	unsupportedVersion.Version++
+	unsupportedVersion.Version = operation.VersionShellBudget + 1
 	tests := []struct {
 		name    string
 		current operation.Operation

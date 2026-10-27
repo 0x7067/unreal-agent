@@ -289,11 +289,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if opts.workerExecutable != "" {
 		candidate = []string{opts.workerExecutable, "worker"}
 	}
+	budget, operationLimit, err := configuredBudgets(getenv)
+	if err != nil {
+		return fmt.Errorf("operation budgets: %w", err)
+	}
 	events := newWorkerEvents(runCtx)
 	host, err := workerhost.Start(runCtx, workerhost.Config{
 		Command: []string{executable, "worker"}, Candidate: candidate,
 		Bootstrap: workerproto.Bootstrap{
 			SessionID: id, Directory: directory, Workspace: workspace,
+			Budget: budget, MaxOperations: operationLimit,
 			Provider: opts.provider, BaseURL: opts.baseURL, Model: selectedModel,
 			MaxAttempts: opts.maxAttempts, Shell: shell, Subagents: opts.subagents,
 			SystemPrompt: "Before starting long-running tools, give the user one brief progress update in the same response as the tool calls. Do not repeat waiting messages.",
@@ -337,16 +342,17 @@ func newUIRegistry(subagents, hasSkills bool) tool.Registry {
 		enabled = append(enabled, tool.SkillUseName)
 	}
 	if subagents {
-		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName, tool.AgentControlName)
 	}
 	// These inert translators only decode worker-owned operation state here.
 	// Do not construct execution runtimes or submit work in the frontend.
 	return tool.NewRegistry(tool.StaticTranslators{
-		Bash:        bash.New(bash.Config{}),
-		ViewImage:   viewimage.New(viewimage.Config{}),
-		Agent:       toolsubagent.NewAgent(),
-		SendMessage: toolsubagent.NewSendMessage(),
-		TaskGraph:   tooltaskgraph.New(),
+		Bash:         bash.New(bash.Config{}),
+		ViewImage:    viewimage.New(viewimage.Config{}),
+		Agent:        toolsubagent.NewAgent(),
+		SendMessage:  toolsubagent.NewSendMessage(),
+		AgentControl: toolsubagent.NewAgentControl(),
+		TaskGraph:    tooltaskgraph.New(),
 	}, enabled...)
 }
 
@@ -362,7 +368,7 @@ func newTaskOperations(ctx context.Context, workspace, operationDirectory, shell
 	}
 	var remoteJobs []operation.RemoteJobHandler
 	if newAgentHandlers != nil {
-		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName, tool.AgentControlName)
 		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
 		handlers, err := newAgentHandlers(ctx)
 		if err != nil {

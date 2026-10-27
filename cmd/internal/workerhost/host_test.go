@@ -166,6 +166,13 @@ func helperRequests(scanner *bufio.Scanner, store *localfile.Store, lease *local
 			return err
 		}
 		switch request.Type {
+		case "activity_snapshot":
+			if os.Getenv("UA_HOST_TEST_SLOW_SNAPSHOT") == "1" {
+				time.Sleep(100 * time.Millisecond)
+			}
+			if err := workerproto.Write(os.Stdout, workerproto.Event{Type: "activity_snapshot", ID: request.ID}); err != nil {
+				return err
+			}
 		case "input":
 			if request.Input == nil {
 				return errors.New("missing input")
@@ -768,4 +775,58 @@ func TestKillEndsCloseBeforeGraceExpires(t *testing.T) {
 		t.Fatalf("lease retained: %v", err)
 	}
 	_ = lease.Close()
+}
+
+func TestInstalledProbeDoesNotReloadRunningWorker(t *testing.T) {
+	h, _, _ := testHost(t, "")
+	generationBefore, pidBefore := generation(h)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	status, err := h.CheckInstalled(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Build == "" || status.InstalledBuild == "" || status.ReloadState != "running worker matches installed candidate" {
+		t.Fatalf("incomplete build evidence: %+v", status)
+	}
+	after, pidAfter := generation(h)
+	if after != generationBefore || pidAfter != pidBefore {
+		t.Fatal("inspection reloaded worker")
+	}
+}
+
+func TestLiveSnapshotQueryRoundtripAndCanceledReplyDoesNotRetireWorker(t *testing.T) {
+	t.Setenv("UA_HOST_TEST_SLOW_SNAPSHOT", "1")
+	h, r, _ := testHost(t, "")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	_, gen, err := h.queryActivity(ctx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) || gen != 1 {
+		t.Fatalf("deadline outcome: generation=%d error=%v", gen, err)
+	}
+	ctx, cancel = context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	event, gen, err := h.queryActivity(ctx)
+	if err != nil || event.Type != "activity_snapshot" || event.ID == "" || gen != 1 {
+		t.Fatalf("query: %+v generation=%d error=%v", event, gen, err)
+	}
+	r.mu.Lock()
+	items := len(r.items)
+	r.mu.Unlock()
+	if items != 0 {
+		t.Fatalf("live query persisted %d items", items)
+	}
+	h.mu.Lock()
+	p := h.current
+	failure := h.failure
+	h.mu.Unlock()
+	if p == nil || failure != nil {
+		t.Fatalf("late canceled query retired healthy worker: %v", failure)
+	}
+	p.mu.Lock()
+	waiting := len(p.waiting)
+	p.mu.Unlock()
+	if waiting != 0 {
+		t.Fatalf("leaked %d query waiters", waiting)
+	}
 }

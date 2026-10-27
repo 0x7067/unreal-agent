@@ -41,6 +41,12 @@ func (s submissionState) status() string {
 func (m *model) startSubmission(text string) tea.Cmd {
 	// Defense in depth for callers other than the Enter handler: this local
 	// command must never become model input, durable ingress, or session history.
+	if trimmed := strings.TrimSpace(text); trimmed == "/agents" || strings.HasPrefix(trimmed, "/agents ") {
+		return m.startAgentCommand(trimmed)
+	}
+	if strings.TrimSpace(text) == "/builds" {
+		return m.startBuildInspection()
+	}
 	if strings.TrimSpace(text) == "/reload" {
 		return m.startReload()
 	}

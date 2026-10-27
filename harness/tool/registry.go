@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	BashName        = "Bash"
-	ViewImageName   = "ViewImage"
-	SkillUseName    = "SkillUse"
-	AgentName       = "Agent"
-	SendMessageName = "SendMessage"
-	TaskGraphName   = "TaskGraph"
+	BashName         = "Bash"
+	ViewImageName    = "ViewImage"
+	SkillUseName     = "SkillUse"
+	AgentName        = "Agent"
+	AgentControlName = "AgentControl"
+	SendMessageName  = "SendMessage"
+	TaskGraphName    = "TaskGraph"
 )
 
 type registry struct {
@@ -37,11 +38,12 @@ type registry struct {
 var _ Registry = (*registry)(nil)
 
 type StaticTranslators struct {
-	Bash        Translator
-	ViewImage   Translator
-	Agent       Translator
-	SendMessage Translator
-	TaskGraph   Translator
+	Bash         Translator
+	ViewImage    Translator
+	Agent        Translator
+	AgentControl Translator
+	SendMessage  Translator
+	TaskGraph    Translator
 }
 
 func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
@@ -65,16 +67,20 @@ func NewRegistry(configured StaticTranslators, enabled ...string) Registry {
 	if configured.SendMessage == nil {
 		configured.SendMessage = unavailableTranslator{name: SendMessageName}
 	}
+	if configured.AgentControl == nil {
+		configured.AgentControl = unavailableTranslator{name: AgentControlName}
+	}
 	if configured.TaskGraph == nil {
 		configured.TaskGraph = unavailableTranslator{name: TaskGraphName}
 	}
 	current.staticTranslators = map[string]Translator{
-		BashName:        configured.Bash,
-		ViewImageName:   configured.ViewImage,
-		SkillUseName:    &skillUseTranslator{registry: current},
-		AgentName:       configured.Agent,
-		SendMessageName: configured.SendMessage,
-		TaskGraphName:   configured.TaskGraph,
+		BashName:         configured.Bash,
+		ViewImageName:    configured.ViewImage,
+		SkillUseName:     &skillUseTranslator{registry: current},
+		AgentName:        configured.Agent,
+		AgentControlName: configured.AgentControl,
+		SendMessageName:  configured.SendMessage,
+		TaskGraphName:    configured.TaskGraph,
 	}
 	return current
 }

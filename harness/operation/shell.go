@@ -10,12 +10,16 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
 )
 
 const (
 	TypeShell    Type    = "shell"
 	VersionShell Version = 3
+	// VersionShellBudget adds explicit wall thresholds; v3 remains readable and
+	// is still emitted for legacy inputs without thresholds.
+	VersionShellBudget Version = 4
 
 	ShellOutFilename = "out"
 	ShellErrFilename = "err"
@@ -35,6 +39,7 @@ const (
 )
 
 type ShellInput struct {
+	Budget    executionbudget.Policy `json:",omitzero"`
 	Command   string
 	Shell     string
 	Directory string
@@ -94,6 +99,9 @@ func NewShellSpec(
 	if maxOutputLength <= 0 || maxOutputLength > MaxOutputLength {
 		return Spec{}, errors.New("max output length is out of range")
 	}
+	if err := input.Budget.Validate(); err != nil {
+		return Spec{}, err
+	}
 	state := ShellState{
 		Input:         input,
 		BaseDirectory: baseDirectory,
@@ -108,10 +116,14 @@ func NewShellSpec(
 	if err != nil {
 		return Spec{}, fmt.Errorf("encode shell operation state: %w", err)
 	}
+	version := VersionShell
+	if input.Budget != (executionbudget.Policy{}) {
+		version = VersionShellBudget
+	}
 	return Spec{
 		MaxOutputLength: maxOutputLength,
 		Type:            TypeShell,
-		Version:         VersionShell,
+		Version:         version,
 		State:           encoded,
 	}, nil
 }
@@ -173,7 +185,7 @@ func DecodeShellState(current Operation) (ShellState, error) {
 			ErrUnsupported,
 		)
 	}
-	if current.Version != VersionShell {
+	if current.Version != VersionShell && current.Version != VersionShellBudget {
 		return ShellState{}, fmt.Errorf(
 			"advance shell operation %q: unsupported version %d: %w",
 			current.ID,
@@ -188,6 +200,12 @@ func DecodeShellState(current Operation) (ShellState, error) {
 	var state ShellState
 	if err := json.Unmarshal(current.State, &state); err != nil {
 		return ShellState{}, fmt.Errorf("decode shell operation %q state: %w", current.ID, err)
+	}
+	if err := state.Input.Budget.Validate(); err != nil {
+		return ShellState{}, err
+	}
+	if current.Version == VersionShell && state.Input.Budget != (executionbudget.Policy{}) {
+		return ShellState{}, errors.New("wall budget requires shell version 4")
 	}
 	return state, nil
 }

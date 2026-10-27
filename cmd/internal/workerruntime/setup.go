@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
@@ -26,6 +28,8 @@ import (
 // Graphs can request fresh supervisors concurrently. Join runtimes first, so no
 // factory can still append a supervisor when the final supervisor snapshot is made.
 type ownedExecution struct {
+	hub         *subagent.Hub
+	account     *executionbudget.Account
 	mu          sync.Mutex
 	runtimes    []*taskgraph.Runtime
 	supervisors []*subagent.Supervisor
@@ -43,6 +47,9 @@ func (o *ownedExecution) wait() error {
 	for _, supervisor := range supervisors {
 		result = errors.Join(result, supervisor.Wait(context.Background()))
 	}
+	if o.hub != nil {
+		result = errors.Join(result, o.hub.Wait(context.Background()))
+	}
 	for _, log := range o.logs {
 		result = errors.Join(result, log.Close())
 	}
@@ -50,6 +57,13 @@ func (o *ownedExecution) wait() error {
 }
 
 func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Model, directory string, inputs inbox.Writer, hasSkills bool, owners *ownedExecution) (tool.Registry, operation.Manager, error) {
+	if owners.account == nil {
+		owners.account = executionbudget.NewAccount(executionbudget.Limits{MaxOperations: b.MaxOperations})
+	}
+	ctx = executionbudget.ContextWithAccount(ctx, owners.account)
+	if owners.hub == nil {
+		owners.hub = subagent.NewHub(ctx)
+	}
 	enabled := []string{tool.BashName, tool.ViewImageName, tool.TaskGraphName}
 	if hasSkills {
 		enabled = append(enabled, tool.SkillUseName)
@@ -72,7 +86,7 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			return nil, nil, fmt.Errorf("open subagent log: %w", err)
 		}
 		owners.logs = append(owners.logs, log)
-		config := subagent.Config{Command: command, Env: append(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
+		config := subagent.Config{Hub: owners.hub, Command: command, Env: selectedEnvironment(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts), "UNREAL_HARNESS_OPERATION_WARN_AFTER="+b.Budget.WarnAfter.String(), "UNREAL_HARNESS_OPERATION_TIMEOUT="+b.Budget.Timeout.String(), "UNREAL_HARNESS_MAX_OPERATIONS="+strconv.Itoa(b.MaxOperations)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
 		factory = func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
 			supervisor, err := subagent.New(ctx, config)
 			if err != nil {
@@ -83,8 +97,9 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			owners.mu.Unlock()
 			return supervisor.Handlers(), nil
 		}
-		enabled = append(enabled, tool.AgentName, tool.SendMessageName)
+		enabled = append(enabled, tool.AgentName, tool.SendMessageName, tool.AgentControlName)
 		translators.Agent, translators.SendMessage = toolsubagent.NewAgent(), toolsubagent.NewSendMessage()
+		translators.AgentControl = toolsubagent.NewAgentControl()
 		handlers, err = factory(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -98,7 +113,8 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 	}
 	owners.runtimes = append(owners.runtimes, runtime)
 	handlers = append(handlers, runtime.Handlers()...)
-	return registry, operation.NewLocalOperationManagerWithOptions(ctx, operation.LocalOperationManagerOptions{OutputDirectory: directory}, handlers...), nil
+	handlers = append(handlers, owners.hub.Handlers()...)
+	return registry, operation.NewLocalOperationManagerWithOptions(ctx, operation.LocalOperationManagerOptions{OutputDirectory: directory, Budget: b.Budget, ResourceAccount: owners.account}, handlers...), nil
 }
 
 // A stopped coordinator may have canceled requests still returning from their
@@ -136,4 +152,22 @@ func (c *joinedClient) shutdown() {
 	for c.active != 0 {
 		c.idle.Wait()
 	}
+}
+
+// Explicit worker settings override inherited environment exactly once. Keeping
+// duplicate keys makes effective child policy platform/runtime-dependent.
+func selectedEnvironment(base []string, selected ...string) []string {
+	keys := make(map[string]bool, len(selected))
+	for _, entry := range selected {
+		key, _, _ := strings.Cut(entry, "=")
+		keys[key] = true
+	}
+	result := make([]string, 0, len(base)+len(selected))
+	for _, entry := range base {
+		key, _, _ := strings.Cut(entry, "=")
+		if !keys[key] {
+			result = append(result, entry)
+		}
+	}
+	return append(result, selected...)
 }

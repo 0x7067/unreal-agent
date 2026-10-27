@@ -43,6 +43,11 @@ func TestBuiltRequestsContainProportionalExecutionGuidance(t *testing.T) {
 				// embedded preamble variable: deleting guidance must fail this test.
 				for _, guidance := range []string{
 					"Choose the smallest operation that satisfies the user's request.",
+					"Before delegating, supply a concise purpose",
+					"Resolve repository instructions and registered skill locations directly",
+					"An outside-workspace or filesystem-root search needs a concrete task-specific purpose",
+					"does not bound traversal, wall time, or child processes",
+					"Reuse current accepted validation evidence",
 					"tagging a release does not by itself require a full test/check/build pipeline",
 					"Optional tests and builds are not prerequisites unless the user asks for them, repository policy requires them, or a concrete safety concern makes them necessary.",
 					"Preserve necessary verification for code changes and required repository validation",

@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,11 +38,14 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	var stateMu sync.Mutex
 	started, released, finished := false, false, false
 	waitingCall := llm.ToolCall{
 		CallID: "waiting-call", Name: "Bash", Arguments: `{"command":"read value < release; printf '%s' \"$value\""}`,
 	}
 	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+		stateMu.Lock()
+		defer stateMu.Unlock()
 		if !started {
 			started = true
 			return llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: waitingCall}}}, nil
@@ -91,9 +94,12 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 		&stdout, &stderr, testConfig(client)); code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}
+	stateMu.Lock()
 	if !released || !finished {
+		stateMu.Unlock()
 		t.Fatal("heartbeat did not release Bash and deliver its result")
 	}
+	stateMu.Unlock()
 	heartbeats := 0
 	decoder := jsontext.NewDecoder(&stdout)
 	for {
@@ -114,16 +120,23 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 				t.Fatal(err)
 			}
 			if control.Mode == inbox.Heartbeat {
-				encoded, ok := strings.CutPrefix(control.Reason, "Heartbeat: waited 0.01 seconds for tool calls.\nRunning: ")
+				encoded, ok := strings.CutPrefix(control.Reason, "Heartbeat: waited 0.01 seconds for tool calls.\nPending (execution phase unconfirmed): ")
 				if !ok {
 					t.Fatalf("heartbeat reason = %q", control.Reason)
 				}
-				var calls []llm.ToolCall
+				encoded, summary, ok := strings.Cut(encoded, "\nActivity observations: ")
+				if !ok || !strings.Contains(summary, "Live supervision snapshot") || !strings.Contains(summary, "in_process_operation_envelopes") {
+					t.Fatalf("missing live observations: %q", control.Reason)
+				}
+				var calls []struct{ CallID, Name string }
 				if err := json.Unmarshal([]byte(encoded), &calls); err != nil {
 					t.Fatal(err)
 				}
-				if !slices.Equal(calls, []llm.ToolCall{waitingCall}) {
-					t.Fatalf("heartbeat tool calls = %#v, want %#v", calls, waitingCall)
+				if len(calls) != 1 || calls[0].CallID != waitingCall.CallID || calls[0].Name != waitingCall.Name {
+					t.Fatalf("heartbeat pending call identities=%+v", calls)
+				}
+				if strings.Contains(control.Reason, "Arguments") || strings.Contains(control.Reason, "read value < release") {
+					t.Fatalf("heartbeat leaked raw arguments: %q", control.Reason)
 				}
 				heartbeats++
 			}
@@ -164,7 +177,7 @@ func heartbeatMessageCount(request llm.Request) int {
 	for _, item := range request.Input {
 		if item.Type == llm.ItemMessage {
 			message := item.Data.(llm.Message)
-			if message.Role == llm.RoleUser && strings.HasPrefix(message.Text, "Heartbeat: waited 0.01 seconds for tool calls.\nRunning: ") {
+			if message.Role == llm.RoleUser && strings.HasPrefix(message.Text, "Heartbeat: waited 0.01 seconds for tool calls.\nPending (execution phase unconfirmed): ") {
 				count++
 			}
 		}

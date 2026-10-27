@@ -17,9 +17,10 @@ const formatVersion = 2
 type recordType string
 
 const (
-	recordSession   recordType = "session"
-	recordItem      recordType = "item"
-	recordOperation recordType = "operation"
+	recordSession          recordType = "session"
+	recordItem             recordType = "item"
+	recordOperation        recordType = "operation"
+	recordControlOperation recordType = "control_operation_v1"
 )
 
 type logRecord struct {
@@ -41,10 +42,20 @@ type operationRecord struct {
 	Operation operation.Operation
 }
 
-type decodedRecord struct {
-	Type      recordType
-	Item      itemRecord
+// This additive record has its own explicit version. The session header remains
+// format 2; older readers reject the unknown record rather than dropping control
+// checkpoints and accidentally reexecuting a completed operation.
+type controlOperationRecord struct {
+	Version   int
+	InputID   inbox.ID
 	Operation operation.Operation
+}
+
+type decodedRecord struct {
+	ControlOperation controlOperationRecord
+	Type             recordType
+	Item             itemRecord
+	Operation        operation.Operation
 }
 
 func encodeInitialLog(value session.Session, items []sessionstore.Item) ([]byte, error) {
@@ -158,6 +169,18 @@ func decodeLog(encoded []byte) (storedState, int64, error) {
 				inheritedItemCount = itemCount
 			}
 			records = append(records, decodedRecord{Type: recordItem, Item: itemValue})
+		case recordControlOperation:
+			if lineIndex == 0 {
+				return storedState{}, 0, fmt.Errorf("session record must be first")
+			}
+			var control controlOperationRecord
+			if err := json.Unmarshal(record.Data, &control); err != nil {
+				return storedState{}, 0, fmt.Errorf("decode control operation record: %w", err)
+			}
+			if control.Version != 1 {
+				return storedState{}, 0, fmt.Errorf("unsupported control operation record version %d", control.Version)
+			}
+			records = append(records, decodedRecord{Type: recordControlOperation, ControlOperation: control})
 		case recordOperation:
 			if lineIndex == 0 {
 				return storedState{}, 0, fmt.Errorf("session record must be first")
@@ -189,6 +212,13 @@ func decodeLog(encoded []byte) (storedState, int64, error) {
 			}
 			if err := replayItem(&value, record.Item); err != nil {
 				return storedState{}, 0, fmt.Errorf("apply item %d: %w", itemIndex, err)
+			}
+		case recordControlOperation:
+			if replayedItems < inheritedItemCount {
+				return storedState{}, 0, fmt.Errorf("control operation record appears in inherited history")
+			}
+			if err := value.initializeControlOperation(record.ControlOperation.InputID, record.ControlOperation.Operation); err != nil {
+				return storedState{}, 0, fmt.Errorf("apply control operation record: %w", err)
 			}
 		case recordOperation:
 			if replayedItems < inheritedItemCount {

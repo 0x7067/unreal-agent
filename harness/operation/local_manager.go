@@ -6,11 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
+	"time"
 
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
 )
 
 type LocalOperationManager struct {
+	activityMu      sync.RWMutex
+	activity        []OperationActivity
+	activityOmitted int
 	ctx             context.Context
 	options         LocalOperationManagerOptions
 	remoteJobs      *remoteJobHandlers
@@ -31,6 +37,14 @@ type localCancelRequest struct {
 }
 
 type localRunningOperation struct {
+	activePrimitives      int
+	terminal              bool
+	drained               bool
+	remoteUnknown         bool
+	pendingTerminal       bool
+	remoteCheckpoint      Operation
+	lease                 *executionbudget.Lease
+	activity              OperationActivity
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	operation             Operation
@@ -70,9 +84,20 @@ func NewLocalOperationManager(ctx context.Context, remoteJobHandlers ...RemoteJo
 // empty OutputDirectory preserves the legacy, inline-only behavior.
 type LocalOperationManagerOptions struct {
 	OutputDirectory string
+	// Budget is a live admission-relative wall policy. Zero preserves legacy behavior.
+	Budget executionbudget.Policy
+	// ResourceAccount must be shared by root and nested managers to share capacity.
+	// If nil, it is inherited from ContextWithAccount when present.
+	ResourceAccount *executionbudget.Account
+	// Tests may replace the wall clock and tick source without real sleeps.
+	now         func() time.Time
+	budgetTicks <-chan time.Time
 }
 
 func NewLocalOperationManagerWithOptions(ctx context.Context, options LocalOperationManagerOptions, remoteJobHandlers ...RemoteJobHandler) *LocalOperationManager {
+	if options.ResourceAccount == nil {
+		options.ResourceAccount = executionbudget.AccountFromContext(ctx)
+	}
 	manager := &LocalOperationManager{
 		options:         options,
 		ctx:             ctx,
@@ -116,6 +141,12 @@ func (manager *LocalOperationManager) run() {
 	operations := make(map[ID]*localRunningOperation)
 	accepted := make(map[ID]struct{})
 	activePrimitives := 0
+	ticks := manager.options.budgetTicks
+	if ticks == nil {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
 
 	for {
 		var updates chan Operation
@@ -130,6 +161,9 @@ func (manager *LocalOperationManager) run() {
 			manager.pendingUpdates[0] = Operation{}
 			manager.pendingUpdates = manager.pendingUpdates[1:]
 
+		case <-ticks:
+			manager.checkBudgets(operations)
+
 		case request := <-manager.adds:
 			if _, exists := accepted[request.operation.ID]; exists {
 				continue
@@ -142,6 +176,33 @@ func (manager *LocalOperationManager) run() {
 				operation:             request.operation,
 				remoteJobHandlerIndex: -1,
 			}
+			current.activity = OperationActivity{ID: current.operation.ID, Type: current.operation.Type, Phase: ActivityRunning, StartedAt: manager.now(), Budget: manager.options.Budget}
+			current.activity.LastObservedAt = current.activity.StartedAt
+			if err := manager.options.Budget.Validate(); err != nil {
+				manager.failLocalOperation(operations, current, err)
+				continue
+			}
+			if current.operation.Type == TypeShell {
+				state, err := DecodeShellState(current.operation)
+				if err != nil {
+					manager.failLocalOperation(operations, current, err)
+					continue
+				}
+				current.activity.Budget = executionbudget.Constrain(manager.options.Budget, state.Input.Budget)
+			}
+			var lease *executionbudget.Lease
+			var err error
+			if isManagementOperation(current.operation) {
+				lease, err = manager.options.ResourceAccount.AcquireManagement()
+			} else {
+				lease, err = manager.options.ResourceAccount.Acquire()
+			}
+			if err != nil {
+				manager.failLocalOperation(operations, current, err)
+				continue
+			}
+			current.lease = lease
+			manager.observe(current)
 			if request.operation.Type == TypeRemoteJob {
 				if err := manager.configureRemoteJob(&current.operation); err != nil {
 					manager.failLocalOperation(operations, current, err)
@@ -153,6 +214,7 @@ func (manager *LocalOperationManager) run() {
 					continue
 				}
 				current.remoteJobHandlerIndex = handlerIndex
+				current.remoteCheckpoint = current.operation
 				operations[request.operation.ID] = current
 				continue
 			}
@@ -173,24 +235,17 @@ func (manager *LocalOperationManager) run() {
 			if !exists {
 				continue
 			}
-			if current.remoteJobHandlerIndex >= 0 {
-				if err := manager.remoteJobs.cancel(
-					current.remoteJobHandlerIndex,
-					request.id,
-					request.reason,
-				); err != nil {
-					manager.failLocalOperation(operations, current,
-						fmt.Errorf("remote job outcome is unknown because cancellation failed: %v", err))
-				}
-				continue
+			if err := manager.requestCancellation(current, request.reason); err != nil {
+				current.remoteUnknown = true
+				manager.failLocalOperation(operations, current, fmt.Errorf("remote job outcome is unknown because cancellation failed: %v", err))
 			}
-			current.cancel()
 
 		case update := <-manager.remoteJobs.updates:
 			if update.closed {
 				manager.remoteJobs.markClosed(update.handlerIndex)
 				for _, current := range operations {
 					if current.remoteJobHandlerIndex == update.handlerIndex {
+						current.remoteUnknown = true
 						manager.failLocalOperation(
 							operations,
 							current,
@@ -205,6 +260,9 @@ func (manager *LocalOperationManager) run() {
 				continue
 			}
 			if current.remoteJobHandlerIndex != update.handlerIndex {
+				if current.terminal {
+					continue
+				}
 				manager.failRemoteJobOperation(
 					operations,
 					current,
@@ -212,15 +270,32 @@ func (manager *LocalOperationManager) run() {
 				)
 				continue
 			}
-			if err := validateRemoteJobUpdate(current.operation, update.operation); err != nil {
+			validation := current.operation
+			if current.terminal {
+				validation = current.remoteCheckpoint
+			}
+			if err := validateRemoteJobUpdate(validation, update.operation); err != nil {
+				if current.terminal {
+					continue
+				}
 				manager.failRemoteJobOperation(operations, current, err)
 				continue
 			}
+			current.remoteCheckpoint = update.operation
+			if current.terminal {
+				if localOperationFinished(update.operation.Status) {
+					current.remoteUnknown = false
+					manager.finishOwned(operations, current)
+				}
+				continue
+			}
 			current.operation = update.operation
+			current.activity.LastObservedAt = manager.now()
+			manager.observe(current)
 			manager.appendLocalUpdate(update.operation)
 			if localOperationFinished(update.operation.Status) {
-				current.cancel()
-				delete(operations, update.operation.ID)
+				current.terminal = true
+				manager.finishOwned(operations, current)
 			}
 
 		case event := <-manager.primitiveEvents:
@@ -230,6 +305,21 @@ func (manager *LocalOperationManager) run() {
 			}
 			current, exists := operations[ID(event.Source)]
 			if !exists {
+				continue
+			}
+			current.activity.LastObservedAt = manager.now()
+			if event.Type == primitives.PrimitiveEventProcessStarted {
+				current.activity.ProcessStarted = true
+			}
+			if completed {
+				current.activePrimitives--
+				if event.CorrelationID == primitives.CorrelationID(ShellPhaseProcess) {
+					current.activity.ProcessCompletionObserved = true
+				}
+			}
+			manager.observe(current)
+			if current.terminal {
+				manager.finishOwned(operations, current)
 				continue
 			}
 			if completed && current.ctx.Err() != nil {
@@ -246,8 +336,21 @@ func (manager *LocalOperationManager) run() {
 		case <-manager.ctx.Done():
 			for _, current := range operations {
 				current.cancel()
+				if current.activity.CancellationRequestedAt.IsZero() {
+					current.activity.CancellationRequestedAt = manager.now()
+					current.activity.CancellationReason = "manager_shutdown"
+				}
+				current.activity.Phase = ActivityDraining
+				current.activity.DrainingAt = manager.now()
+				manager.observe(current)
 			}
 			manager.drainLocalPrimitives(activePrimitives)
+			for _, current := range operations {
+				if current.remoteJobHandlerIndex < 0 {
+					current.activePrimitives = 0
+					manager.finishOwned(operations, current)
+				}
+			}
 			return
 		}
 	}
@@ -260,12 +363,21 @@ func (manager *LocalOperationManager) acceptLocalStep(
 ) int {
 	if step.Operation != nil {
 		current.operation = *step.Operation
-		manager.appendLocalUpdate(*step.Operation)
 		if localOperationFinished(step.Operation.Status) {
+			current.terminal = true
 			current.cancel()
-			delete(operations, step.Operation.ID)
+			if current.activePrimitives > 0 {
+				current.pendingTerminal = true
+				current.activity.Phase = ActivityDraining
+				current.activity.DrainingAt = manager.now()
+			} else {
+				manager.appendLocalUpdate(*step.Operation)
+			}
+			manager.finishOwned(operations, current)
 			return 0
 		}
+		manager.appendLocalUpdate(*step.Operation)
+		manager.observe(current)
 	}
 	started := 0
 	for _, dispatch := range step.Dispatches {
@@ -282,6 +394,8 @@ func (manager *LocalOperationManager) acceptLocalStep(
 			return started + manager.acceptLocalStep(operations, current, failed)
 		}
 		started++
+		current.activePrimitives++
+		manager.observe(current)
 	}
 	return started
 }
@@ -292,9 +406,23 @@ func (manager *LocalOperationManager) failLocalOperation(
 	err error,
 ) {
 	failed := failLocalOperation(current.operation, err)
-	manager.appendLocalUpdate(failed)
+	if current.remoteUnknown {
+		current.activity.Phase = ActivityDraining
+		if current.activity.DrainingAt.IsZero() {
+			current.activity.DrainingAt = manager.now()
+		}
+	}
+	if current.activePrimitives > 0 {
+		current.pendingTerminal = true
+		current.activity.Phase = ActivityDraining
+		current.activity.DrainingAt = manager.now()
+	} else {
+		manager.appendLocalUpdate(failed)
+	}
+	current.operation = failed
+	current.terminal = true
 	current.cancel()
-	delete(operations, current.operation.ID)
+	manager.finishOwned(operations, current)
 }
 
 func (manager *LocalOperationManager) failRemoteJobOperation(
@@ -302,6 +430,7 @@ func (manager *LocalOperationManager) failRemoteJobOperation(
 	current *localRunningOperation,
 	cause error,
 ) {
+	current.remoteUnknown = true
 	if err := manager.remoteJobs.cancel(
 		current.remoteJobHandlerIndex,
 		current.operation.ID,

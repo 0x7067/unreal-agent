@@ -27,8 +27,15 @@ const (
 )
 
 type RunPlan struct {
-	Name   string
-	Prompt string
+	Name           string
+	Prompt         string
+	Purpose        string   `json:",omitzero"`
+	ParentTask     string   `json:",omitzero"`
+	Lifetime       string   `json:",omitzero"`
+	OwnedResources []string `json:",omitzero"`
+	GraphID        string   `json:",omitzero"`
+	TaskID         string   `json:",omitzero"`
+	TaskGeneration uint64   `json:",omitzero"`
 }
 
 type MessagePlan struct {
@@ -38,7 +45,9 @@ type MessagePlan struct {
 
 // RunHandle is stored in a run operation's remote job handle.
 type RunHandle struct {
-	SessionID string
+	SessionID  string
+	Handle     string `json:",omitzero"`
+	Generation uint64 `json:",omitzero"`
 }
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
@@ -75,8 +84,12 @@ type agentTranslator struct{}
 
 func (agentTranslator) Translate(ctx tool.Context, call llm.ToolCall) tool.CallStatus {
 	var arguments struct {
-		Name   string `json:"name"`
-		Prompt string `json:"prompt"`
+		Name           string   `json:"name"`
+		Prompt         string   `json:"prompt"`
+		Purpose        string   `json:"purpose"`
+		ParentTask     string   `json:"parent_task"`
+		Lifetime       string   `json:"lifetime"`
+		OwnedResources []string `json:"owned_resources"`
 	}
 	if err := decodeArguments(call.Arguments, &arguments); err != nil {
 		return tool.ErrorStatus(fmt.Sprintf("decode Agent arguments: %v", err), 0)
@@ -87,7 +100,12 @@ func (agentTranslator) Translate(ctx tool.Context, call llm.ToolCall) tool.CallS
 	if strings.TrimSpace(arguments.Prompt) == "" {
 		return tool.ErrorStatus(`agent argument "prompt" must be set`, 0)
 	}
-	return submitRemoteJob(ctx, RunPlanType, RunPlan{Name: arguments.Name, Prompt: arguments.Prompt})
+	if arguments.Lifetime != "" && arguments.Lifetime != "task" && arguments.Lifetime != "background" {
+		return tool.ErrorStatus(`agent argument "lifetime" must be task or background`, 0)
+	}
+	return submitRemoteJob(ctx, RunPlanType, RunPlan{Name: arguments.Name, Prompt: arguments.Prompt,
+		Purpose: arguments.Purpose, ParentTask: arguments.ParentTask, Lifetime: arguments.Lifetime,
+		OwnedResources: arguments.OwnedResources})
 }
 
 func (agentTranslator) TranslateResult(callID string, status tool.CallStatus, operations []operation.Operation) (tool.Result, error) {
@@ -218,30 +236,45 @@ func remoteJobResult(callID string, status tool.CallStatus, operations []operati
 	if err != nil {
 		return nil, fmt.Errorf("decode subagent tool call %q state: %w", callID, err)
 	}
+	var handle RunHandle
+	if state.Plan.Type == RunPlanType && len(state.Handle) != 0 {
+		if err := json.Unmarshal(state.Handle, &handle); err != nil {
+			return nil, fmt.Errorf("decode subagent tool call %q handle: %w", callID, err)
+		}
+	}
+	result := Result{CallID: callID, Handle: handle.Handle, Generation: handle.Generation}
 	switch current.Status {
 	case operation.StatusReady, operation.StatusAwaiting, operation.StatusCanceling:
-		return Result{CallID: callID, Running: true, Text: running}, nil
+		result.Running, result.Text = true, running
+		return result, nil
 	case operation.StatusCompleted:
-		return Result{CallID: callID, Text: state.TerminalResult}, nil
+		result.Text = state.TerminalResult
+		return result, nil
 	case operation.StatusFailed, operation.StatusCanceled:
 		if state.TerminalError == "" {
 			state.TerminalError = "subagent operation " + string(current.Status)
 		}
-		return Result{CallID: callID, Text: state.TerminalResult, Error: state.TerminalError}, nil
+		result.Text, result.Error = state.TerminalResult, state.TerminalError
+		return result, nil
 	default:
 		return nil, fmt.Errorf("subagent tool call %q operation %q has invalid status %q", callID, current.ID, current.Status)
 	}
 }
 
 type Result struct {
-	CallID  string
-	Running bool
-	Text    string
-	Error   string
+	CallID     string
+	Running    bool
+	Text       string
+	Error      string
+	Handle     string `json:",omitzero"`
+	Generation uint64 `json:",omitzero"`
 }
 
 func (result Result) ToLLMResult() llm.ToolResult {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if result.Handle != "" && result.Running {
+		parts = append(parts, fmt.Sprintf("Agent handle: %s; generation: %d", result.Handle, result.Generation))
+	}
 	if result.Text != "" {
 		parts = append(parts, result.Text)
 	}

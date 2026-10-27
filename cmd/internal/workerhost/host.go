@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,11 +45,13 @@ type Config struct {
 }
 
 type Status struct {
-	Generation uint64
-	Build      string
-	Message    string
-	Err        error
-	Stopped    bool
+	Generation     uint64
+	Build          string
+	InstalledBuild string
+	ReloadState    string
+	Message        string
+	Err            error
+	Stopped        bool
 }
 
 // admissionJournal keeps durable ingress semantics independent of host lifecycle
@@ -85,6 +88,8 @@ type Host struct {
 	admissions     sync.WaitGroup // Add only under mu, before closing is set
 	admissionOnce  sync.Once
 	admissionDone  chan struct{}
+	query          chan struct{} // bounded one live snapshot query per host
+	installedBuild string
 }
 
 type process struct {
@@ -168,7 +173,7 @@ func start(ctx context.Context, config Config, wrapJournal func(admissionJournal
 		journal = wrapJournal(journal)
 	}
 	lifetime, cancel := context.WithCancel(ctx)
-	h := &Host{config: config, ctx: lifetime, cancel: cancel, journal: journal, parentLease: parentLease, done: make(chan error, 1), kick: make(chan struct{}, 1), dispatcherDone: make(chan struct{}), delivery: make(chan struct{}, 1), admissionDone: make(chan struct{})}
+	h := &Host{config: config, ctx: lifetime, cancel: cancel, journal: journal, parentLease: parentLease, done: make(chan error, 1), kick: make(chan struct{}, 1), dispatcherDone: make(chan struct{}), delivery: make(chan struct{}, 1), admissionDone: make(chan struct{}), query: make(chan struct{}, 1)}
 	// Start must be bounded even if a candidate never identifies itself.
 	startCtx, stop := context.WithTimeout(ctx, 30*time.Second)
 	defer stop()
@@ -207,6 +212,20 @@ func (h *Host) wake() {
 	}
 }
 func (h *Host) status(s Status) {
+	h.mu.Lock()
+	s.InstalledBuild = h.installedBuild
+	h.mu.Unlock()
+	if h.reload.Load() {
+		s.ReloadState = "reload in progress"
+	} else if s.Build != "" && s.InstalledBuild == s.Build {
+		s.ReloadState = "running worker matches checked installed candidate"
+	} else if s.Build != "" && strings.HasPrefix(s.InstalledBuild, s.Build+" (launch candidate;") {
+		s.ReloadState = "running matches launch candidate; /builds rechecks installed path"
+	} else if s.InstalledBuild != "" && s.Build != "" {
+		s.ReloadState = "installed candidate differs; explicit /reload required"
+	} else {
+		s.ReloadState = "installed candidate not checked; /builds"
+	}
 	if h.config.OnStatus != nil {
 		h.config.OnStatus(s)
 	}
@@ -317,6 +336,9 @@ func (h *Host) launch(ctx context.Context, stage staged) (*process, error) {
 	}
 	h.mu.Lock()
 	h.generation++
+	if h.installedBuild == "" && slices.Equal(h.config.Command, h.config.Candidate) {
+		h.installedBuild = stage.identity.Build + " [" + stage.digest[:12] + "] (launch candidate; recheck with /builds)"
+	}
 	generation := h.generation
 	h.mu.Unlock()
 	p := &process{host: h, command: command, input: input, cancel: cancel, generation: generation, build: stage.identity.Build + " [" + stage.digest[:12] + "]", hello: make(chan error, 1), ready: make(chan error, 1), done: make(chan struct{}), waiting: make(map[string]chan workerproto.Event), sent: make(map[inbox.ID]bool), waited: make(chan error, 1), scanDone: make(chan struct{})}
@@ -453,11 +475,15 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 			}
 			sawReady = true
 			p.ready <- nil
-		case "busy", "quiesced":
+		case "busy", "quiesced", "activity_snapshot":
 			p.mu.Lock()
 			waiter := p.waiting[event.ID]
 			delete(p.waiting, event.ID)
 			p.mu.Unlock()
+			if waiter == nil && event.Type == "activity_snapshot" {
+				// A canceled live query can finish later; it has no side effect.
+				continue
+			}
 			if waiter == nil {
 				failure = errors.New("unsolicited worker control response")
 				break

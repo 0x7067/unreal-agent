@@ -1,5 +1,7 @@
 # Harness diagnostics: proportional task execution
 
+Follow-up: [agent supervision, monitoring, cleanup, and diagnostics handoff](agent-supervision-diagnostics-handoff.md).
+
 ## Problem and boundary
 
 A request such as “tag a new release please” should not automatically become a
@@ -25,10 +27,11 @@ This proves prompt delivery, not that any model follows the instructions. It
 neither invokes a provider nor measures behavioral improvement. Existing
 contextbuilder and adapter tests are not substitutes for a live model evaluation.
 
-The following is a **manual behavioral evaluation fixture**, not an automated
-model evaluation or a claim of measured results. No suitable live model
-behavior evaluator was identified in the inspected contextbuilder/LLM/tool and
-plan files. No live provider evaluation has been performed for this fixture.
+The following was originally a **manual behavioral evaluation fixture**, not
+an automated model evaluation or a claim of measured results. At that stage no
+suitable live evaluator had been identified and no live provider evaluation
+had been performed. The executable tooling and subsequent exploratory evidence
+are described at the end of this document; they do not establish improvement.
 
 ## Controlled evaluation setup
 
@@ -78,3 +81,33 @@ violations as failures even if the final tag exists. Record tool-call count,
 validation commands, clarification rounds, TaskGraph tasks, and elapsed time as
 secondary overhead metrics; faster unsafe or incorrect execution is not an
 improvement. Publish raw counts and limitations before claiming improvement.
+
+## Executable fixture and exploratory evidence (2026-10-27)
+
+The standalone [benchmark runner and instructions](../../benchmarks/harness-diagnostics/README.md)
+make T1–T7 reproducible without changing production translators, context building,
+provider interfaces, or the preamble. `build-pair` builds the same committed
+harness twice with only the embedded preamble changed; `run` predeclares paired
+trials, creates disposable repositories, retains failed attempts and raw evidence,
+and separates process completion from explicit rubric acceptance. T3 includes
+passing and failing required gates. T6 currently implements only a supplied
+historical-phase reading probe: **live queued/blocked runtime injection remains
+not run**. Setup/scoring/process-drain tests are not behavioral evidence.
+
+A bounded live exploratory comparison was subsequently performed using the
+configured Codex endpoint and pinned model ID `gpt-6-astra`. This supersedes the
+historical no-live-run status above, not the original limitations or rubric.
+See the [dated results, counts, overhead and limitations](../../benchmarks/harness-diagnostics/results-20261027.md).
+The sample is one trial per arm/scenario, not evidence of improvement. Original
+startup failures and timeout-censored T7 trials were retained; a separately
+reported larger-budget T7 pair exposed an ambiguous release-policy cue in the
+fixture. The delivered fixture removes that cue for future runs; it does not
+retroactively relabel the original evidence.
+
+
+The linked [supervision handoff](agent-supervision-diagnostics-handoff.md) is now
+implemented beyond the earlier projection foundation: scoped model/UI controls,
+task cleanup/background lifetime, budgets, nested blockers, heartbeats and build
+identity. Its deterministic integration/tmux evidence is separate from the
+historical behavioral results above; those results are not a live reevaluation
+of the newly completed implementation.

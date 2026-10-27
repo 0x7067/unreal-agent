@@ -21,6 +21,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
@@ -105,9 +106,14 @@ type model struct {
 	workerEvents                        *workerEvents
 	workerGeneration                    uint64
 	workerBuild, workerStatus           string
+	installedBuild, reloadState         string
 	reloadError, sessionID              string
 	reloading, workerStopped            bool
 	workerStatusError                   bool
+	lastItemSequence                    sessionstore.Sequence
+	activity                            workerhost.Activity
+	activityError                       string
+	structuralCalls                     map[string]llm.ToolCall
 }
 
 func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, workspace, directory string, opts options) model {
@@ -140,7 +146,7 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 
 func (m model) Init() tea.Cmd {
 	if m.workerEvents != nil {
-		return tea.Batch(m.composer.Focus(), m.workerEvents.next)
+		return tea.Batch(m.composer.Focus(), m.workerEvents.next, m.activityTimer())
 	}
 	return m.composer.Focus()
 }
@@ -215,6 +221,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishSubmission(msg)
 	case workerhost.Status:
 		m.applyWorkerStatus(msg)
+	case activityPoll:
+		cmd = m.queryActivity("", "", true)
+	case activityFinished:
+		m.applyActivity(msg)
+		if msg.periodic {
+			cmd = m.activityTimer()
+		}
+	case buildsFinished:
+		m.finishBuildInspection(msg)
 	case reloadFinished:
 		m.reloading = false
 		m.reloadError = ""
@@ -405,8 +420,17 @@ func (m *model) append(label, text string) {
 }
 
 func (m *model) apply(item sessionstore.Item) {
+	// Live host delivery is ordered. Replayed/duplicate older items must not
+	// resurrect terminal cards, replay text, or restart a completed turn.
+	if item.Sequence != 0 {
+		if item.Sequence <= m.lastItemSequence {
+			return
+		}
+		m.lastItemSequence = item.Sequence
+	}
 	switch data := item.Data.(type) {
 	case inbox.Input:
+		m.applyAgentControlInput(data)
 		m.applyInput(data)
 		if data.Kind == inbox.InputControl {
 			if request, err := data.DecodeControlMessage(); err == nil {
@@ -457,9 +481,20 @@ func (m *model) apply(item sessionstore.Item) {
 		}
 	case sessionstore.ToolCallStatus:
 		card := m.card(callKey{data.TurnID, data.CallID})
+		if call, ok := m.structuralCalls[data.CallID]; ok {
+			card.name, card.arguments = call.Name, call.Arguments
+			card.summary = "structural control · inspect result"
+		}
+		if card.terminal && slices.ContainsFunc(data.Operations, func(op operation.Operation) bool {
+			return op.Status == operation.StatusReady || op.Status == operation.StatusAwaiting || op.Status == operation.StatusCanceling
+		}) {
+			return
+		}
 		result := m.readToolResult(card, data)
 		card.output, card.paths = resultText(result)
 		card.shell = newShellDetail(result)
+		card.diagnostic = toolDiagnostic(data)
+		card.terminal = card.status != awaiting
 		if card.output == "" {
 			card.output = boundedDetail(card.failure, 32000)
 		}
@@ -494,6 +529,13 @@ func (m *model) renderConversation() {
 	}
 	if m.workerBuild != "" {
 		paths += "\n" + m.labelValue(textWidth, "Worker", workerLabel(m.workerGeneration, m.workerBuild))
+		paths += "\n" + m.labelValue(textWidth, "Frontend", frontendLabel())
+		installed := m.installedBuild
+		if installed == "" {
+			installed = "not checked · /builds"
+		}
+		paths += "\n" + m.labelValue(textWidth, "Installed", installed)
+		paths += "\n" + m.labelValue(textWidth, "Reload", m.reloadState+" · /reload at idle boundary")
 	}
 	title := textStyle(m.theme.Accent).Bold(true).Render("Unreal Agent") +
 		textStyle(m.theme.Muted).Render(" · "+m.configuration)
@@ -673,6 +715,16 @@ func (m model) View() tea.View {
 	status, color := "Idle", m.theme.StatusForeground
 	if pending {
 		status = "Waiting for tools"
+		for _, card := range m.tools {
+			if card.status == awaiting && card.diagnostic != "" {
+				status = card.diagnostic
+				break
+			}
+		}
+	}
+	if summary := m.activitySummary(); summary != "" {
+		status = summary
+		pending = true
 	}
 	if m.responding {
 		elapsed := time.Since(m.workStarted)

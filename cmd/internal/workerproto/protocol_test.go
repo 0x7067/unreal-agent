@@ -53,3 +53,15 @@ func TestFrameBoundsAndBlankFrameVisibility(t *testing.T) {
 		t.Fatal("blank frame hidden from protocol consumer")
 	}
 }
+
+func TestVersionTwoRejectsOldPrivateWorkersNotOldSessions(t *testing.T) {
+	if Version != 2 || SessionVersion != 2 {
+		t.Fatalf("unexpected versions %d/%d", Version, SessionVersion)
+	}
+	if err := (Identity{Protocol: 1, SessionVersion: SessionVersion, Build: "old"}).Validate(); err == nil || !strings.Contains(err.Error(), "incompatible worker") {
+		t.Fatalf("old worker not explicitly rejected: %v", err)
+	}
+	if err := (Identity{Protocol: Version, SessionVersion: 2, Build: "new"}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

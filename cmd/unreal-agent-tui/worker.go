@@ -92,6 +92,12 @@ func (m *model) applyWorkerStatus(status workerhost.Status) {
 	if status.Generation > m.workerGeneration {
 		m.workerGeneration = status.Generation
 	}
+	if status.InstalledBuild != "" {
+		m.installedBuild = singleLine(status.InstalledBuild)
+	}
+	if status.ReloadState != "" {
+		m.reloadState = singleLine(status.ReloadState)
+	}
 	if status.Build != "" {
 		m.workerBuild = singleLine(status.Build)
 	}
@@ -122,6 +128,14 @@ func workerLabel(generation uint64, build string) string {
 	label := fmt.Sprintf("#%d · %s", generation, version)
 	if fingerprint != "" {
 		label += " · " + fingerprint[:min(8, len(fingerprint))]
+	}
+	return label
+}
+
+func frontendLabel() string {
+	label := version
+	if commit != "unknown" {
+		label += " · " + commit[:min(12, len(commit))]
 	}
 	return label
 }

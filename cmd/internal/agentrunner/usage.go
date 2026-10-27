@@ -27,8 +27,16 @@ Request schema (JSON object; unknown fields are rejected):
     Creates or resumes a persisted session.
   disallowed_tools: array of non-empty strings (optional)
     Static tool names excluded from model context and execution.
-  extra_allowed_tools: array of non-empty strings (optional; "Agent" enables the Agent and SendMessage subagent tools)
+  extra_allowed_tools: array of non-empty strings (optional; "Agent" enables the Agent, SendMessage and AgentControl subagent tools)
   include_partial_messages: boolean (optional; accepted but ignored)
+
+Execution policy environment (runner policy, not an execution sandbox):
+  UNREAL_HARNESS_OPERATION_WARN_AFTER: duration; default 30s; 0 disables warning.
+  UNREAL_HARNESS_OPERATION_TIMEOUT: duration; default 120s; 0 disables timeout.
+    Expiry requests cancellation; owned work remains visible until actual drain.
+  UNREAL_HARNESS_MAX_OPERATIONS: integer; default 64; 0 disables work admission bound.
+    Shared in-process operation envelopes include root and graph managers, not
+    remote-process internals or all OS processes. Management admission is separate.
 `
 
 func writeUsage(flags *flag.FlagSet) error {

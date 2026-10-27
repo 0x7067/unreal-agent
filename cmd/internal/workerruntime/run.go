@@ -108,6 +108,12 @@ func run(ctx context.Context, input io.Reader, output, stderr io.Writer, getenv 
 }
 
 func validateBootstrap(b workerproto.Bootstrap) error {
+	if err := b.Budget.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrProtocol, err)
+	}
+	if b.MaxOperations < 0 {
+		return fmt.Errorf("%w: operation limit must not be negative", ErrProtocol)
+	}
 	if b.SessionID == "" {
 		return fmt.Errorf("%w: session ID required", ErrProtocol)
 	}
@@ -292,7 +298,7 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
 	}
-	current := coordinator.New(coordinator.Dependencies{SessionID: b.SessionID, Restored: restored, Sessions: store, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute})
+	current := coordinator.New(coordinator.Dependencies{SessionID: b.SessionID, Restored: restored, Sessions: store, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary})
 	if err := events.write(workerproto.Event{Type: "ready", ID: startID}); err != nil {
 		return false, responseID, err
 	}
@@ -343,6 +349,21 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 			return false, responseID, fmt.Errorf("%w: invalid request envelope", ErrProtocol)
 		}
 		switch request.Type {
+		case "activity_snapshot":
+			if request.ID == "" || request.Input != nil {
+				return false, responseID, fmt.Errorf("%w: activity snapshot requires ID and no input", ErrProtocol)
+			}
+			snapshot := owners.hub.Snapshot()
+			var resources *operation.ActivitySnapshot
+			if source, ok := operations.(interface {
+				ActivitySnapshot() operation.ActivitySnapshot
+			}); ok {
+				observed := source.ActivitySnapshot()
+				resources = &observed
+			}
+			if err := events.write(workerproto.Event{Type: "activity_snapshot", ID: request.ID, Activity: &snapshot, Resources: resources}); err != nil {
+				return false, responseID, err
+			}
 		case "input":
 			if request.Input == nil {
 				return false, responseID, fmt.Errorf("%w: missing input", ErrProtocol)

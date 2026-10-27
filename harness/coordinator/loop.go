@@ -50,6 +50,10 @@ type stopState struct {
 }
 
 type loopState struct {
+	controlInputs     map[inbox.ID]inbox.ToolInvocation
+	controlCompleted  map[inbox.ID]bool
+	controlOperations map[operation.ID]structuralControl
+
 	failedTurns               map[session.TurnID]struct{}
 	rejectedOperations        map[operation.ID]struct{}
 	respondedTurns            map[session.TurnID]struct{}
@@ -97,6 +101,9 @@ var _ Coordinator = (*coordinator)(nil)
 
 func newLoopState() loopState {
 	return loopState{
+		controlInputs:      make(map[inbox.ID]inbox.ToolInvocation),
+		controlCompleted:   make(map[inbox.ID]bool),
+		controlOperations:  make(map[operation.ID]structuralControl),
 		respondedTurns:     make(map[session.TurnID]struct{}),
 		failedTurns:        make(map[session.TurnID]struct{}),
 		rejectedOperations: make(map[operation.ID]struct{}),
@@ -346,20 +353,32 @@ func (current *coordinator) isWaitingForOnlyToolCalls() bool {
 }
 
 func (current *coordinator) postHeartbeat(ctx context.Context) error {
-	calls := make([]llm.ToolCall, 0, len(current.state.toolCalls))
-	for _, call := range current.state.toolCalls {
-		calls = append(calls, call.toolCall)
+	type pendingCall struct {
+		CallID string
+		Name   string
 	}
-	slices.SortFunc(calls, func(a, b llm.ToolCall) int {
+	calls := make([]pendingCall, 0, len(current.state.toolCalls))
+	for _, call := range current.state.toolCalls {
+		calls = append(calls, pendingCall{CallID: call.toolCall.CallID, Name: call.toolCall.Name})
+	}
+	slices.SortFunc(calls, func(a, b pendingCall) int {
 		return cmp.Compare(a.CallID, b.CallID)
 	})
 	runningCalls, err := json.Marshal(calls)
 	if err != nil {
 		return fmt.Errorf("encode heartbeat tool calls: %w", err)
 	}
+	reason := fmt.Sprintf("Heartbeat: waited %g seconds for tool calls.\nPending (execution phase unconfirmed): %s", current.dependencies.ToolHeartbeatInterval.Seconds(), runningCalls)
+	if current.dependencies.ActivitySummary != nil {
+		summary := current.dependencies.ActivitySummary()
+		if len(summary) > 4096 {
+			summary = summary[:4096]
+		}
+		reason += "\nActivity observations: " + summary
+	}
 	payload, err := json.Marshal(inbox.ControlMessage{
 		Mode:   inbox.Heartbeat,
-		Reason: fmt.Sprintf("Heartbeat: waited %g seconds for tool calls.\nRunning: %s", current.dependencies.ToolHeartbeatInterval.Seconds(), runningCalls),
+		Reason: reason,
 	})
 	if err != nil {
 		return fmt.Errorf("encode heartbeat: %w", err)
@@ -499,6 +518,10 @@ func (current *coordinator) handleInboxInput(ctx context.Context, input inbox.In
 			return err
 		}
 		switch request.Mode {
+		case inbox.InvokeTool:
+			return current.admitStructuralControl(ctx, input.ID, true)
+		case inbox.ToolInvocationFinished:
+			return nil
 		case inbox.Compact:
 			// Do not interrupt an active request; run the manual request next.
 			return nil
@@ -584,7 +607,10 @@ func (current *coordinator) handleOperationUpdate(
 	update operation.Operation,
 ) error {
 	update = current.addOperationToLocalState(update)
-	return current.storeOperationInSessionStore(ctx, update)
+	if err := current.storeOperationInSessionStore(ctx, update); err != nil {
+		return err
+	}
+	return current.finishStructuralControl(ctx, update)
 }
 
 func (current *coordinator) restore(ctx context.Context) error {
@@ -596,6 +622,11 @@ func (current *coordinator) restore(ctx context.Context) error {
 			continue
 		}
 		current.addOperationToLocalState(value)
+	}
+	for id := range current.state.controlInputs {
+		if err := current.admitStructuralControl(ctx, id, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -659,6 +690,9 @@ func (current *coordinator) addItemToLocalState(
 		// FIXME: Forks leave inherited calls without results and retain pending-input accounting.
 		clear(current.state.toolCalls)
 		clear(current.state.operations)
+		clear(current.state.controlInputs)
+		clear(current.state.controlCompleted)
+		clear(current.state.controlOperations)
 		current.clearToolGrace()
 
 	case sessionstore.ItemInput:
@@ -691,6 +725,12 @@ func (current *coordinator) addItemToLocalState(
 			}
 			current.dependencies.ContextBuilder.AddControlMessage(request)
 			switch request.Mode {
+			case inbox.InvokeTool:
+				current.state.controlInputs[input.ID] = request.Parameters.(inbox.ToolInvocation)
+			case inbox.ToolInvocationFinished:
+				result := request.Parameters.(inbox.ToolInvocationResult)
+				current.state.controlCompleted[result.InputID] = true
+				delete(current.state.controlInputs, result.InputID)
 			case inbox.SetCompactionPolicy:
 				current.state.compactionFailureLimit = request.Parameters.(inbox.CompactionPolicy).FailureLimit
 			case inbox.CompactionDisabled:

@@ -543,3 +543,49 @@ func TestRealWorkerForcedCloseKeepsUnresolvedResumeFailClosed(t *testing.T) {
 		t.Fatalf("unsafe resume replayed model/tool work: %d calls", calls.Load())
 	}
 }
+
+func TestRealWorkerActivityRoundtripDuringBlockedChildShell(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := calls.Add(1)
+		if id == 1 {
+			completed(w, id, toolCall(id, "Agent", map[string]any{"name": "reviewer", "prompt": "blocked-child-shell"}))
+			return
+		}
+		if id == 2 {
+			completed(w, id, toolCall(id, "Bash", map[string]any{"command": "touch snapshot-shell-started; sleep 30"}))
+			return
+		}
+		completed(w, id, assistant(id, "done"))
+	}))
+	defer server.Close()
+	h, _, directory := realHost(t, server, true)
+	send(t, h, "snapshot-input", "start reviewer")
+	waitFile(t, filepath.Join(directory, "snapshot-shell-started"))
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		activity, err := h.ActivitySnapshot(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("blocked child delayed live snapshot: %v", err)
+		}
+		if activity.Generation != 1 || activity.Snapshot.Version != 1 || activity.Resources == nil {
+			t.Fatalf("incomplete activity: %+v", activity)
+		}
+		if len(activity.Snapshot.Agents) > 0 && activity.Snapshot.Agents[0].RelevantOperation != nil {
+			agent := activity.Snapshot.Agents[0]
+			if agent.Handle == "" || agent.Name != "reviewer" || agent.OwnerTerminalEnqueued {
+				t.Fatalf("missing owned blocker: %+v", agent)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child shell did not reach snapshot projection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("inspection consulted model: %d calls", calls.Load())
+	}
+}

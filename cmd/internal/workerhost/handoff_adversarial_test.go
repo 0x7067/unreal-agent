@@ -38,7 +38,7 @@ const advWorkerScript = `#!/bin/sh
 # last argument of the configured command). It owns no session store: its log is
 # its durable history, so replay/dedup/ack behave like the real worker.
 mode=$1
-hello='{"Type":"hello","Identity":{"Protocol":1,"SessionVersion":2,"Build":"adversarial-fake"}}'
+hello='{"Type":"hello","Identity":{"Protocol":2,"SessionVersion":2,"Build":"adversarial-fake"}}'
 log=$FAKE_WORKER_LOG
 received=$FAKE_WORKER_RECEIVED
 seq=0

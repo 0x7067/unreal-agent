@@ -33,6 +33,8 @@ func resultState(result tool.Result) (running bool, failure string) {
 		return result.Running, result.Error
 	case toolsubagent.Result:
 		return result.Running, result.Error
+	case toolsubagent.ControlResult:
+		return result.Running, result.Error
 	case tooltaskgraph.Result:
 		return result.Running, result.Error
 	default:
@@ -108,6 +110,11 @@ func resultText(result tool.Result) (string, string) {
 			parts = append(parts, result.Error)
 		}
 	case tooltaskgraph.Result:
+		parts = append(parts, controlOutcomeText(result.Text))
+		if result.Error != "" {
+			parts = append(parts, result.Error)
+		}
+	case toolsubagent.ControlResult:
 		parts = append(parts, result.Text)
 		if result.Error != "" {
 			parts = append(parts, result.Error)

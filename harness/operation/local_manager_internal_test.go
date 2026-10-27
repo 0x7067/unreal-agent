@@ -242,11 +242,19 @@ func TestLocalOperationManagerStartsMultiplePrimitives(t *testing.T) {
 	completed := current.operation
 	completed.Status = StatusCompleted
 	manager.acceptLocalStep(operations, current, Step{Operation: &completed})
-	if len(operations) != 0 {
-		t.Fatalf("operations = %d, want 0", len(operations))
+	if len(operations) != 1 {
+		t.Fatalf("operations = %d, want retained ownership until primitive drain", len(operations))
 	}
-	if len(manager.pendingUpdates) != 1 || manager.pendingUpdates[0].Status != StatusCompleted {
-		t.Fatalf("checkpoint updates = %#v", manager.pendingUpdates)
+	if len(manager.pendingUpdates) != 0 {
+		t.Fatal("terminal checkpoint published before primitive drain")
 	}
 	manager.drainLocalPrimitives(started)
+	current.activePrimitives = 0
+	manager.finishOwned(operations, current)
+	if len(operations) != 0 {
+		t.Fatal("ownership retained after drain")
+	}
+	if len(manager.pendingUpdates) != 1 || manager.pendingUpdates[0].Status != StatusCompleted {
+		t.Fatal("terminal checkpoint missing after drain")
+	}
 }

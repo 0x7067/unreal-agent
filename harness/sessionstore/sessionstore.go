@@ -81,6 +81,14 @@ type ResumeState struct {
 	InputIDs   []inbox.ID
 }
 
+// ControlOperationInitializer is an optional capability for durable structural
+// controls without a model turn. The input must already be persisted in this
+// session; implementations authorize only its single deterministic AgentControl
+// operation. SaveOperation still cannot initialize arbitrary operations.
+type ControlOperationInitializer interface {
+	InitializeControlOperation(context.Context, session.ID, inbox.ID, operation.Operation) error
+}
+
 // Store does not serialize methods for the same session ID.
 type Store interface {
 	// AddObserver and RemoveObserver are not safe for concurrent use with each

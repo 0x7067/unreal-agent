@@ -9,13 +9,18 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
-const Version = 1
+// Version 2 adds live-only activity inspection; the persisted session format is
+// unchanged. A v1 worker must be explicitly rejected before any retirement.
+const Version = 2
 const SessionVersion = 2
 const MaxFrame = 32 << 20
 
@@ -46,10 +51,12 @@ type Bootstrap struct {
 	Subagents       bool
 	SubagentCommand []string
 	SystemPrompt    string
+	Budget          executionbudget.Policy
+	MaxOperations   int
 }
 
 type Request struct {
-	Type      string // start, input, quiesce, stop
+	Type      string // start, input, activity_snapshot, quiesce, stop
 	ID        string
 	Protocol  int
 	Bootstrap *Bootstrap   `json:",omitzero"`
@@ -57,11 +64,13 @@ type Request struct {
 }
 
 type Event struct {
-	Type     string // hello, item, ready, busy, quiesced, error
-	ID       string
-	Identity *Identity          `json:",omitzero"`
-	Item     *sessionstore.Item `json:",omitzero"`
-	Error    string             `json:",omitzero"`
+	Type      string // hello, item, ready, activity_snapshot, busy, quiesced, error
+	ID        string
+	Identity  *Identity                   `json:",omitzero"`
+	Item      *sessionstore.Item          `json:",omitzero"`
+	Error     string                      `json:",omitzero"`
+	Resources *operation.ActivitySnapshot `json:",omitzero"`
+	Activity  *subagent.FleetSnapshot     `json:",omitzero"`
 }
 
 // Write emits one complete frame. Callers must serialize writes.

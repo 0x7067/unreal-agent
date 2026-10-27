@@ -1,6 +1,7 @@
 package localfile
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io/fs"
 	"time"
@@ -18,15 +19,18 @@ type toolCallStatusKey struct {
 }
 
 type sessionHead struct {
-	Snapshot           sessionstore.Snapshot
-	Operations         []operation.Operation
-	itemSequence       sessionstore.Sequence
-	latestTurnID       session.TurnID
-	turns              map[session.TurnID]struct{}
-	ownedTurns         map[session.TurnID]struct{}
-	respondedTurns     map[session.TurnID]struct{}
-	toolCallStatuses   map[toolCallStatusKey]struct{}
-	operationPositions map[operation.ID]int
+	Snapshot               sessionstore.Snapshot
+	Operations             []operation.Operation
+	itemSequence           sessionstore.Sequence
+	latestTurnID           session.TurnID
+	turns                  map[session.TurnID]struct{}
+	ownedTurns             map[session.TurnID]struct{}
+	respondedTurns         map[session.TurnID]struct{}
+	toolCallStatuses       map[toolCallStatusKey]struct{}
+	operationPositions     map[operation.ID]int
+	pendingControlInputs   map[inbox.ID]string
+	controlOperationInputs map[operation.ID]inbox.ID
+	seenControlInputs      map[inbox.ID]struct{}
 }
 
 type storedState struct {
@@ -45,11 +49,14 @@ func newSessionHead(id session.ID, createdAt time.Time) sessionHead {
 		Snapshot: sessionstore.Snapshot{
 			Session: session.Session{ID: id, CreatedAt: createdAt},
 		},
-		turns:              make(map[session.TurnID]struct{}),
-		ownedTurns:         make(map[session.TurnID]struct{}),
-		respondedTurns:     make(map[session.TurnID]struct{}),
-		toolCallStatuses:   make(map[toolCallStatusKey]struct{}),
-		operationPositions: make(map[operation.ID]int),
+		turns:                  make(map[session.TurnID]struct{}),
+		ownedTurns:             make(map[session.TurnID]struct{}),
+		respondedTurns:         make(map[session.TurnID]struct{}),
+		toolCallStatuses:       make(map[toolCallStatusKey]struct{}),
+		operationPositions:     make(map[operation.ID]int),
+		pendingControlInputs:   make(map[inbox.ID]string),
+		controlOperationInputs: make(map[operation.ID]inbox.ID),
+		seenControlInputs:      make(map[inbox.ID]struct{}),
 	}
 }
 
@@ -60,6 +67,22 @@ func (head *sessionHead) appendInput(
 	id := head.Snapshot.Session.ID
 	if err := input.Validate(); err != nil {
 		return sessionstore.Item{}, fmt.Errorf("append input to session %q: %w", id, err)
+	}
+
+	if input.Kind == inbox.InputControl {
+		message, _ := input.DecodeControlMessage() // Validate above checked the envelope.
+		switch message.Mode {
+		case inbox.InvokeTool:
+			if _, seen := head.seenControlInputs[input.ID]; !seen {
+				head.seenControlInputs[input.ID] = struct{}{}
+				head.pendingControlInputs[input.ID] = message.Parameters.(inbox.ToolInvocation).Call.CallID
+			}
+		case inbox.ToolInvocationFinished:
+			result := message.Parameters.(inbox.ToolInvocationResult)
+			if head.pendingControlInputs[result.InputID] == result.CallID {
+				delete(head.pendingControlInputs, result.InputID)
+			}
+		}
 	}
 
 	return head.appendItem(sessionstore.ItemInput, input, recordedAt), nil
@@ -262,6 +285,41 @@ func validateStatusOperationReferences(
 	return nil
 }
 
+// controlOperationID deliberately matches the coordinator's stable identity. A
+// caller cannot choose a second operation ID for the same persisted input.
+func controlOperationID(id inbox.ID) operation.ID {
+	return operation.ID(fmt.Sprintf("control-%x", sha256.Sum256([]byte(id))))
+}
+
+func (head *sessionHead) initializeControlOperation(inputID inbox.ID, value operation.Operation) error {
+	if err := validateOperation(value); err != nil {
+		return err
+	}
+	if _, authorized := head.pendingControlInputs[inputID]; !authorized {
+		return fmt.Errorf("initialize control operation for input %q: %w", inputID, fs.ErrNotExist)
+	}
+	if value.ID != controlOperationID(inputID) {
+		return fmt.Errorf("initialize control operation for input %q: incorrect operation ID", inputID)
+	}
+	if _, exists := head.operationPositions[value.ID]; exists {
+		return fmt.Errorf("initialize control operation %q: %w", value.ID, fs.ErrExist)
+	}
+	if value.Status != operation.StatusReady {
+		return fmt.Errorf("initialize control operation %q: status must be ready", value.ID)
+	}
+	state, err := operation.DecodeRemoteJobState(value)
+	if err != nil {
+		return fmt.Errorf("initialize control operation %q: %w", value.ID, err)
+	}
+	if state.Plan.Type != "subagent.control" || state.Plan.Version != 1 {
+		return fmt.Errorf("initialize control operation %q: unsupported control plan", value.ID)
+	}
+	head.operationPositions[value.ID] = len(head.Operations)
+	head.Operations = append(head.Operations, value)
+	head.controlOperationInputs[value.ID] = inputID
+	return nil
+}
+
 func (head *sessionHead) saveOperation(value operation.Operation) error {
 	if err := validateOperation(value); err != nil {
 		return err
@@ -303,6 +361,12 @@ func (state storedState) resume() sessionstore.ResumeState {
 	}
 	var operations []operation.Operation
 	for _, value := range state.Operations {
+		if inputID, control := state.controlOperationInputs[value.ID]; control {
+			if _, unfinished := state.pendingControlInputs[inputID]; unfinished {
+				operations = append(operations, value)
+			}
+			continue
+		}
 		_, unrecorded := pending[value.ID]
 		if !terminalOperationStatus(value.Status) || unrecorded {
 			operations = append(operations, value)
@@ -415,6 +479,9 @@ func (head *sessionHead) resetOwnedState() {
 	head.toolCallStatuses = make(map[toolCallStatusKey]struct{})
 	head.Operations = nil
 	head.operationPositions = make(map[operation.ID]int)
+	head.pendingControlInputs = make(map[inbox.ID]string)
+	head.controlOperationInputs = make(map[operation.ID]inbox.ID)
+	head.seenControlInputs = make(map[inbox.ID]struct{})
 }
 
 func validateOperation(value operation.Operation) error {

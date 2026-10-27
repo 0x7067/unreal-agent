@@ -35,6 +35,7 @@ type Store struct {
 }
 
 var _ sessionstore.Store = (*Store)(nil)
+var _ sessionstore.ControlOperationInitializer = (*Store)(nil)
 
 func New(directory string) (*Store, error) {
 	if strings.TrimSpace(directory) == "" {
@@ -202,6 +203,26 @@ func (store *Store) AppendToolCallStatus(
 	item.Data = status
 	store.notifyObservers(id, item)
 	return nil
+}
+
+// InitializeControlOperation persists the one operation authorized by an owned,
+// pending structural input. It does not create turns or tool-call statuses.
+func (store *Store) InitializeControlOperation(
+	ctx context.Context,
+	id session.ID,
+	inputID inbox.ID,
+	value operation.Operation,
+) error {
+	head, committedSize, err := store.loadWriteState(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := head.initializeControlOperation(inputID, value); err != nil {
+		return err
+	}
+	return store.append(id, head, committedSize, recordControlOperation, controlOperationRecord{
+		Version: 1, InputID: inputID, Operation: value,
+	})
 }
 
 func (store *Store) SaveOperation(

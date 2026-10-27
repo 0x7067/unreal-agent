@@ -61,7 +61,7 @@ func TestAgentTranslateSubmitsRunPlan(t *testing.T) {
 	if err := json.Unmarshal(state.Plan.Data, &plan); err != nil {
 		t.Fatalf("decode run plan: %v", err)
 	}
-	if want := (RunPlan{Name: "worker", Prompt: "do it"}); plan != want {
+	if want := (RunPlan{Name: "worker", Prompt: "do it"}); !reflect.DeepEqual(plan, want) {
 		t.Fatalf("run plan = %#v, want %#v", plan, want)
 	}
 }
@@ -106,7 +106,7 @@ func TestSendMessageSubmitsMessagePlan(t *testing.T) {
 	if err := json.Unmarshal(state.Plan.Data, &plan); err != nil {
 		t.Fatalf("decode message plan: %v", err)
 	}
-	if want := (MessagePlan{To: "worker", Message: "hi"}); plan != want {
+	if want := (MessagePlan{To: "worker", Message: "hi"}); !reflect.DeepEqual(plan, want) {
 		t.Fatalf("message plan = %#v, want %#v", plan, want)
 	}
 }
@@ -270,7 +270,7 @@ func TestParseMessageRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (MessagePlan{To: "parent", Message: "x"}); plan != want {
+	if want := (MessagePlan{To: "parent", Message: "x"}); !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan = %#v, want %#v", plan, want)
 	}
 }
