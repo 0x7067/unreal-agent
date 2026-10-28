@@ -69,14 +69,22 @@ func (m *model) startSubmission(text string) tea.Cmd {
 			return m.retryAttached(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/retry")))
 		}
 	}
-	if m.attached && (!m.attachConnected || strings.HasPrefix(strings.TrimSpace(text), "/")) {
+	trimmed := strings.TrimSpace(text)
+	interventionsAvailable := !m.attached
+	if w, ok := m.inputs.(*attachedRuntimeWriter); ok {
+		interventionsAvailable = m.attachConnected && w.interventionsEnabled
+	}
+	if interventionsAvailable {
+		if trimmed == "/agents" || strings.HasPrefix(trimmed, "/agents ") {
+			return m.startAgentCommand(trimmed)
+		}
+		if trimmed == "/graph" || strings.HasPrefix(trimmed, "/graph ") {
+			return m.startGraphCommand(trimmed)
+		}
+	}
+	if m.attached && (!m.attachConnected || strings.HasPrefix(trimmed, "/")) {
 		m.append("Attach", "Host controls and disconnected submissions are unavailable in attach v1. Draft retained.")
 		return nil
-	}
-	// Defense in depth for callers other than the Enter handler: this local
-	// command must never become model input, durable ingress, or session history.
-	if trimmed := strings.TrimSpace(text); trimmed == "/agents" || strings.HasPrefix(trimmed, "/agents ") {
-		return m.startAgentCommand(trimmed)
 	}
 	if strings.TrimSpace(text) == "/builds" {
 		return m.startBuildInspection()

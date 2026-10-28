@@ -2,7 +2,8 @@ package recoverygate
 
 import (
 	"context"
-	"errors"
+	"encoding/json/v2"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -85,31 +86,13 @@ func TestRecoveryDispatchCounterAndTerminalExclusion(t *testing.T) {
 		c := coordinator.New(coordinator.Dependencies{SessionID: sid, Restored: restored, Sessions: store, Inbox: inputs, Operations: manager, Tools: registry, ContextBuilder: builder, LLM: model})
 		done := make(chan error, 1)
 		go func() { done <- c.Run(owner) }()
-		// TryQuiesce is the causal barrier. A timer only schedules retries; timeout
-		// never substitutes for retirement, Run join, or manager drain evidence.
-		ticker := time.NewTicker(time.Millisecond)
-		var retired error
-		for {
-			retired = c.TryQuiesce(ctx)
-			if !errors.Is(retired, coordinator.ErrBusy) {
-				break
-			}
-			select {
-			case <-ticker.C:
-			case <-ctx.Done():
-				retired = ctx.Err()
-			}
-			if ctx.Err() != nil {
-				break
-			}
+		// An ordinary ordered stop drains recovered work. Join Run and then the
+		// manager; a timeout never substitutes for either ownership barrier.
+		payload, _ := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
+		if err := inputs.Submit(ctx, inbox.Input{ID: inbox.ID(fmt.Sprintf("stop-%d", generation)), Kind: inbox.InputControl, Payload: payload}); err != nil {
+			t.Fatal(err)
 		}
-		ticker.Stop()
-		if retired != nil {
-			cancel()
-			<-done
-			t.Fatal(retired)
-		}
-		if err := <-done; !errors.Is(err, coordinator.ErrQuiesced) {
+		if err := <-done; err != nil {
 			cancel()
 			t.Fatalf("coordinator join: %v", err)
 		}

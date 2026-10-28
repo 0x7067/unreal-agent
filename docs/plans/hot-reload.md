@@ -1,89 +1,95 @@
 # Supervised worker reload
 
-The terminal frontend owns terminal state and a durable ingress journal. Its
-resident worker owns the provider, coordinator, tools, task graphs, subagents and
-session writer. `/reload` replaces only that worker, not frontend/UI code.
+The frontend/host owns terminal state and durable ingress; the resident worker
+owns the coordinator, provider and local execution. `/reload` gracefully replaces
+only that worker, not frontend/UI code. The coordinator uses ordinary
+`StopWhenIdle`; there is no `TryQuiesce` API or separate retirement channel.
 
 ## User contract
 
-- `/reload` is a local command, never a model prompt. There is no automatic
-  source watcher or automatic workspace build.
-- Default replacement comes from the original explicit frontend executable
-  path. `-worker-executable /absolute/trusted/unreal-agent-tui` selects a
-  replacement explicitly. The executable must implement `worker-probe`,
-  `worker` and embedded `agent-runner` modes. Selecting an executable trusts
-  its code; the protocol probe is a compatibility check, not a sandbox.
-- Build a replacement separately (`make build` for local development), then
-  request reload. The supervisor stages a private executable copy, probes its
-  protocol/session-format/build identity and leaves the old worker running if
-  preflight fails. Installed aliases/symlinks are resolved at each explicit
-  selection, not guessed from the current workspace or PATH.
-- Busy work blocks reload. This includes model requests, compaction, inputs not
-  yet persisted by the worker, tool calls, Bash, subagents and **any unfinished
-  TaskGraph**, including completed candidates awaiting acceptance. Busy refusal
-  does not cancel work. Finish/accept/cancel it through normal controls, then
-  explicitly retry. No forced reload is provided.
-- A successful reload retains the frontend PID, terminal, transcript, draft,
-  scroll and session identity. UI code updates still require a frontend restart.
-- `-session ID` explicitly resumes an existing session after a frontend restart.
-  Unresolved nonterminal operations refuse worker resume rather than being
-  blindly executed again. Inspect/recover uncertain effects separately; do not
-  delete locks or edit operation state to pretend they completed.
+- Build a replacement separately. Reload never builds or discovers workspace code.
+  The original explicit executable is the default; `-worker-executable` selects
+  another trusted absolute path. Selecting code is a trust decision, not a sandbox.
+- The host stages a private immutable copy and probes protocol/session/build
+  compatibility **once**, before changing the running worker. Bad candidates leave
+  it unchanged. Installed symlinks/aliases resolve on explicit selection.
+- Busy reload is **scheduled**: current model, compaction, shell and graph work
+  finishes naturally. New ordinary submissions remain durably accepted but queued
+  for the replacement. No work is killed, retried or implicitly accepted to reload.
+- Graphs awaiting acceptance and retained native helpers can prevent drain. Use
+  `/graph status NAME`, `/graph accept NAME TASK GENERATION EVIDENCE`,
+  `/graph reject NAME TASK GENERATION EVIDENCE`, or `/graph cancel NAME` explicitly.
+  Acceptance requires your own validation. `/agents message HANDLE@GEN TEXT` and
+  `/agents stop HANDLE@GEN` remain available. These controls target the exact old
+  worker scope and existing owners; they cannot launch/revise/retry arbitrary work.
+- `/upgrade` on an enabled attached host uses the same scheduled handoff as
+  `/reload`, not repeated idle checks/probes.
+- Canceling before admission can leave the worker unchanged. After admission,
+  canceling a wait, `/cancel-upgrade`, disconnecting or reaching the client timeout
+  does **not** undo the host-owned retirement/replacement. Inspect current status
+  or reconnect; do not infer that a new reload is needed. Internal callers can
+  await the original result with `Host.AwaitReload`.
+- Terminal state, transcript, draft, scroll and session identity survive worker
+  replacement. Frontend/UI code updates still need a frontend restart. `-session`
+  resumes explicitly; unknown interrupted effects are not blindly redispatched.
 
-## Delivery and failure boundaries
+## Ordered delivery and shutdown
 
-There are three distinct stages: durable ingress acceptance, session persistence,
-and model delivery. A successful frontend submission guarantees the first, not the
-other two. Matching persisted input events reconcile the UI's local echo.
+```text
+stage/probe -> host delivery cutoff -> ordinary StopWhenIdle
+  -> natural completion (including retained native owners)
+  -> worker cleanup receipt -> process/output joins -> writer lease probe
+  -> launch candidate -> reconcile history -> deliver queued ordinary input
+```
 
-Ingress records are synced before success, identified by stable input ID, and
-reconciled against replayed session history before retry. Conflicting values
-under an existing ID are rejected. Host inputs use their JSON wire-normalized
-representation (insignificant JSON whitespace is not a different value); the
-underlying journal retains byte-exact identities. Private pipe frames require a
-terminating newline and are bounded to 32 MiB. Acknowledged identity tombstones
-are retained; journal compaction is not currently implemented. Admissions are
-bounded (4 MiB encoded journal record, including base64 overhead). An uncertain
-write/sync failure fails closed until recovery by reopening authoritative data.
+The host serializes the stop after inputs already forwarded to the old worker.
+Only validated, current-scoped graph/helper interventions can pass the cutoff.
+The terminal drain reply closes intervention delivery under the same gate used
+for admission. An admitted but unpersisted old-scope intervention stays in ingress
+and is durably refused by the replacement, never retargeted to it.
 
-During handoff, new messages remain durably queued in the frontend. Old-generation
-pipe delivery is fenced. The coordinator atomically fences its inbox, drains
-already admitted inputs, and makes its own final idle decision. Successful
-retirement cancels/joins owned runtime infrastructure, closes provider/logs and
-releases the session lease before acknowledging quiescence. The supervisor still
-waits for **process exit** before launching the replacement. Ordered event replay
-reconciles history without duplicating already-rendered items.
+Internal results and child messages continue flowing. Authoritative supervisor
+ownership tracks pending admissions, process/output/preparation/finalization work
+and parent deliveries; completed background reports are not owner-drain proof.
+The coordinator's optional pending-work signal affects graceful idle stopping;
+ordinary embedders need only `Run(context.Context) error`. Independently owned
+jobs/durable children retain their existing classified ownership policy.
 
-Preflight failure leaves the old worker unchanged. A timeout never authorizes a
-second writer; the retirement outcome may remain unconfirmed. After the old
-worker exits, a replacement startup failure leaves an explicitly stopped session.
-There is no automatic downgrade after the candidate might have modified history.
-An unexpected worker death is reported, not automatically treated as a safe
-reload. Durable pending messages remain available for explicit resume.
+Retirement requires a fresh scope-bound canonical execution-drain receipt,
+successful actual worker exit, joined output/callbacks, and a successful acquire/
+release of the writer lease. Completed structural control checkpoints are read
+from canonical storage, including terminal operations absent from the resume
+projection. Missing proof or held leases fail closed, including subsequent retries.
+No timeout, EOF, status snapshot or reported tool completion substitutes for joins.
 
-## Ownership and platform scope
+Replacement startup failure leaves a stopped session, with durable inputs retained
+and no automatic downgrade. Unexpected worker death is not successful reload.
+Explicit whole-host shutdown is different: it may cancel work and fences launches.
 
-Linux and macOS use kernel-held advisory flock leases for frontend/ingress and
-worker/session ownership. Lock files are persistent separate inodes; **never
-unlink them as a stale-lock fix**. Kernel process death releases the lock. These leases are advisory: resident
-workers and the public runner enforce them; direct store API callers must
-participate rather than opening concurrent writers.
-Directory traversal and lock opening reject unsafe aliases/types/hardlinks;
-callers resolve trusted platform aliases first. Session namespaces require
-current-user ownership and effective privacy through a checked private ancestor,
-with shared renameable ancestors rejected. Caller permissions must remain stable;
-root/same-UID mutation is outside the threat model. Ingress roots themselves are
-private. Unsupported lock platforms fail closed.
+## Compatibility and retained limits
 
-This is quiescent replacement, not live-operation migration. Provider calls and
-arbitrary shell/network effects cannot be given blanket exactly-once semantics.
-Direct owned child processes and actor/readers are joined. Process Wait is a
-direct-child boundary, not a process-tree/cgroup sandbox: detached grandchildren
-and subprocesses outliving their owning command are not generally contained. Cancellation-ignoring
-callbacks/providers or blocked output can prevent graceful cleanup. A timeout is
-reported as incomplete cleanup, never successful reload.
+Private worker protocol **8** uses `drain`/`drained`. Older peers are rejected
+before retirement. Public attach still uses version-1 frames, with separately
+advertised `runtime_replacement_v2`, `runtime_drain_v2`, `host_retire_v2` and
+`reload_intervention.v1` capabilities. Old runtime capabilities do not authorize
+the changed cancellation/replacement semantics.
 
-The public one-shot runner keeps its original exit-when-idle behavior and now
-honors the same exclusive session lease. The private worker protocol is versioned
-separately; its probe does not read preferences/auth, load dotenv, open a session,
-or contact a model.
+Session header format remains 2, with fork-only controls/checkpoints: this is not
+upstream-readable history. Historical unscoped AgentControl inputs remain readable
+but do not gain access to the scoped retirement intervention lane.
+
+Ingress acceptance, session persistence and model delivery remain distinct. Stable
+input IDs, durable deduplication and replay reconcile the same messages; a failed
+write/sync is uncertain, not success. Private frames remain newline-terminated and
+bounded to 32 MiB; ingress records remain bounded to 4 MiB. Journal compaction is
+not implemented.
+
+Linux/macOS kernel-held advisory leases enforce participating writer ownership.
+Never unlink lock files. Same-UID/root mutation, arbitrary detached grandchildren,
+power-loss certification and exactly-once provider/third-party effects are outside
+the contract. Cancellation-ignoring callbacks can prevent cleanup indefinitely;
+that remains visible uncertainty, not permission to start another writer.
+
+See [alignment plan and remaining work](upstream-alignment.md),
+[scheduled runtime replacement](durable-runtime-drain.md) and historical
+verification reports for their original, narrower tested contracts.

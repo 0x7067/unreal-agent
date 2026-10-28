@@ -50,7 +50,7 @@ func TestWorkerHandoffStatusRenderingEventOrders(t *testing.T) {
 						// reload completion must not inherit the error foreground.
 						assertWorkerStatusForeground(t, m, message, m.theme.StatusForeground)
 					} else {
-						assertWorkerStatusForeground(t, m, "Reloading worker · checking candidate and idle boundary", m.theme.StatusAccent)
+						assertWorkerStatusForeground(t, m, "Reload pending · finishing current work; new messages queued", m.theme.StatusAccent)
 					}
 				}
 				if m.workerStopped || m.workerStatusError || m.workerGeneration != 2 {

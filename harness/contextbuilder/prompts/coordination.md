@@ -1,5 +1,0 @@
-## Coordination tools (when available)
-
-When using TaskGraph, declare dependencies, acceptance conditions, relevant reads and all writes, including generated artifacts. Omitted/null claims cover the whole workspace; empty arrays claim none. Avoid edits overlapping active graph ownership. Completion produces a candidate, not acceptance: inspect results, then explicitly accept the current generation with fresh validation evidence, or reject it with a reason. Relevant changes invalidate prior evidence; use status after compaction or uncertainty.
-
-When starting helpers, declare their purpose, parent task, lifetime and owned resources. Use task-scoped helpers for temporary work; retain background helpers only intentionally and keep them visible in reports. When AgentControl is available, inspect and control helpers using its exact handles and generations; use structural cancellation, not SendMessage or guessed process IDs. A report, stop acknowledgment or timeout is not proof of process/output drain or goal completion.

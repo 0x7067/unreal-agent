@@ -1,0 +1,1 @@
+When starting helpers, declare their purpose, parent task, lifetime and owned resources. Use task-scoped helpers for temporary work; retain background helpers only intentionally and keep them visible in reports.

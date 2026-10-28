@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 	"time"
 	"uuid"
 
@@ -39,12 +38,6 @@ type coordinator struct {
 	modelCalls   map[session.TurnID]struct{} // callback ownership, including superseded requests
 	abort        *foregroundAbortState
 	requests     requestLedger
-
-	// Lifecycle synchronization never protects loopState: only Run owns it.
-	lifecycleOnce sync.Once
-	quiesce       chan quiesceRequest
-	runDone       chan struct{}
-	runResult     error // Published by closing runDone.
 }
 
 type stopState struct {
@@ -122,12 +115,7 @@ func newLoopState() loopState {
 	}
 }
 
-func (current *coordinator) Run(ctx context.Context) (result error) {
-	current.initLifecycle()
-	defer func() {
-		current.runResult = result
-		close(current.runDone)
-	}()
+func (current *coordinator) Run(ctx context.Context) error {
 	if current.dependencies.CompactionFailureLimit < 0 {
 		return fmt.Errorf("compaction failure limit must not be negative")
 	}
@@ -206,7 +194,16 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 			}
 			current.clearToolGrace()
 		}
-		if current.stop.request.Mode == inbox.StopWhenIdle && current.isIdle() {
+		if current.stop.request.Mode == inbox.StopWhenIdle && current.isIdle() &&
+			!current.state.callModel && !current.state.manualCompaction && current.state.grace == nil &&
+			len(current.state.graceToolCalls) == 0 &&
+			(current.dependencies.PendingWork == nil || !current.dependencies.PendingWork()) {
+			// A producer may have completed admission after processEvents slurped
+			// input but before releasing its owner. Check the accepted queue AFTER
+			// owner state, and slurp again rather than sleeping over queued work.
+			if current.dependencies.Inbox.HasPending() {
+				continue
+			}
 			return ctx.Err()
 		}
 
@@ -218,15 +215,6 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-
-		case request := <-current.quiesce:
-			retired, err := current.handleQuiesce(ctx, request)
-			if err != nil {
-				return err
-			}
-			if retired {
-				return ErrQuiesced
-			}
 
 		case received, open := <-inboxOutput:
 			if !open {
@@ -243,6 +231,9 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 			if err := current.processOperations(ctx, []operation.Operation{received}); err != nil {
 				return err
 			}
+
+		case <-current.dependencies.WorkChanged:
+			// Recheck authoritative owners and consume their queued completion input.
 
 		case <-heartbeat:
 			if err := current.postHeartbeat(ctx); err != nil {

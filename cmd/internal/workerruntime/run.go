@@ -51,10 +51,10 @@ func Probe(output io.Writer, identity workerproto.Identity) error {
 // are restored on return. Pollable pipes use a read deadline. An *io.PipeReader
 // transfers ownership of its read end to Run. For any
 // other blocking reader (including a file that does not support deadlines), the
-// caller MUST close/unblock the pipe on cancellation or retirement. A successful
-// quiesce never reads ahead, so it does not require closing stdin to send its ack.
+// caller MUST close/unblock the pipe on cancellation or retirement. A drain keeps reading only scoped interventions until the coordinator stops;
+// input must remain interruptible so its reader can then join.
 // Run must be the only reader/deadline owner of input. Output must remain writable
-// through the final quiesced/error frame; Run never closes output or stderr.
+// through the final drained/error frame; Run never closes output or stderr.
 func Run(ctx context.Context, input io.Reader, output, stderr io.Writer, getenv func(string) string, identity workerproto.Identity) error {
 	return run(ctx, input, output, stderr, getenv, identity, providers.Default())
 }
@@ -82,13 +82,13 @@ func run(ctx context.Context, input io.Reader, output, stderr io.Writer, getenv 
 	defer cleanupInput()
 	reader := newInputPump(input)
 	request, err := reader.next(runCtx, nil)
-	quiesced := false
+	drained := false
 	responseID := request.ID
 	if err == nil {
 		if request.Type != "start" || request.Protocol != workerproto.Version || request.Bootstrap == nil || request.Input != nil {
 			err = fmt.Errorf("%w: first request must be start with protocol %d and bootstrap", ErrProtocol, workerproto.Version)
 		} else if err = validateBootstrap(*request.Bootstrap); err == nil {
-			quiesced, responseID, err = serve(runCtx, reader, events, stderr, getenv, *request.Bootstrap, request.ID, available)
+			drained, responseID, err = serve(runCtx, reader, events, stderr, getenv, *request.Bootstrap, request.ID, available)
 		}
 	} else if errors.Is(err, io.EOF) {
 		err = fmt.Errorf("%w: missing start frame", ErrProtocol)
@@ -102,8 +102,8 @@ func run(ctx context.Context, input io.Reader, output, stderr io.Writer, getenv 
 		_ = events.write(workerproto.Event{Type: "error", ID: responseID, Error: err.Error()})
 		return errors.Join(err, events.failure())
 	}
-	if quiesced {
-		return events.write(workerproto.Event{Type: "quiesced", ID: responseID})
+	if drained {
+		return events.write(workerproto.Event{Type: "drained", ID: responseID})
 	}
 	return nil
 }
@@ -169,7 +169,7 @@ func canonicalDirectory(path string) (string, error) {
 	}
 }
 
-func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Writer, getenv func(string) string, b workerproto.Bootstrap, startID string, available []providers.Provider) (quiesced bool, responseID string, result error) {
+func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Writer, getenv func(string) string, b workerproto.Bootstrap, startID string, available []providers.Provider) (drained bool, responseID string, result error) {
 	// A direct private caller may omit the scope; mint fresh execution identity.
 	// Resident hosts always supply their exact incarnation/generation scope.
 	if b.ControlScope == "" {
@@ -386,7 +386,7 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 		builder.AddTool(definition.Tool)
 	}
 	current := coordinator.New(coordinator.Dependencies{ControlScope: b.ControlScope,
-		SessionID: b.SessionID, Restored: restored, Sessions: committedCheckpointStore{Store: store, owners: owners}, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary})
+		SessionID: b.SessionID, Restored: restored, Sessions: committedCheckpointStore{Store: store, owners: owners}, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary, PendingWork: owners.pendingWork, WorkChanged: owners.workChanged})
 	if err := events.write(workerproto.Event{Type: "ready", ID: startID}); err != nil {
 		return false, responseID, err
 	}
@@ -402,7 +402,7 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 	defer func() {
 		// StopHard cancels model/tool owners and consumes their actual terminal
 		// updates before returning. This is retirement only: ordinary submissions
-		// and busy quiesce never join work. Never synthesize terminal operations.
+		// and busy drain never join work. Never synthesize terminal operations.
 		watchdog := time.AfterFunc(shutdownGrace, cancelOwners)
 		defer watchdog.Stop()
 		select {
@@ -413,18 +413,15 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 			result = errors.Join(result, stopErr)
 			<-ended
 		}
-		if !errors.Is(runErr, coordinator.ErrQuiesced) {
-			result = errors.Join(result, runErr)
-		}
+		result = errors.Join(result, runErr)
 		cancelOwners()
 	}()
+	draining := false
+	drainID := ""
 	for {
 		request, err := reader.next(ctx, ended)
 		if errors.Is(err, errCoordinatorEnded) {
-			if errors.Is(runErr, coordinator.ErrQuiesced) {
-				return false, responseID, errors.New("coordinator quiesced without a matching request")
-			}
-			return false, responseID, runErr
+			return draining && runErr == nil, drainID, runErr
 		}
 		if errors.Is(err, io.EOF) {
 			return false, responseID, nil
@@ -456,28 +453,25 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 			if request.Input == nil {
 				return false, responseID, fmt.Errorf("%w: missing input", ErrProtocol)
 			}
+			if draining {
+				if err := inbox.ValidateIntervention(*request.Input, b.ControlScope); err != nil {
+					return false, responseID, fmt.Errorf("%w: input after drain cutoff: %w", ErrProtocol, err)
+				}
+			}
 			if err := inputs.Submit(ctx, *request.Input); err != nil {
 				return false, responseID, err
 			}
-		case "quiesce":
-			if request.ID == "" || request.Input != nil {
-				return false, responseID, fmt.Errorf("%w: quiesce requires ID and no input", ErrProtocol)
+		case "drain":
+			if draining || request.ID == "" || request.Input != nil {
+				return false, responseID, fmt.Errorf("%w: drain requires unique ID and no input", ErrProtocol)
 			}
-			err := current.TryQuiesce(ctx)
-			if errors.Is(err, coordinator.ErrBusy) {
-				if err := events.write(workerproto.Event{Type: "busy", ID: request.ID}); err != nil {
-					return false, responseID, err
-				}
-				continue
-			}
-			if err != nil {
+			// The private pipe and inbox serialize this ordinary stop after every
+			// pre-cutoff input. Internal producers and scoped interventions remain live.
+			payload, _ := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle, Reason: "worker replacement"})
+			if err := inputs.Submit(ctx, inbox.Input{ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: payload}); err != nil {
 				return false, responseID, err
 			}
-			<-ended
-			if !errors.Is(runErr, coordinator.ErrQuiesced) {
-				return false, responseID, fmt.Errorf("quiesce did not retire coordinator: %w", runErr)
-			}
-			return true, responseID, nil
+			draining, drainID = true, request.ID
 		case "stop":
 			if request.Input != nil {
 				return false, responseID, fmt.Errorf("%w: stop does not accept input", ErrProtocol)

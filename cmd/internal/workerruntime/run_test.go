@@ -198,17 +198,17 @@ func (w checkWriter) Write(p []byte) (int, error) {
 	return w.Writer.Write(p)
 }
 
-func TestResidentConfigOnlySettingsAndLeaseBeforeQuiesced(t *testing.T) {
+func TestResidentConfigOnlySettingsAndLeaseBeforeDrained(t *testing.T) {
 	b := bootstrap(t)
 	client := newFakeClient()
 	var checkErr error
 	w := startWorker(t, b, client, func(output io.Writer) io.Writer {
 		return checkWriter{output, func(e workerproto.Event) {
-			if e.Type != "quiesced" {
+			if e.Type != "drained" {
 				return
 			}
 			if !client.closed.Load() || client.active.Load() != 0 {
-				checkErr = errors.New("provider not joined/closed before quiesced")
+				checkErr = errors.New("provider not joined/closed before drained")
 				return
 			}
 			lease, err := localfile.AcquireLease(b.Directory, b.SessionID)
@@ -248,8 +248,8 @@ func TestResidentConfigOnlySettingsAndLeaseBeforeQuiesced(t *testing.T) {
 	if !errors.Is(err, localfile.ErrSessionLocked) {
 		t.Fatalf("worker does not hold lease: %v", err)
 	}
-	w.send(t, workerproto.Request{Type: "quiesce", ID: "retire"})
-	if e := w.event(t, "quiesced"); e.ID != "retire" {
+	w.send(t, workerproto.Request{Type: "drain", ID: "retire"})
+	if e := w.event(t, "drained"); e.ID != "retire" {
 		t.Fatalf("quiesced=%#v", e)
 	}
 	w.finish(t)
@@ -266,8 +266,8 @@ func TestResumeReplaysSettingsWithoutBootstrapOverride(t *testing.T) {
 	first := startWorker(t, b, newFakeClient(), nil)
 	original := first.event(t, "item")
 	first.event(t, "ready")
-	first.send(t, workerproto.Request{Type: "quiesce", ID: "first"})
-	first.event(t, "quiesced")
+	first.send(t, workerproto.Request{Type: "drain", ID: "first"})
+	first.event(t, "drained")
 	first.finish(t)
 	b.Model = llm.Model{ID: "wrong-default", CompactionThreshold: 5, ReasoningEffort: llm.ReasoningEffortLow}
 	client := newFakeClient()
@@ -300,9 +300,16 @@ func TestResumeReplaysSettingsWithoutBootstrapOverride(t *testing.T) {
 			t.Errorf("missing tool %s: %#v", name, names)
 		}
 	}
-	second.send(t, workerproto.Request{Type: "quiesce", ID: "busy"})
-	if e := second.event(t, "busy"); e.ID != "busy" {
-		t.Fatalf("busy=%#v", e)
+	second.send(t, workerproto.Request{Type: "drain", ID: "second"})
+	// The stop is durably processed without canceling the in-flight model.
+	for {
+		e := second.event(t, "item")
+		if input, ok := e.Item.Data.(inbox.Input); ok && input.Kind == inbox.InputControl {
+			control, _ := input.DecodeControlMessage()
+			if control.Mode == inbox.StopWhenIdle {
+				break
+			}
+		}
 	}
 	if client.active.Load() != 1 {
 		t.Fatal("busy quiesce canceled model")
@@ -314,8 +321,7 @@ func TestResumeReplaysSettingsWithoutBootstrapOverride(t *testing.T) {
 			break
 		}
 	}
-	second.send(t, workerproto.Request{Type: "quiesce", ID: "second"})
-	second.event(t, "quiesced")
+	second.event(t, "drained")
 	second.finish(t)
 	store, err := localfile.New(b.Directory)
 	if err != nil {
@@ -430,7 +436,7 @@ func TestShutdownCancelsAndJoinsModelBeforeReleasingLease(t *testing.T) {
 			}
 			_ = lease.Close()
 			for e := range w.events {
-				if e.Type == "quiesced" {
+				if e.Type == "drained" {
 					t.Fatal("stop falsely acknowledged quiesce")
 				}
 			}
@@ -591,7 +597,7 @@ func TestMalformedAndOversizedFrames(t *testing.T) {
 	}
 }
 
-func TestBusyGraphDoesNotRetireAndStopJoinsNestedShell(t *testing.T) {
+func TestScheduledGraphDrainKeepsLeaseAndExplicitStopJoinsNestedShell(t *testing.T) {
 	b := bootstrap(t)
 	b.Subagents = false
 	client := newFakeClient()
@@ -617,9 +623,15 @@ func TestBusyGraphDoesNotRetireAndStopJoinsNestedShell(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	w.send(t, workerproto.Request{Type: "quiesce", ID: "graph-busy"})
-	if e := w.event(t, "busy"); e.ID != "graph-busy" {
-		t.Fatalf("busy=%#v", e)
+	w.send(t, workerproto.Request{Type: "drain", ID: "graph-busy"})
+	for {
+		e := w.event(t, "item")
+		if input, ok := e.Item.Data.(inbox.Input); ok && input.Kind == inbox.InputControl {
+			control, _ := input.DecodeControlMessage()
+			if control.Mode == inbox.StopWhenIdle {
+				break
+			}
+		}
 	}
 	lease, err := localfile.AcquireLease(b.Directory, b.SessionID)
 	if lease != nil {
@@ -639,7 +651,7 @@ func TestBusyGraphDoesNotRetireAndStopJoinsNestedShell(t *testing.T) {
 	}
 	_ = lease.Close()
 	for e := range w.events {
-		if e.Type == "quiesced" {
+		if e.Type == "drained" {
 			t.Fatal("stop falsely acknowledged quiescence")
 		}
 	}

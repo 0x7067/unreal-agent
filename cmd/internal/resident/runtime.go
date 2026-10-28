@@ -25,7 +25,7 @@ func runtimeText(s string, n int) string {
 }
 
 // runtimeSnapshot requires publisher.mu. It is observation, never authority to
-// skip Host.Reload's probe, quiescence, retirement, joins or lease fences.
+// skip Host.Reload's probe, ordered drain, retirement, joins or lease fences.
 func (p *publisher) runtimeSnapshot(state string) attachproto.RuntimeStatus {
 	return attachproto.RuntimeStatus{Version: 1, Generation: p.status.Generation, RunningBuild: runtimeText(p.status.Build, 512), CandidateBuild: runtimeText(p.runtimeStatus.InstalledBuild, 512), State: state}
 }
@@ -73,7 +73,7 @@ func (p *publisher) startRuntime(ctx context.Context, host *workerhost.Host, c *
 		if match {
 			cancel()
 			s.State = "cancel_requested"
-			s.Message = "cancellation admitted for this client's runtime request; retirement/completion is not yet confirmed"
+			s.Message = "client wait canceled; an admitted retirement remains host-owned and cannot be undone"
 		} else {
 			s.Error = "no matching current client runtime request"
 		}
@@ -127,8 +127,6 @@ func (p *publisher) startRuntime(ctx context.Context, host *workerhost.Host, c *
 		} else {
 			if r.Runtime.Action == "retire-host" {
 				err = host.RetireForHostReplacement(control)
-			} else if r.Runtime.Action == "drain" {
-				err = p.drainRuntime(control, host, c, r)
 			} else {
 				err = host.Reload(control, nil)
 			}
@@ -157,10 +155,14 @@ func (p *publisher) startRuntime(ctx context.Context, host *workerhost.Host, c *
 			out.Message = "worker is stopped; accepted inputs remain durable; no automatic rollback"
 		case errors.Is(err, workerhost.ErrBusy):
 			out.State = "blocked"
-			out.Message = "active or persistence-unconfirmed work blocks replacement; no work was killed to upgrade"
+			out.Message = "another runtime handoff is already owned by the host; inspect current state"
 		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 			out.State = "canceled"
-			out.Message = "runtime request ended without confirmed replacement; inspect current running state"
+			out.Message = "runtime wait ended before confirmed replacement; inspect current running state"
+			if host.ReloadPending() {
+				out.State = "canceled"
+				out.Message = "client wait ended; scheduled retirement/replacement remains host-owned; scoped graph/helper interventions remain available"
+			}
 		default:
 			out.Message = "runtime replacement was not confirmed"
 		}
@@ -169,38 +171,4 @@ func (p *publisher) startRuntime(ctx context.Context, host *workerhost.Host, c *
 		}
 		p.runtimeReply(c, r.ID, out)
 	}()
-}
-
-// Natural drain is deliberately not checkpoint/replay. Every attempt uses the
-// unchanged Host quiescence/fence/join protocol. Busy work continues untouched;
-// bounded request cancellation never cancels session operations.
-func (p *publisher) drainRuntime(ctx context.Context, host *workerhost.Host, c *client, r attachproto.Request) error {
-	for attempt := 0; attempt < 46; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		p.mu.Lock()
-		current := p.status.Generation
-		p.mu.Unlock()
-		if current != r.Runtime.ExpectedGeneration {
-			return errors.New("stale queued replacement generation; inspect current state")
-		}
-		err := host.Reload(ctx, nil)
-		if !errors.Is(err, workerhost.ErrBusy) {
-			return err
-		}
-		p.mu.Lock()
-		queued := p.runtimeSnapshot("queued")
-		p.mu.Unlock()
-		queued.Message = "queued for natural idle drain; active work is not killed or replayed; candidate is rechecked at handoff"
-		p.runtimeReply(c, r.ID, queued)
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return context.DeadlineExceeded
 }

@@ -83,8 +83,8 @@ type ResumeState struct {
 
 // ControlOperationInitializer is an optional capability for durable structural
 // controls without a model turn. The input must already be persisted in this
-// session; implementations authorize only its single deterministic AgentControl
-// operation. SaveOperation still cannot initialize arbitrary operations.
+// session; implementations authorize only its single deterministic structural
+// control operation. SaveOperation still cannot initialize arbitrary operations.
 type ControlOperationInitializer interface {
 	InitializeControlOperation(context.Context, session.ID, inbox.ID, operation.Operation) error
 }
@@ -114,4 +114,12 @@ type Store interface {
 		parentID session.ID,
 		previousTurnID session.TurnID,
 	) (Snapshot, error)
+}
+
+// ControlOperationReader exposes canonical structural checkpoints, including
+// terminal controls whose outcome input has already committed. Resume omits
+// those completed controls; cleanup proof must not reconstruct them from text.
+// Read under the same writer lease as lifecycle history.
+type ControlOperationReader interface {
+	ControlOperations(context.Context, session.ID) ([]operation.Operation, error)
 }

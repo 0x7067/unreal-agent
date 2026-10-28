@@ -55,6 +55,15 @@ func finalizeRuntimeLifecycle(store sessionstore.Store, b workerproto.Bootstrap,
 			history.RemoteOperations[op.ID] = op
 		}
 	}
+	if reader, ok := store.(sessionstore.ControlOperationReader); ok {
+		controls, err := reader.ControlOperations(ctx, b.SessionID)
+		if err != nil {
+			return err
+		}
+		for _, op := range controls {
+			history.RemoteOperations[op.ID] = op
+		}
+	}
 	// setupOperations with a nonempty ControlScope configures fresh proof on every
 	// supervisor, including dynamic graph factories. ownedExecution.wait joins all
 	// runtimes before snapshotting those supervisors, and joins the Hub workers.

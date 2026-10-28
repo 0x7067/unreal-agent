@@ -290,3 +290,55 @@ func TestOldFormatTwoSessionAcceptsNewControls(t *testing.T) {
 		t.Fatal("new control missing from old session")
 	}
 }
+
+func TestCanonicalControlOperationsSurviveOutcomeProjection(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Create(t.Context(), "s"); err != nil {
+		t.Fatal(err)
+	}
+	input := controlInput(t, "input")
+	if err = store.AppendInput(t.Context(), "s", input); err != nil {
+		t.Fatal(err)
+	}
+	op := controlOperation(t, input.ID, "subagent.control", 1)
+	if err = store.InitializeControlOperation(t.Context(), "s", input.ID, op); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := operation.DecodeRemoteJobState(op)
+	state.TerminalResult = `{"Action":"list","State":"snapshot","DrainConfirmed":false}`
+	step, err := operation.UpdateRemoteJob(op, state, operation.StatusCompleted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SaveOperation(t.Context(), "s", *step.Operation); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.AppendInput(t.Context(), "s", controlResult(t, input.ID)); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := store.Resume(t.Context(), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Operations) != 0 {
+		t.Fatal("completed control incorrectly resumed")
+	}
+	canonical, err := store.ControlOperations(t.Context(), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(canonical) != 1 || !reflect.DeepEqual(canonical[0], *step.Operation) {
+		t.Fatalf("canonical checkpoint missing: %+v", canonical)
+	}
+	canonical[0].State[0] = '!'
+	fresh, err := store.ControlOperations(t.Context(), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fresh[0], *step.Operation) {
+		t.Fatal("reader aliases canonical storage")
+	}
+}

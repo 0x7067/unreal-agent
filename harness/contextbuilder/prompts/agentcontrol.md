@@ -1,0 +1,1 @@
+Use AgentControl to inspect and control helpers using its exact handles and generations; use structural cancellation, not messages or guessed process IDs. A report, stop acknowledgment or timeout is not proof of process/output drain or goal completion.

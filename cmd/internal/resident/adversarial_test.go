@@ -32,7 +32,9 @@ import (
 // A raw watcher has deliberately no hidden reader. Only the provider is fake;
 // transport, host, worker, ingress, session store and Bash executor are real.
 func TestAdversarialStalledWatcherRealWorker(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 24*time.Second)
+	// Overall budget covers stalled-client publication plus all malformed-client
+	// handshakes under race instrumentation. Per-attack deadlines stay at 2s.
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	root, err := os.MkdirTemp("/tmp", "ua-adversary-")
 	if err != nil {
@@ -101,7 +103,7 @@ func TestAdversarialStalledWatcherRealWorker(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	dial := func() (*net.UnixConn, *bufio.Scanner, attachproto.Event, attachproto.Event) {
+	dial := func(t *testing.T) (*net.UnixConn, *bufio.Scanner, attachproto.Event, attachproto.Event) {
 		t.Helper()
 		var c *net.UnixConn
 		var hello, header attachproto.Event
@@ -148,7 +150,7 @@ func TestAdversarialStalledWatcherRealWorker(t *testing.T) {
 			}
 		}
 	}
-	c, scanner, hello, header := dial()
+	c, scanner, hello, header := dial(t)
 	t.Cleanup(func() { c.Close() })
 	c.SetReadBuffer(1024)
 	request := func(id string, in inbox.Input) attachproto.Request {
@@ -315,7 +317,7 @@ func TestAdversarialStalledWatcherRealWorker(t *testing.T) {
 	// reach the ingress observer. Cross-UID SO_PEERCRED needs another UID fixture.
 	for _, attack := range []string{"protocol", "session", "token", "after", "control", "shutdown", "oversized_payload", "oversized_frame", "partial_frame"} {
 		t.Run(attack, func(t *testing.T) {
-			conn, scan, greeting, _ := dial()
+			conn, scan, greeting, _ := dial(t)
 			defer conn.Close()
 			conn.SetDeadline(time.Now().Add(2 * time.Second))
 			bad := attachproto.Request{Type: "submit", ID: "attack-request", Protocol: attachproto.Version, SessionID: sid, Connection: greeting.Connection, Input: &inbox.Input{ID: inbox.ID("rejected-" + attack), Kind: inbox.InputExternal, Payload: []byte(`"must not be admitted"`)}}

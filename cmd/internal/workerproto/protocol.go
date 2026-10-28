@@ -18,14 +18,9 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
-// Version 7 adds opt-in command-only graph/v2 checkpoint recovery with a
-// command-layer durable-store acknowledgment before nested shell dispatch.
-// Version 6 adds the opt-in independently owned subagent.run/v2 policy.
-// Version 5 additionally requires durable compaction failure accounting/manual
-// intent recovery alongside bounded regular requests and lifecycle/drain receipts.
-// Older workers must be rejected before retirement; legacy completed history
-// remains readable and new request controls have their own strict version.
-const Version = 7
+// Version 8 replaces idle-only quiesce with ordered natural drain, scoped
+// interventions and owner-authoritative completion. Old peers are rejected.
+const Version = 8
 const SessionVersion = 2
 const MaxFrame = 32 << 20
 
@@ -66,7 +61,7 @@ type Bootstrap struct {
 }
 
 type Request struct {
-	Type      string // start, input, activity_snapshot, quiesce, stop
+	Type      string // start, input, activity_snapshot, drain, stop
 	ID        string
 	Protocol  int
 	Bootstrap *Bootstrap   `json:",omitzero"`
@@ -74,7 +69,7 @@ type Request struct {
 }
 
 type Event struct {
-	Type      string // hello, item, ready, activity_snapshot, busy, quiesced, error
+	Type      string // hello, item, ready, activity_snapshot, drained, error
 	ID        string
 	Identity  *Identity                   `json:",omitzero"`
 	Item      *sessionstore.Item          `json:",omitzero"`

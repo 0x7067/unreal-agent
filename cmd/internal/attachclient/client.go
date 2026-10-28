@@ -331,7 +331,20 @@ func (c *Client) SubmitLifecycle(ctx context.Context, in inbox.Input) error {
 	return c.submit(ctx, "lifecycle", in)
 }
 
-// submit is the single transport/waiter path for both admission APIs. It clones
+// SubmitIntervention waits for durable admission of a scoped existing-owner
+// control, not its execution or cleanup. A concurrently active Next consumer is
+// required; the ordinary Submit path never admits these controls.
+func (c *Client) SubmitIntervention(ctx context.Context, in inbox.Input) error {
+	if !c.capabilities[attachproto.CapabilityIntervention] {
+		return fmt.Errorf("host missing required capability %q", attachproto.CapabilityIntervention)
+	}
+	if err := attachproto.ValidateIntervention(in, c.ControlScope()); err != nil {
+		return err
+	}
+	return c.submit(ctx, "intervention", in)
+}
+
+// submit is the single transport/waiter path for all admission APIs. It clones
 // the caller's stable input without replacing its ID, and uses a fresh RPC ID.
 func (c *Client) submit(ctx context.Context, requestType string, in inbox.Input) error {
 	in.Payload = in.Payload.Clone()
@@ -348,6 +361,12 @@ func (c *Client) submit(ctx context.Context, requestType string, in inbox.Input)
 	}
 	if requestType == "lifecycle" {
 		if err := attachproto.ValidateLifecycle(in, c.lifecycleScope); err != nil {
+			c.mu.Unlock()
+			return err
+		}
+	}
+	if requestType == "intervention" {
+		if err := attachproto.ValidateIntervention(in, c.lifecycleScope); err != nil {
 			c.mu.Unlock()
 			return err
 		}

@@ -90,13 +90,15 @@ func TestExchangeRetryHints(t *testing.T) {
 		status                            int
 		want                              time.Duration
 	}{
+		{name: "short message replaces local", kind: "error", code: "rate_limit_exceeded", message: "try again in 1ms", status: 200, want: time.Millisecond},
+		{name: "short header replaces overload", kind: "http", code: "server_is_overloaded", message: "overloaded", status: 503, header: "1", want: time.Second},
 		{name: "top-level", kind: "error", code: "rate_limit_exceeded", message: "try again in 3.25s", status: 200, want: 3250 * time.Millisecond},
 		{name: "nested", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 2800ms", status: 200, want: 2800 * time.Millisecond},
-		{name: "HTTP body", kind: "http", code: "rate_limit_exceeded", message: "try again in 45s", status: 429, want: 45 * time.Second},
-		{name: "HTTP header", kind: "http", status: 503, header: "120", want: 120 * time.Second},
-		{name: "overload header", kind: "http", code: "server_is_overloaded", message: "overloaded", status: 503, header: "90", want: 90 * time.Second},
-		{name: "nested header", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 1s", status: 200, header: "90", want: 90 * time.Second},
-		{name: "HTTP date", kind: "http", status: 503, header: "date", want: time.Minute},
+		{name: "HTTP body", kind: "http", code: "rate_limit_exceeded", message: "try again in 45s", status: 429, want: 30 * time.Second},
+		{name: "HTTP header", kind: "http", status: 503, header: "120", want: 30 * time.Second},
+		{name: "overload header", kind: "http", code: "server_is_overloaded", message: "overloaded", status: 503, header: "90", want: 30 * time.Second},
+		{name: "nested header", kind: "response.failed", code: "rate_limit_exceeded", message: "try again in 1s", status: 200, header: "90", want: 30 * time.Second},
+		{name: "HTTP date", kind: "http", status: 503, header: "date", want: 30 * time.Second},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {

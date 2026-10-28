@@ -18,11 +18,8 @@ const ToolCallRunningPayload = "Tool call is still running. Its result arrives i
 //go:embed prompts/preamble.md
 var preambleFile string
 
-//go:embed prompts/coordination.md
-var coordinationFile string
-
-// Keep the upstream preamble separate from the fork's conditional tool guidance.
-var preamble = strings.TrimSpace(preambleFile) + "\n\n" + strings.TrimSpace(coordinationFile)
+// Keep the baseline preamble identical to upstream.
+var preamble = strings.TrimSpace(preambleFile)
 
 type builder struct {
 	request         llm.Request
@@ -107,7 +104,7 @@ func (current *builder) SetSystemPrompt(prompt string) {
 	current.systemPrompt = prompt
 	current.committedPrefix[0] = llm.Item{Type: llm.ItemMessage, Data: llm.Message{
 		Role: llm.RoleSystem,
-		Text: strings.TrimSpace(current.preamble + "\n\n" + current.systemPrompt),
+		Text: strings.TrimSpace(current.preamble + coordinationGuidance(current.request.Tools) + "\n\n" + current.systemPrompt),
 	}}
 }
 
@@ -137,6 +134,7 @@ func (current *builder) AddModelResponse(response llm.Response) {
 
 func (current *builder) AddTool(tool llm.Tool) {
 	current.request.Tools = append(current.request.Tools, tool)
+	current.SetSystemPrompt(current.systemPrompt)
 }
 
 func (current *builder) AddToolResult(

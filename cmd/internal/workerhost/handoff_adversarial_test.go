@@ -2,16 +2,10 @@ package workerhost
 
 // Adversarial tests for the worker reload/handoff protocol.
 //
-// Every test here starts its host through the real start() (the function behind
-// Start: frontend lease, durable ingress, stage/probe, launch, consume, dispatch).
-// advHost only falls back to building those exact fields by hand when start()
-// fails with the sandbox-specific lease error described in advHost -- in that
-// environment start() cannot run at all, including for the pre-existing tests in
-// this package.
-//
-// The fake peer is a POSIX shell script (advWorkerScript). The shared fixture in
-// host_test.go cannot express a slow quiesce, a slow item, a bad probe, or a
-// malformed frame.
+// Every test starts through the real start(), including frontend ownership,
+// durable ingress, probe, launch, ordered output consumption and dispatch.
+// The shell peer owns a real session writer lease and replays canonical inputs;
+// gates expose boundaries the shared host_test.go helper cannot hold open.
 
 import (
 	"context"
@@ -29,23 +23,19 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/ingress"
-	"github.com/unreallabsai/unreal-agent/harness/session"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 )
 
 const advWorkerScript = `#!/bin/sh
 # Protocol-only test peer. $1 is worker-probe or worker (the host rewrites the
-# last argument of the configured command). It owns no session store: its log is
-# its durable history, so replay/dedup/ack behave like the real worker.
+# last argument of the configured command). Its log stores canonical input
+# records, including drain receipts; fd 9 owns the real session writer lease.
 mode=$1
 hello='{"Type":"hello","Identity":{"Protocol":__PROTOCOL__,"SessionVersion":__SESSION__,"Build":"adversarial-fake"}}'
 log=$FAKE_WORKER_LOG
 received=$FAKE_WORKER_RECEIVED
 seq=0
-
-item_for() {
-	printf '{"ID":"%s","Kind":"external","Payload":"body"}' "$1"
-}
 
 emit_item() {
 	printf '{"Type":"item","Item":{"Sequence":%s,"RecordedAt":"2024-01-01T00:00:00Z","Kind":"input","Data":%s}}\n' "$1" "$2"
@@ -53,9 +43,9 @@ emit_item() {
 
 replay() {
 	if [ -f "$log" ]; then
-		while IFS= read -r id; do
+		while IFS= read -r data; do
 			seq=$((seq + 1))
-			emit_item "$seq" "$(item_for "$id")"
+			emit_item "$seq" "$data"
 		done < "$log"
 	fi
 }
@@ -115,6 +105,13 @@ worker() {
 	esac
 	printf '%s\n' "$hello"
 	IFS= read -r start || exit 0
+	scope=$(printf '%s' "$start" | sed -n 's/.*"ControlScope": *"\([^"]*\)".*/\1/p')
+	directory=$(printf '%s' "$start" | sed -n 's/.*"Directory": *"\([^"]*\)".*/\1/p')
+	session=$(printf '%s' "$start" | sed -n 's/.*"SessionID": *"\([^"]*\)".*/\1/p')
+	[ -n "$scope" ] && [ -n "$directory" ] && [ -n "$session" ] || exit 10
+	umask 077
+	exec 9>> "$directory/$session.session.lock"
+	flock -n 9 || exit 11
 	replay
 	printf '%s\n' '{"Type":"ready"}'
 	while IFS= read -r line; do
@@ -123,22 +120,35 @@ worker() {
 			id=$(printf '%s' "$line" | sed -n 's/.*"ID": *"\([^"]*\)".*/\1/p')
 			data=$(printf '%s' "$line" | sed 's/^.*"Input"://; s/}$//')
 			printf '%s\n' "$id" >> "$received"
-			if [ -f "$log" ] && grep -qxF -- "$id" "$log"; then
+			if [ -f "$log" ] && grep -qF -- "\"ID\":\"$id\"" "$log"; then
 				continue
 			fi
 			if [ -n "$FAKE_ITEM_GATE" ]; then
 				await_gate "$FAKE_ITEM_GATE"
 			fi
-			printf '%s\n' "$id" >> "$log"
+			printf '%s\n' "$data" >> "$log"
 			seq=$((seq + 1))
 			emit_item "$seq" "$data"
 			;;
-		*'"quiesce"'*)
+		*'"drain"'*)
 			qid=$(printf '%s' "$line" | sed -n 's/.*"ID": *"\([^"]*\)".*/\1/p')
-			if [ -n "$FAKE_QUIESCE_GATE" ]; then
-				await_gate "$FAKE_QUIESCE_GATE"
+			if [ -n "$FAKE_DRAIN_GATE" ]; then
+				await_gate "$FAKE_DRAIN_GATE"
 			fi
-			printf '{"Type":"quiesced","ID":"%s"}\n' "$qid"
+			if [ "$FAKE_RECEIPT" != missing ]; then
+				receipt_scope=$scope
+				[ "$FAKE_RECEIPT" = wrong-scope ] && receipt_scope=other-host/1
+				data=$(printf '{"ID":"drain-%s","Kind":"control","Payload":{"Mode":"execution_drained","Parameters":{"Version":1,"Scope":"%s"}}}' "$qid" "$receipt_scope")
+				printf '%s\n' "$data" >> "$log"
+				seq=$((seq + 1))
+				emit_item "$seq" "$data"
+			fi
+			printf '{"Type":"drained","ID":"%s"}\n' "$qid"
+			if [ -n "$FAKE_EXIT_GATE" ]; then
+				await_gate "$FAKE_EXIT_GATE"
+			fi
+			flock -u 9
+			exec 9>&-
 			exit 0
 			;;
 		esac
@@ -153,20 +163,8 @@ worker) worker ;;
 esac
 `
 
-// advHost starts a host through the real start() and returns the recorder that
-// observes items and statuses.
-//
-// Context lifetime contract: start() derives the Host's entire
-// lifetime from the ctx it is given, so advHost must never cancel that ctx while
-// returning. It is bounded by a generous timeout and released from t.Cleanup,
-// which runs LIFO: the host is closed first, then the lifetime is released.
-//
-// Fallback: in some sandboxes the root directory is owned by neither root nor the
-// current user, so every localfile.AcquireLease fails (lease_unix.go:37) and even
-// the pre-existing tests in this package cannot start a host. Only in that case
-// advHost builds the same Host fields start() initializes, minus the frontend
-// lease, and says so loudly. A successful start() is asserted to be the real path
-// (frontend lease present), so fallback state can never hide inside it.
+// advHost starts the real host. A lifetime cleanup is registered before Close
+// so cancellation cannot interrupt the joins asserted by these tests.
 func advHost(t *testing.T, configure func(*Config)) (*Host, *recorder, Config) {
 	t.Helper()
 	directory, err := filepath.EvalSymlinks(t.TempDir())
@@ -183,9 +181,8 @@ func advHost(t *testing.T, configure func(*Config)) (*Host, *recorder, Config) {
 	t.Setenv("FAKE_WORKER_LOG", filepath.Join(directory, "worker.log"))
 	t.Setenv("FAKE_WORKER_RECEIVED", filepath.Join(directory, "received.log"))
 	r := &recorder{changed: make(chan struct{}, 1)}
-	// The ingress journal is opened by exactly one owner of this directory:
-	// start() on a normal machine, or the fallback below. Opening it here first
-	// would make start()'s own ingress.Open fail with ErrLocked.
+	// start() is the sole ingress journal owner. Opening it here first would
+	// make start()'s own ingress.Open fail with ErrLocked.
 	cfg := Config{
 		Command:       []string{"/bin/sh", script, "worker"},
 		Bootstrap:     workerproto.Bootstrap{SessionID: "adversarial-session", Directory: directory, Workspace: directory},
@@ -205,20 +202,12 @@ func advHost(t *testing.T, configure func(*Config)) (*Host, *recorder, Config) {
 	lifetime, releaseLifetime := context.WithTimeout(t.Context(), 90*time.Second)
 	t.Cleanup(releaseLifetime)
 	h, err := start(lifetime, cfg, nil)
-	if err == nil {
-		// start() succeeded: no fallback state may exist in this host.
-		if h.parentLease == nil {
-			t.Fatal("start() returned a host without a frontend lease: the fallback built this host")
-		}
-		advCloseHost(t, h)
-		advAssertLiveHost(t, h)
-		return h, r, cfg
-	}
-	if !strings.Contains(err.Error(), "session lease ancestor must be owned by root or current user") {
+	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	t.Logf("FIXTURE FALLBACK: start() cannot acquire a frontend lease here (%v); building the same Host fields by hand. This run does NOT exercise start()", err)
-	h = advFallbackHost(t, lifetime, releaseLifetime, cfg)
+	if h.parentLease == nil {
+		t.Fatal("start returned without frontend lease")
+	}
 	advCloseHost(t, h)
 	advAssertLiveHost(t, h)
 	return h, r, cfg
@@ -247,46 +236,6 @@ func advAssertLiveHost(t *testing.T, h *Host) {
 	if _, _, _, failure, live := advState(h); !live || failure != nil {
 		t.Fatalf("no live worker after the fixture built the host: live=%v failure=%v", live, failure)
 	}
-}
-
-// advFallbackHost mirrors the field initialization in start()
-// for environments where the frontend lease cannot be acquired.
-func advFallbackHost(t *testing.T, lifetime context.Context, cancel context.CancelFunc, cfg Config) *Host {
-	t.Helper()
-	root := filepath.Join(cfg.Bootstrap.Directory, "ingress")
-	if err := os.Mkdir(root, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	journal, err := ingress.Open(root, session.ID(cfg.Bootstrap.SessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &Host{
-		config:         cfg,
-		ctx:            lifetime,
-		cancel:         cancel,
-		journal:        journal,
-		done:           make(chan error, 1),
-		kick:           make(chan struct{}, 1),
-		dispatcherDone: make(chan struct{}),
-		delivery:       make(chan struct{}, 1),
-		admissionDone:  make(chan struct{}),
-	}
-	// launchCtx bounds only the stage()/launch() handshake: launch() derives the
-	// process context from h.ctx, so canceling it here cannot end the
-	// host.
-	launchCtx, stop := context.WithTimeout(lifetime, 20*time.Second)
-	defer stop()
-	stage, err := h.stage(launchCtx, cfg.Command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = h.launch(launchCtx, stage); err != nil {
-		t.Fatal(err)
-	}
-	go h.dispatch()
-	h.wake()
-	return h
 }
 
 func advStageDir(cfg Config) string {
@@ -365,7 +314,7 @@ func advItemCounts(r *recorder) map[string]int {
 	defer r.mu.Unlock()
 	counts := make(map[string]int)
 	for _, item := range r.items {
-		if input, ok := item.Data.(inbox.Input); ok {
+		if input, ok := item.Data.(inbox.Input); ok && input.Kind == inbox.InputExternal {
 			counts[string(input.ID)]++
 		}
 	}
@@ -388,11 +337,10 @@ func advSubmit(t *testing.T, h *Host, id string) error {
 	return h.Submit(t.Context(), input)
 }
 
-// A canceled Reload leaves the admitted quiesce request live. Its eventual clean
-// retirement must publish stopped without ending durable admission or recovery.
+// Canceling a wait never cancels admitted retirement or eventual replacement.
 func TestCanceledReloadReportsLateRetirement(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "quiesce-gate")
-	t.Setenv("FAKE_QUIESCE_GATE", gate)
+	gate := filepath.Join(t.TempDir(), "drain-gate")
+	t.Setenv("FAKE_DRAIN_GATE", gate)
 	h, r, _ := advHost(t, nil)
 	h.mu.Lock()
 	p := h.current
@@ -403,15 +351,23 @@ func TestCanceledReloadReportsLateRetirement(t *testing.T) {
 	go func() { result <- h.Reload(ctx, nil) }()
 	waitFile(t, gate+".seen")
 	cancel()
-	if err := advReceiveError(t, result); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "quiesce outcome unconfirmed") {
+	if err := advReceiveError(t, result); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Reload before reply = %v", err)
+	}
+	if !h.ReloadPending() {
+		t.Fatal("canceled wait abandoned the admitted handoff")
+	}
+	if err := advSubmit(t, h, "late-input"); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.AwaitReload(t.Context()); err != nil {
+		t.Fatalf("host-owned reload: %v", err)
+	}
 	awaitSignal(t, p.done, "late retirement did not complete")
-	advAssertCleanRetirement(t, h, r, p)
-	advAssertRetirementRecovery(t, h, r, p, "late-input")
+	advAssertRecoveredInput(t, h, r, p, "late-input")
 }
 
 // The stopped callback is part of the handoff barrier. Exercise both a normal
@@ -423,8 +379,8 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 			name = "canceled-after-reply"
 		}
 		t.Run(name, func(t *testing.T) {
-			gate := filepath.Join(t.TempDir(), "quiesce-gate")
-			t.Setenv("FAKE_QUIESCE_GATE", gate)
+			gate := filepath.Join(t.TempDir(), "drain-gate")
+			t.Setenv("FAKE_DRAIN_GATE", gate)
 			entered, release := make(chan Status, 1), make(chan struct{})
 			h, r, _ := advHost(t, func(config *Config) {
 				original := config.OnStatus
@@ -455,7 +411,7 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 			}
 			p.mu.Unlock()
 			if reply == nil {
-				t.Fatal("no quiesce waiter")
+				t.Fatal("no drain waiter")
 			}
 			if err := os.WriteFile(gate, nil, 0o600); err != nil {
 				t.Fatal(err)
@@ -468,7 +424,7 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("retirement callback not entered")
 			}
-			advUntil(t, "Reload to receive the quiesced reply", func() bool { return len(reply) == 0 })
+			advUntil(t, "host to receive the drained reply", func() bool { return len(reply) == 0 })
 			select {
 			case <-p.done:
 				t.Fatal("p.done closed before retirement callback returned")
@@ -487,7 +443,7 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 			}
 			if cancelReload {
 				cancel()
-				if err := advReceiveError(t, result); !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "old worker shutdown incomplete") {
+				if err := advReceiveError(t, result); !errors.Is(err, context.Canceled) {
 					t.Fatalf("Reload after reply = %v", err)
 				}
 			}
@@ -497,9 +453,8 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 			open()
 			awaitSignal(t, p.done, "retirement callback did not complete")
 			if cancelReload {
-				advAssertCleanRetirement(t, h, r, p)
-				if err := h.Reload(t.Context(), nil); err != nil {
-					t.Fatalf("recover after canceled reload: %v", err)
+				if err := h.AwaitReload(t.Context()); err != nil {
+					t.Fatalf("host-owned reload after canceled wait: %v", err)
 				}
 			} else if err := advReceiveError(t, result); err != nil {
 				t.Fatalf("normal reload: %v", err)
@@ -509,20 +464,6 @@ func TestRetirementStatusCallbackFencesReplacement(t *testing.T) {
 	}
 }
 
-func advAssertCleanRetirement(t *testing.T, h *Host, r *recorder, p *process) {
-	t.Helper()
-	_, generation, stopped, failure, live := advState(h)
-	if live || !stopped || failure != nil || generation != p.generation {
-		t.Fatalf("retired host: live=%v stopped=%v failure=%v generation=%d", live, stopped, failure, generation)
-	}
-	statuses := advStatuses(r)
-	last := statuses[len(statuses)-1]
-	if !last.Stopped || last.Err != nil || last.Generation != p.generation || last.Build != p.build {
-		t.Fatalf("last retirement status = %+v", last)
-	}
-	advAssertHostOpen(t, h)
-}
-
 func advAssertHostOpen(t *testing.T, h *Host) {
 	t.Helper()
 	select {
@@ -530,23 +471,6 @@ func advAssertHostOpen(t *testing.T, h *Host) {
 		t.Fatalf("recoverable retirement ended host: %v", err)
 	default:
 	}
-}
-
-func advAssertRetirementRecovery(t *testing.T, h *Host, r *recorder, p *process, id string) {
-	t.Helper()
-	if err := advSubmit(t, h, id); err != nil {
-		t.Fatalf("Submit after clean retirement: %v", err)
-	}
-	if pending := h.journal.Pending(); len(pending) != 1 || string(pending[0].ID) != id {
-		t.Fatalf("durable admission after retirement = %+v", pending)
-	}
-	if got := advItemCounts(r)[id]; got != 0 {
-		t.Fatalf("input delivered without a worker: %d", got)
-	}
-	if err := h.Reload(t.Context(), nil); err != nil {
-		t.Fatalf("recover after clean retirement: %v", err)
-	}
-	advAssertRecoveredInput(t, h, r, p, id)
 }
 
 func advAssertRecoveredInput(t *testing.T, h *Host, r *recorder, p *process, id string) {
@@ -575,59 +499,71 @@ func advAssertRecoveredInput(t *testing.T, h *Host, r *recorder, p *process, id 
 	advAssertHostOpen(t, h)
 }
 
-// TestReloadRefusedWhileDeliveredInputIsUnacknowledged pins the check-then-act
-// window of the pending-journal guard. The peer accepts the input
-// and holds its item frame, so the host holds an input that is durably admitted,
-// already written to the live pipe, and not yet persisted: exactly the state the
-// guard must catch. The reload must be refused without disturbing the worker, and
-// the candidate staged by that refused attempt must be discarded.
-func TestReloadRefusedWhileDeliveredInputIsUnacknowledged(t *testing.T) {
+// An input already delivered but not acknowledged must drain before replacement,
+// not reject reload as busy or disappear across the cutoff.
+func TestReloadScheduledWhileDeliveredInputIsUnacknowledged(t *testing.T) {
 	itemGate := filepath.Join(t.TempDir(), "item-gate")
 	t.Setenv("FAKE_ITEM_GATE", itemGate)
-	h, _, cfg := advHost(t, nil)
+	h, r, cfg := advHost(t, nil)
+	h.mu.Lock()
+	p := h.current
+	h.mu.Unlock()
 	pid, beforeGeneration, _, _, _ := advState(h)
 	if err := advSubmit(t, h, "in-flight"); err != nil {
 		t.Fatal(err)
 	}
-	// The worker read the input; its persistence frame is held open.
 	waitFile(t, itemGate+".seen")
 	if got := advCounts(t, advLogPath(cfg, "received.log")); got["in-flight"] != 1 {
 		t.Fatalf("worker received = %v", got)
 	}
+	result := make(chan error, 1)
+	go func() { result <- h.Reload(t.Context(), nil) }()
+	// The original process publishes this irreversible cutoff before the host
+	// writes drain. Its monotonic bit remains observable while the item gate
+	// holds persistence; reload admission alone is not completion permission.
+	advUntil(t, "ordered reload cutoff", p.draining.Load)
 	if pending := h.journal.Pending(); len(pending) != 1 || pending[0].ID != "in-flight" {
-		t.Fatalf("pending = %#v", pending)
+		t.Fatalf("pending input lost before persistence: %#v", pending)
 	}
-	err := h.Reload(h.ctx, nil)
-	if !errors.Is(err, ErrBusy) || !strings.Contains(err.Error(), "has not reached session persistence") {
-		t.Fatalf("reload with unacknowledged delivery = %v", err)
+	afterPID, afterGeneration, _, failure, live := advState(h)
+	if !live || afterPID != pid || afterGeneration != beforeGeneration || failure != nil {
+		t.Fatalf("scheduled reload replaced unacknowledged worker: live=%v pid=%d generation=%d failure=%v", live, afterPID, afterGeneration, failure)
 	}
-	afterPID, afterGeneration, _, failure, hasCurrent := advState(h)
-	if !hasCurrent || afterPID != pid || afterGeneration != beforeGeneration || failure != nil {
-		t.Fatalf("refused reload disturbed the worker: live=%v pid %d->%d generation %d->%d failure=%v", hasCurrent, pid, afterPID, beforeGeneration, afterGeneration, failure)
+	select {
+	case err := <-result:
+		t.Fatalf("reload completed before delivered input persisted: %v", err)
+	default:
 	}
-	if stages := advStageFiles(t, cfg); len(stages) != 1 {
-		t.Fatalf("refused reload leaked a staged candidate: %v", stages)
+	if stages := advStageFiles(t, cfg); len(stages) != 2 {
+		t.Fatalf("scheduled reload must retain exactly its staged candidate: %v", stages)
 	}
-	// Persistence lands; the identical request now succeeds.
 	if err := os.WriteFile(itemGate, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	advUntil(t, "the delivered input to be acknowledged", func() bool { return len(h.journal.Pending()) == 0 })
-	if err := h.Reload(h.ctx, nil); err != nil {
+	if err := advReceiveError(t, result); err != nil {
 		t.Fatal(err)
 	}
 	if _, after, _, _, _ := advState(h); after != beforeGeneration+1 {
 		t.Fatalf("generation %d after handoff, want %d", after, beforeGeneration+1)
 	}
+	if got := advItemCounts(r)["in-flight"]; got != 1 {
+		t.Fatalf("in-flight input surfaced %d times", got)
+	}
+	if pending := h.journal.Pending(); len(pending) != 0 {
+		t.Fatalf("input unacknowledged after drain: %#v", pending)
+	}
+	if stages := advStageFiles(t, cfg); len(stages) != 1 {
+		t.Fatalf("completed reload leaked a stage: %v", stages)
+	}
 }
 
-// TestInputAdmittedDuringQuiesceReachesOnlyReplacement proves that the delivery
-// fence plus the per-generation sent map (host.go:253-276, host.go:566-569) never
+// TestInputAdmittedDuringDrainReachesOnlyReplacement proves that the delivery
+// fence plus the per-generation sent map never
 // leak a mid-handoff admission into the retiring generation and never lose it: it
 // is delivered to the replacement exactly once.
-func TestInputAdmittedDuringQuiesceReachesOnlyReplacement(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "quiesce-gate")
-	t.Setenv("FAKE_QUIESCE_GATE", gate)
+func TestInputAdmittedDuringDrainReachesOnlyReplacement(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "drain-gate")
+	t.Setenv("FAKE_DRAIN_GATE", gate)
 	h, _, cfg := advHost(t, nil)
 	_, beforeGeneration, _, _, _ := advState(h)
 	received := advLogPath(cfg, "received.log")
@@ -761,7 +697,7 @@ func TestMalformedWorkerFrameLatchesFailureWithoutReplacing(t *testing.T) {
 // admission against three completed handoffs and asserts the end-to-end invariant:
 // every durably admitted input reaches the worker exactly once across generation
 // swaps, none is lost, each is acknowledged, and each reaches the UI exactly once
-// (host.go:253-276, host.go:416-441, host.go:585-590).
+// through the real ordered handoff path.
 func TestConcurrentSubmitAndReloadDeliversEachInputExactlyOnce(t *testing.T) {
 	h, r, cfg := advHost(t, nil)
 	const submitters = 4
@@ -789,21 +725,11 @@ func TestConcurrentSubmitAndReloadDeliversEachInputExactlyOnce(t *testing.T) {
 	}
 	handoffResult := make(chan error, 1)
 	go func() {
-		completed := 0
-		for attempt := 0; attempt < 800 && completed < handoffs; attempt++ {
-			// ErrBusy is the documented conservative answer while a delivered
-			// input has not reached persistence; retry the same request.
-			if err := h.Reload(h.ctx, nil); err == nil {
-				completed++
-			} else if !errors.Is(err, ErrBusy) {
+		for completed := range handoffs {
+			if err := h.Reload(h.ctx, nil); err != nil {
 				handoffResult <- fmt.Errorf("handoff %d: %w", completed+1, err)
 				return
 			}
-			time.Sleep(time.Millisecond)
-		}
-		if completed != handoffs {
-			handoffResult <- fmt.Errorf("only %d/%d handoffs completed", completed, handoffs)
-			return
 		}
 		handoffResult <- nil
 	}()
@@ -861,5 +787,169 @@ func advReceiveError(t *testing.T, result <-chan error) error {
 	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for protocol operation")
 		return nil
+	}
+}
+
+// A successful wire reply and exit are not sufficient proof. Replayed history
+// is never fresh evidence for the current process, even if it was once valid.
+func TestReloadRejectsUnprovenDrainReceipt(t *testing.T) {
+	for _, mode := range []string{"missing", "wrong-scope", "replay-only"} {
+		t.Run(mode, func(t *testing.T) {
+			if mode != "replay-only" {
+				t.Setenv("FAKE_RECEIPT", mode)
+			}
+			h, _, cfg := advHost(t, nil)
+			if mode == "replay-only" {
+				// The first generation supplies valid proof, which is replayed
+				// before ready by the next generation. It emits no fresh receipt.
+				t.Setenv("FAKE_RECEIPT", "missing")
+				if err := h.Reload(t.Context(), nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, before, _, _, _ := advState(h)
+			err := h.Reload(t.Context(), nil)
+			if err == nil || !strings.Contains(err.Error(), "cleanup proof missing") {
+				t.Fatalf("reload with %s receipt = %v", mode, err)
+			}
+			if _, generation, _, _, live := advState(h); live || generation != before {
+				t.Fatalf("unproven retirement launched replacement: live=%v generation=%d, want %d", live, generation, before)
+			}
+			if stages := advStageFiles(t, cfg); len(stages) != 0 {
+				t.Fatalf("unproven drain leaked stage: %v", stages)
+			}
+			// Failure must remain fail-closed: a second request cannot turn a
+			// joined but unproven process into a safe stopped source.
+			if err := h.Reload(t.Context(), nil); err == nil {
+				t.Fatal("retry bypassed missing cleanup proof")
+			}
+			if _, generation, _, _, live := advState(h); live || generation != before {
+				t.Fatalf("retry launched unproven generation: live=%v generation=%d", live, generation)
+			}
+		})
+	}
+}
+
+// Even a canonical receipt and matching drained reply cannot bypass process
+// Wait. The peer keeps both its process and writer lease alive after replying.
+func TestDrainReplyWaitsForProcessAndWriterLease(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "exit-gate")
+	t.Setenv("FAKE_EXIT_GATE", gate)
+	h, _, cfg := advHost(t, nil)
+	h.mu.Lock()
+	p := h.current
+	h.mu.Unlock()
+	result := make(chan error, 1)
+	go func() { result <- h.Reload(t.Context(), nil) }()
+	waitFile(t, gate+".seen")
+	advUntil(t, "drained reply consumption", func() bool { return p.retired.Load() })
+	if !p.cleanupProven.Load() {
+		t.Fatal("canonical receipt not consumed before drained reply")
+	}
+	if lease, err := localfile.AcquireLease(cfg.Bootstrap.Directory, cfg.Bootstrap.SessionID); err == nil {
+		_ = lease.Close()
+		t.Fatal("peer did not hold the session writer lease")
+	} else if !errors.Is(err, localfile.ErrSessionLocked) {
+		t.Fatalf("writer lease check: %v", err)
+	}
+	select {
+	case <-p.done:
+		t.Fatal("process join completed while peer remained live")
+	case err := <-result:
+		t.Fatalf("reload crossed process/lease barrier: %v", err)
+	default:
+	}
+	if _, generation, _, _, _ := advState(h); generation != p.generation {
+		t.Fatal("replacement started before old process exit")
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := advReceiveError(t, result); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An independent writer taking the lease after a canonical clean exit must
+// block replacement. A receipt/process join cannot stand in for the lease probe.
+func TestReloadRequiresSessionWriterLeaseProbe(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	h, _, cfg := advHost(t, func(config *Config) {
+		original := config.OnStatus
+		config.OnStatus = func(status Status) {
+			if status.Generation == 1 && status.Stopped {
+				close(entered)
+				<-release
+			}
+			original(status)
+		}
+	})
+	open := releaseGate(t, release)
+	result := make(chan error, 1)
+	go func() { result <- h.Reload(t.Context(), nil) }()
+	awaitSignal(t, entered, "retirement callback not entered")
+	lease, err := localfile.AcquireLease(cfg.Bootstrap.Directory, cfg.Bootstrap.SessionID)
+	if err != nil {
+		t.Fatalf("take independent writer lease after exit: %v", err)
+	}
+	defer lease.Close()
+	open()
+	if err := advReceiveError(t, result); err == nil || !strings.Contains(err.Error(), "lease release unconfirmed") {
+		t.Fatalf("reload while independent writer holds lease = %v", err)
+	}
+	if _, generation, _, _, live := advState(h); live || generation != 1 {
+		t.Fatalf("replacement bypassed lease probe: live=%v generation=%d", live, generation)
+	}
+	if stages := advStageFiles(t, cfg); len(stages) != 0 {
+		t.Fatalf("failed lease probe leaked candidate: %v", stages)
+	}
+	if err := h.Reload(t.Context(), nil); err == nil {
+		t.Fatal("retry bypassed failed lease-release proof")
+	}
+	if _, generation, _, _, live := advState(h); live || generation != 1 {
+		t.Fatalf("retry launched while lease remained held: live=%v generation=%d", live, generation)
+	}
+}
+
+// Decoding EOF and joining the process do not join an outstanding ordered
+// output callback. A fresh receipt is evidence only after output consumption.
+func TestDrainReceiptOutputCallbackFencesReplacement(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	h, _, _ := advHost(t, func(config *Config) {
+		original := config.OnItem
+		config.OnItem = func(item sessionstore.Item) {
+			if input, ok := item.Data.(inbox.Input); ok && input.Kind == inbox.InputControl {
+				control, err := input.DecodeControlMessage()
+				if err == nil && control.Mode == inbox.ExecutionDrained {
+					close(entered)
+					<-release
+				}
+			}
+			original(item)
+		}
+	})
+	open := releaseGate(t, release)
+	h.mu.Lock()
+	p := h.current
+	h.mu.Unlock()
+	result := make(chan error, 1)
+	go func() { result <- h.Reload(t.Context(), nil) }()
+	awaitSignal(t, entered, "drain receipt callback not entered")
+	// The worker exits independently of the blocked host callback. Await actual
+	// decoder EOF, rather than relying on sleeps to guess that output arrived.
+	awaitSignal(t, p.scanDone, "decoder did not drain to EOF")
+	select {
+	case <-p.done:
+		t.Fatal("p.done closed before ordered output callback completed")
+	case err := <-result:
+		t.Fatalf("reload returned before output joined: %v", err)
+	default:
+	}
+	if _, generation, _, _, _ := advState(h); generation != p.generation {
+		t.Fatal("replacement crossed ordered output callback")
+	}
+	open()
+	if err := advReceiveError(t, result); err != nil {
+		t.Fatal(err)
 	}
 }

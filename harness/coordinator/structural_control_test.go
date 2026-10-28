@@ -207,3 +207,42 @@ func TestStructuralControlRealStoreInitializationAndCrashReplay(t *testing.T) {
 		t.Fatal("result not persisted")
 	}
 }
+
+func TestScopedStructuralControlCannotReplayIntoReplacement(t *testing.T) {
+	input := invocationInput(t, "scoped", `{"action":"stop","handle":"opaque","generation":1}`)
+	control, _ := input.DecodeControlMessage()
+	invocation := control.Parameters.(inbox.ToolInvocation)
+	invocation.Scope = "host/1"
+	control.Parameters = invocation
+	input.Payload, _ = json.Marshal(control)
+	for _, initialized := range []bool{false, true} {
+		c, store, manager := controlTestCoordinator(t)
+		c.dependencies.ControlScope = "host/2"
+		store.items = []sessionstore.Item{storedItem(1, sessionstore.ItemInput, input)}
+		if initialized {
+			data, _ := json.Marshal(toolsubagent.ControlPlan{Action: "stop", Handle: "opaque", Generation: 1})
+			spec, _ := operation.NewRemoteJobSpec(operation.RemoteJobPlan{Type: toolsubagent.ControlPlanType, Version: 1, Data: data})
+			c.dependencies.Restored.Operations = []operation.Operation{{ID: structuralOperationID(input.ID), Type: spec.Type, Version: spec.Version, State: spec.State, Status: operation.StatusReady}}
+		}
+		err := c.restore(t.Context())
+		if initialized {
+			if err == nil {
+				t.Fatal("uncertain old-scope checkpoint silently adopted")
+			}
+		} else {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(store.appendedInputs) != 1 {
+				t.Fatal("stale uninitialized intent lost its durable refusal")
+			}
+			outcome, _ := store.appendedInputs[0].DecodeControlMessage()
+			if outcome.Parameters.(inbox.ToolInvocationResult).Status != "failed" {
+				t.Fatal("stale intent not failed")
+			}
+		}
+		if len(manager.adds) != 0 {
+			t.Fatal("replacement dispatched old authority")
+		}
+	}
+}

@@ -222,7 +222,7 @@ func serveClient(ctx context.Context, p *publisher, host *workerhost.Host, store
 	greeting.ID = hello.ID
 	greeting.Connection = token
 	greeting.HostPID = p.info.HostPID
-	greeting.Capabilities = []string{"fresh_snapshot", "history_watch", "submit_external", "cursor_snapshot", attachproto.CapabilityForegroundAbort, attachproto.CapabilitySessionShutdown}
+	greeting.Capabilities = []string{"fresh_snapshot", "history_watch", "submit_external", "cursor_snapshot", attachproto.CapabilityForegroundAbort, attachproto.CapabilitySessionShutdown, attachproto.CapabilityIntervention}
 	if p.runtimeEnabled {
 		greeting.Capabilities = append(greeting.Capabilities, attachproto.CapabilityRuntime, attachproto.CapabilityRuntimeDrain, attachproto.CapabilityHostRetire)
 	}
@@ -405,6 +405,10 @@ func readRequests(ctx context.Context, p *publisher, host *workerhost.Host, c *c
 			if attachproto.ValidateLifecycle(*r.Input, host.ControlScope()) != nil {
 				return
 			}
+		case "intervention":
+			if attachproto.ValidateIntervention(*r.Input, host.ControlScope()) != nil {
+				return
+			}
 		default:
 			return
 		}
@@ -428,6 +432,8 @@ func readRequests(ctx context.Context, p *publisher, host *workerhost.Host, c *c
 		var submitErr error
 		if !allowed {
 			submitErr = fmt.Errorf("pending mirror unavailable or full")
+		} else if r.Type == "intervention" {
+			submitErr = host.SubmitIntervention(ctx, in)
 		} else if r.Type == "lifecycle" {
 			submitErr = host.SubmitLifecycle(ctx, in)
 		} else {

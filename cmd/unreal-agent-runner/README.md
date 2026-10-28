@@ -83,11 +83,9 @@ Runner and TUI load built-in model settings, merged with
 ID. Listed models keep their explicit `compaction_threshold`. An omitted or zero
 threshold on a listed model defaults to integer `context_window / 2`.
 
-An unlisted provider/model pair instead uses the documented
-`settings.DefaultCompactionThreshold = 64000` tokens, rather than zero. The runner
-warns only for unlisted pairs, naming the provider, model and settings file to edit;
-the TUI uses the same fallback (including model changes). This conservative default
-is not a discovered context window: configure models with smaller windows explicitly.
+An unlisted provider/model pair returns zero-value model settings, matching
+upstream: no inferred context window or implicit compaction threshold. Configure
+unlisted models explicitly to enable automatic compaction at an appropriate size.
 For example, a custom OpenRouter model with a 32,000-token context window:
 
 ```json

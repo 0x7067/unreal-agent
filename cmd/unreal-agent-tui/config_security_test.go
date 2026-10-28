@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
-	"github.com/unreallabsai/unreal-agent/harness/settings"
 )
 
 func TestOptionsDotEnvOptIn(t *testing.T) {
@@ -96,28 +94,5 @@ func TestOptionsLoadExplicitDotEnvAndRestore(t *testing.T) {
 	}
 	if err != nil || opts.baseURL != "http://loopback.invalid" {
 		t.Fatalf("opts=%#v error=%v", opts, err)
-	}
-}
-
-func TestCompactionThresholdWarning(t *testing.T) {
-	configured := settings.Settings{Providers: map[string]settings.Provider{"listed": {Models: []settings.Model{{ID: "m", CompactionThreshold: 12345}}}}}
-	for _, test := range []struct {
-		provider, model string
-		threshold       int64
-		warn            bool
-	}{{"listed", "m", 12345, false}, {"listed", "unknown", 64000, true}, {"unknown", "m", 64000, true}} {
-		var output bytes.Buffer
-		path := "/trusted/config/settings.json"
-		got := compactionThreshold(configured, test.provider, test.model, path, &output)
-		if got != test.threshold || (output.Len() > 0) != test.warn {
-			t.Fatalf("threshold=%d warning=%q", got, output.String())
-		}
-		if test.warn {
-			for _, want := range []string{test.provider, test.model, "64000", path} {
-				if !strings.Contains(output.String(), want) {
-					t.Fatalf("warning missing %q: %s", want, output.String())
-				}
-			}
-		}
 	}
 }

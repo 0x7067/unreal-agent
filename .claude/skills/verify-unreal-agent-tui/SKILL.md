@@ -58,6 +58,19 @@ specific; details/build provenance and accepted limits are in
 `docs/verification/durable-frontend-upgrade-m31-20261028.md`. Never target a user
 frontend or infer active host/runtime transfer from this proof.
 
+## Current scheduled-reload contract
+
+Worker protocol 8 and runtime capabilities v2 use host-owned `StopWhenIdle` drain,
+not idle-only refusal or polling-based `/upgrade`. New ordinary input queues;
+scoped `/graph` and `/agents` interventions can finish retained work. Cancellation
+after admission ends only the wait. See `docs/plans/hot-reload.md` and the current
+working-tree validation report. Older M3.2/M3.3 recipes below are historical and
+must not be reported as proof of the changed refusal/cancellation semantics.
+Current proof must hold a model/graph active, arm the canonical stop, check queued
+input misses the old worker, intervene explicitly, and confirm actual old-worker
+exit before replacement while preserving the frontend. Retained helper ownership
+also requires an actual-process regression, not a final-report observation.
+
 ## Resident runtime A/B upgrade (M3.2)
 
 `durable_runtime_upgrade.py REPO PRIVATE_SHORT_RUN RUNNER_A RUNNER_B BAD_RUNNER`

@@ -46,11 +46,33 @@ type ownedExecution struct {
 	hub             *subagent.Hub
 	account         *executionbudget.Account
 	mu              sync.Mutex
+	workChanged     chan struct{}
 	runtimes        []*taskgraph.Runtime
 	supervisors     []*subagent.Supervisor
 	logs            []*os.File
 	durableChildren []*durablechild.Handler
 	durableRetained []operation.Operation
+}
+
+// pendingWork is authoritative for native supervisors, including supervisors
+// allocated lazily by graph factories. Durable independent children retain their
+// existing ownership policy and are deliberately not folded into this signal.
+func (o *ownedExecution) pendingWork() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, supervisor := range o.supervisors {
+		if supervisor.HasPendingWork() {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *ownedExecution) signalWorkChanged() {
+	select {
+	case o.workChanged <- struct{}{}:
+	default:
+	}
 }
 
 func (o *ownedExecution) wait() error {
@@ -93,6 +115,9 @@ func (o *ownedExecution) wait() error {
 }
 
 func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Model, directory string, inputs inbox.Writer, hasSkills bool, owners *ownedExecution) (tool.Registry, operation.Manager, error) {
+	if owners.workChanged == nil {
+		owners.workChanged = make(chan struct{}, 1)
+	}
 	if owners.account == nil {
 		owners.account = executionbudget.NewAccount(executionbudget.Limits{MaxOperations: b.MaxOperations})
 	}
@@ -122,7 +147,7 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			return nil, nil, fmt.Errorf("open subagent log: %w", err)
 		}
 		owners.logs = append(owners.logs, log)
-		config := subagent.Config{RequireCleanupProof: b.ControlScope != "", Hub: owners.hub, Command: command, Env: selectedEnvironment(os.Environ(), durablejob.ConfigEnvironment+"=", durablejob.TokenEnvironment+"=", "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts), "UNREAL_HARNESS_OPERATION_WARN_AFTER="+b.Budget.WarnAfter.String(), "UNREAL_HARNESS_OPERATION_TIMEOUT="+b.Budget.Timeout.String(), "UNREAL_HARNESS_MAX_OPERATIONS="+strconv.Itoa(b.MaxOperations)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
+		config := subagent.Config{OnWorkChanged: owners.signalWorkChanged, RequireCleanupProof: b.ControlScope != "", Hub: owners.hub, Command: command, Env: selectedEnvironment(os.Environ(), durablejob.ConfigEnvironment+"=", durablejob.TokenEnvironment+"=", "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts), "UNREAL_HARNESS_OPERATION_WARN_AFTER="+b.Budget.WarnAfter.String(), "UNREAL_HARNESS_OPERATION_TIMEOUT="+b.Budget.Timeout.String(), "UNREAL_HARNESS_MAX_OPERATIONS="+strconv.Itoa(b.MaxOperations)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
 		factory = func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
 			supervisor, err := subagent.New(ctx, config)
 			if err != nil {
@@ -131,6 +156,7 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			owners.mu.Lock()
 			owners.supervisors = append(owners.supervisors, supervisor)
 			owners.mu.Unlock()
+			owners.signalWorkChanged()
 			return supervisor.Handlers(), nil
 		}
 		enabled = append(enabled, tool.AgentName, tool.SendMessageName, tool.AgentControlName)

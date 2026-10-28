@@ -2,14 +2,17 @@ package localfile
 
 import (
 	"crypto/sha256"
+	"encoding/json/v2"
 	"fmt"
 	"io/fs"
+	"reflect"
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	graph "github.com/unreallabsai/unreal-agent/harness/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 )
 
@@ -28,7 +31,7 @@ type sessionHead struct {
 	respondedTurns         map[session.TurnID]struct{}
 	toolCallStatuses       map[toolCallStatusKey]struct{}
 	operationPositions     map[operation.ID]int
-	pendingControlInputs   map[inbox.ID]string
+	pendingControlInputs   map[inbox.ID]inbox.ToolInvocation
 	controlOperationInputs map[operation.ID]inbox.ID
 	seenControlInputs      map[inbox.ID]struct{}
 }
@@ -54,7 +57,7 @@ func newSessionHead(id session.ID, createdAt time.Time) sessionHead {
 		respondedTurns:         make(map[session.TurnID]struct{}),
 		toolCallStatuses:       make(map[toolCallStatusKey]struct{}),
 		operationPositions:     make(map[operation.ID]int),
-		pendingControlInputs:   make(map[inbox.ID]string),
+		pendingControlInputs:   make(map[inbox.ID]inbox.ToolInvocation),
 		controlOperationInputs: make(map[operation.ID]inbox.ID),
 		seenControlInputs:      make(map[inbox.ID]struct{}),
 	}
@@ -75,11 +78,11 @@ func (head *sessionHead) appendInput(
 		case inbox.InvokeTool:
 			if _, seen := head.seenControlInputs[input.ID]; !seen {
 				head.seenControlInputs[input.ID] = struct{}{}
-				head.pendingControlInputs[input.ID] = message.Parameters.(inbox.ToolInvocation).Call.CallID
+				head.pendingControlInputs[input.ID] = message.Parameters.(inbox.ToolInvocation)
 			}
 		case inbox.ToolInvocationFinished:
 			result := message.Parameters.(inbox.ToolInvocationResult)
-			if head.pendingControlInputs[result.InputID] == result.CallID {
+			if head.pendingControlInputs[result.InputID].Call.CallID == result.CallID {
 				delete(head.pendingControlInputs, result.InputID)
 			}
 		}
@@ -311,7 +314,31 @@ func (head *sessionHead) initializeControlOperation(inputID inbox.ID, value oper
 	if err != nil {
 		return fmt.Errorf("initialize control operation %q: %w", value.ID, err)
 	}
-	if state.Plan.Type != "subagent.control" || state.Plan.Version != 1 {
+	invocation := head.pendingControlInputs[inputID]
+	if invocation.Call.Name == "TaskGraph" {
+		if state.Plan.Type != graph.ControlPlanType || (state.Plan.Version != graph.PlanVersion && state.Plan.Version != graph.DurablePlanVersion) {
+			return fmt.Errorf("initialize control operation %q: unsupported graph control plan", value.ID)
+		}
+		var expected, actual graph.ControlPlan
+		if err := json.Unmarshal([]byte(invocation.Call.Arguments), &expected, json.RejectUnknownMembers(true)); err != nil {
+			return err
+		}
+		if state.Plan.Version == graph.DurablePlanVersion {
+			var durable graph.DurableControlPlan
+			if err := json.Unmarshal(state.Plan.Data, &durable, json.RejectUnknownMembers(true)); err != nil {
+				return err
+			}
+			if durable.Version != 1 || durable.ParentID != head.Snapshot.Session.ID || durable.Scope == "" {
+				return fmt.Errorf("invalid durable graph control owner")
+			}
+			actual = durable.Control
+		} else if err := json.Unmarshal(state.Plan.Data, &actual, json.RejectUnknownMembers(true)); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(expected, actual) {
+			return fmt.Errorf("graph control specification does not match admitted intent")
+		}
+	} else if invocation.Call.Name != "AgentControl" || state.Plan.Type != "subagent.control" || state.Plan.Version != 1 {
 		return fmt.Errorf("initialize control operation %q: unsupported control plan", value.ID)
 	}
 	head.operationPositions[value.ID] = len(head.Operations)
@@ -479,7 +506,7 @@ func (head *sessionHead) resetOwnedState() {
 	head.toolCallStatuses = make(map[toolCallStatusKey]struct{})
 	head.Operations = nil
 	head.operationPositions = make(map[operation.ID]int)
-	head.pendingControlInputs = make(map[inbox.ID]string)
+	head.pendingControlInputs = make(map[inbox.ID]inbox.ToolInvocation)
 	head.controlOperationInputs = make(map[operation.ID]inbox.ID)
 	head.seenControlInputs = make(map[inbox.ID]struct{})
 }

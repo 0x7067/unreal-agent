@@ -1,28 +1,12 @@
 package workerhost
 
-// Real-runtime regression coverage for abandoned retirement in
-// cmd/internal/workerhost/host.go.
-//
-// Construction path: the real Start()/start() (frontend lease, durable ingress,
-// stage/probe of a private executable copy, launch, consume, dispatch) on a
-// normal filesystem. The worker is the real workerruntime: the host's direct
-// child is a tiny relay that exec()s the repository's own worker fixture
-// (host_test.go TestMain "worker" mode with UA_HOST_TEST_REAL=1) and forwards
-// every workerproto frame unchanged. The relay exists for exactly one reason:
-// workerruntime answers quiesce synchronously inside serve() using
-// coordinator.TryQuiesce on an idle loop, so there is no injectable point at
-// which the real worker can be made to answer late. The relay holds the single
-// quiesce frame after the host wrote it and before the worker saw it, which is
-// the cancellation window under test; everything else - hello, ready, replay, item,
-// quiesced, exit status - is the real worker's.
-//
-// Assertions use only observable state: the Status sequence delivered to
-// OnStatus, the return value of Submit, delivered session items, and Done().
-// generation() (host_test.go) is used only as a settle barrier, never as an
-// assertion about the status behavior.
+// Real-runtime cancellation coverage: a transparent relay holds the ordered
+// drain frame after the host admitted retirement but before the actual worker
+// sees it. Everything else (history, cleanup receipt, process exit) is real.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,76 +21,54 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
-// Cancellation abandons the Reload caller, not the admitted quiesce. A later
-// clean exit must publish stopped while keeping the durable host recoverable.
-func TestVerifyAbandonedRetireReportsStopped(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "quiesce-gate")
+// Canceling a wait cannot undo retirement or abandon eventual replacement.
+func TestVerifyAbandonedRetireCompletesReplacement(t *testing.T) {
+	verifyAbandonedWait(t, false)
+}
+func verifyAbandonedWait(t *testing.T, deadline bool) {
+	gate := filepath.Join(t.TempDir(), "drain-gate")
 	h, records := verifyFixture(t, gate)
-	if status := verifyLast(records); status.Message != "Worker ready" || status.Stopped {
-		t.Fatalf("fixture did not reach a ready worker: %s", verifyStatusLine(status))
+	before, pid := generation(h)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if deadline {
+		ctx, cancel = context.WithTimeout(t.Context(), 5*time.Second)
+	} else {
+		ctx, cancel = context.WithCancel(t.Context())
 	}
-
-	// The caller owns this context; canceling it must not cancel the host
-	// lifetime, which derives from the Start context only.
-	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	result := make(chan error, 1)
 	go func() { result <- h.Reload(ctx, nil) }()
-	// The relay has read the quiesce frame the host wrote and has not passed it
-	// to the worker: canceling now is exactly "canceled after the frame was
-	// written, before any reply exists".
-	verifyWaitFile(t, gate+".seen", "the peer to admit the quiesce request")
-	cancel()
-	var reloadErr error
-	select {
-	case reloadErr = <-result:
-	case <-time.After(30 * time.Second):
-		t.Fatal("Reload did not return after its context was canceled")
+	verifyWaitFile(t, gate+".seen", "relay to hold admitted drain frame")
+	if !deadline {
+		cancel()
 	}
-	if reloadErr == nil || !strings.Contains(reloadErr.Error(), "quiesce outcome unconfirmed; no replacement started") {
-		t.Fatalf("Reload = %v, want the abandoned-quiesce error", reloadErr)
+	err := advReceiveError(t, result)
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("client wait = %v", err)
 	}
-
-	// Release the held frame: the real worker answers the abandoned request and
-	// retires on its own.
-	if err := os.WriteFile(gate, []byte("release\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if !h.ReloadPending() {
+		t.Fatal("client cancellation abandoned host completion")
 	}
-	if code := strings.TrimSpace(string(verifyWaitFile(t, gate+".exited", "the real worker to exit"))); code != "0" {
-		t.Fatalf("real worker exit status %q, want a clean 0", code)
-	}
-	// Wait until the host has finished consuming the retirement before asserting.
-	verifyWait(t, "the host to retire the process", func() bool {
-		_, pid := generation(h)
-		return pid == 0
-	})
-
-	statuses := verifyStatuses(records)
-	last := verifyLast(records)
-	ready := statuses[0]
-	if !last.Stopped || last.Err != nil || last.Generation != ready.Generation || last.Build != ready.Build {
-		t.Fatalf("last status after clean retirement = %s; statuses: %s", verifyStatusLine(last), verifyStatusLines(statuses))
-	}
-	advAssertHostOpen(t, h)
-
-	// Submit is durable admission, not a worker-liveness promise. The input
-	// remains pending until an explicit Reload recovers the safe stopped host.
 	input := inbox.Input{ID: "pending-input", Kind: inbox.InputExternal, Payload: []byte(`"pending"`)}
 	if err := h.Submit(t.Context(), input); err != nil {
-		t.Fatalf("Submit after clean retirement: %v", err)
-	}
-	if pending := h.journal.Pending(); len(pending) != 1 || pending[0].ID != input.ID {
-		t.Fatalf("pending durable input = %+v", pending)
+		t.Fatal(err)
 	}
 	for _, item := range verifyItems(records) {
 		if value, ok := item.Data.(inbox.Input); ok && value.ID == input.ID {
-			t.Fatal("input delivered without a worker")
+			t.Fatal("post-cutoff input reached old worker")
 		}
 	}
-	if err := h.Reload(t.Context(), nil); err != nil {
-		t.Fatalf("recover after clean retirement: %v", err)
+	if err := os.WriteFile(gate, []byte("release\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.AwaitReload(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 	waitInput(t, records, string(input.ID))
+	if after, next := generation(h); after != before+1 || next == 0 || next == pid {
+		t.Fatal("host did not complete exactly one replacement")
+	}
 	count := 0
 	for _, item := range verifyItems(records) {
 		if value, ok := item.Data.(inbox.Input); ok && value.ID == input.ID {
@@ -114,10 +76,10 @@ func TestVerifyAbandonedRetireReportsStopped(t *testing.T) {
 		}
 	}
 	if count != 1 || len(h.journal.Pending()) != 0 {
-		t.Fatalf("recovered input count=%d pending=%+v", count, h.journal.Pending())
+		t.Fatalf("queued input count=%d pending=%+v", count, h.journal.Pending())
 	}
-	if status := verifyLast(records); status.Stopped || status.Err != nil || status.Generation <= ready.Generation || status.Message != "Worker ready" {
-		t.Fatalf("last recovery status = %s", verifyStatusLine(status))
+	if last := verifyLast(records); last.Stopped || last.Err != nil || last.Message != "Worker ready" {
+		t.Fatalf("host result status %s", verifyStatusLine(last))
 	}
 	advAssertHostOpen(t, h)
 }
@@ -157,38 +119,9 @@ func TestVerifyAbandonedRetireHarnessControl(t *testing.T) {
 	waitInput(t, records, "control-second")
 }
 
-// An explicitly requested Reload can recover a safely stopped worker and
-// deliver inputs durably admitted after its caller abandoned retirement.
-func TestVerifyAbandonedRetireInputRecoveredByReload(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "quiesce-gate")
-	h, records := verifyFixture(t, gate)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() { result <- h.Reload(ctx, nil) }()
-	verifyWaitFile(t, gate+".seen", "the peer to admit the quiesce request")
-	cancel()
-	if err := advReceiveError(t, result); err == nil || !strings.Contains(err.Error(), "quiesce outcome unconfirmed") {
-		t.Fatalf("canceled Reload = %v, want an unconfirmed-quiesce error", err)
-	}
-	if err := os.WriteFile(gate, []byte("release\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	verifyWaitFile(t, gate+".exited", "the real worker to exit")
-	verifyWait(t, "the host to retire the process", func() bool {
-		_, pid := generation(h)
-		return pid == 0
-	})
-	if err := h.Submit(context.Background(), inbox.Input{ID: "late-input", Kind: inbox.InputExternal, Payload: []byte(`"late"`)}); err != nil {
-		t.Fatalf("Submit after the abandoned retirement = %v", err)
-	}
-	// Recovery requires a proven safe retirement, rather than an arbitrary crash.
-	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer reloadCancel()
-	if err := h.Reload(reloadCtx, nil); err != nil {
-		t.Fatalf("second reload after the abandoned retirement failed: %v", err)
-	}
-	waitInput(t, records, "late-input")
+// Client deadline expiry is likewise only wait cancellation, not drain authority.
+func TestVerifyReloadDeadlineStillCompletesReplacement(t *testing.T) {
+	verifyAbandonedWait(t, true)
 }
 
 // verifyFixture starts a real Host whose worker is the real workerruntime behind
@@ -428,7 +361,7 @@ func isQuiesce(line []byte) bool {
 	if json.Unmarshal(line, &request) != nil {
 		return false
 	}
-	return request.Type == "quiesce"
+	return request.Type == "drain"
 }
 
 func waitForFile(path string, timeout time.Duration) bool {

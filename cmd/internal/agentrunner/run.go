@@ -389,9 +389,6 @@ func Run(
 		return fmt.Errorf("load model settings: %w", err)
 	}
 	selectedModel.CompactionThreshold = modelSettings.Model(selected.Name, selectedModel.ID).CompactionThreshold
-	if _, listed := modelSettings.LookupModel(selected.Name, selectedModel.ID); !listed {
-		fmt.Fprintf(flagOutput, "warning: provider %q model %q is not listed; using compaction threshold %d tokens; configure %s\n", selected.Name, selectedModel.ID, settings.DefaultCompactionThreshold, settingsPath)
-	}
 
 	observedOutput := output
 	if directory := strings.TrimSpace(*logDirectory); directory != "" {

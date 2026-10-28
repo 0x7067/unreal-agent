@@ -8,13 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"uuid"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerhost"
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
@@ -192,24 +189,7 @@ func (m *model) startAgentCommand(text string) tea.Cmd {
 		m.append("Agent control", err.Error())
 		return nil
 	}
-	id := inbox.ID(uuid.New().String())
-	// This is durable ingress, not a direct hub dispatch or session-store write.
-	// Coordinator decodes the structural tool call and persists its operations
-	// before any target side effect; no LLM response is required.
-	payload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.InvokeTool, Parameters: inbox.ToolInvocation{Call: llm.ToolCall{CallID: string(id), Name: tool.AgentControlName, Arguments: string(arguments)}}})
-	if m.pendingSubmissions == nil {
-		m.pendingSubmissions = make(map[inbox.ID]struct{})
-	}
-	m.pendingSubmissions[id] = struct{}{}
-	m.sending = true
-	m.lines = append(m.lines, message{label: "Agent control", text: fmt.Sprintf("%s requested for %s · admission only; not consumption or drain", command.action, command.handle), inputID: id, submission: submissionSending})
-	m.renderConversation()
-	m.conversation.GotoBottom()
-	if m.submissionQueue == nil {
-		m.submissionQueue = newSubmissionQueue(m.ctx)
-	}
-	result := m.submissionQueue.enqueue(inbox.Input{ID: id, Kind: inbox.InputControl, Payload: payload}, text, m.inputs, err)
-	return func() tea.Msg { return <-result }
+	return m.startStructuralControl("Agent control", text, fmt.Sprintf("%s requested for %s · admission only; not consumption or drain", command.action, command.handle), tool.AgentControlName, string(arguments))
 }
 
 func (m model) activitySummary() string {

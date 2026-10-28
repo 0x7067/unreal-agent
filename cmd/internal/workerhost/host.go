@@ -94,9 +94,10 @@ type Host struct {
 	doneOnce       sync.Once
 	kick           chan struct{}
 	dispatcherDone chan struct{}
-	delivery       chan struct{} // fences all pipe delivery across an entire handoff
+	delivery       chan struct{} // serializes pipe delivery, cutoff, and intervention closure
 	reload         atomic.Bool
 	reloadDone     chan struct{}
+	handoffState   *reloadHandoff
 	admissions     sync.WaitGroup // Add only under mu, before closing is set
 	admissionOnce  sync.Once
 	admissionDone  chan struct{}
@@ -121,6 +122,7 @@ type process struct {
 	waiting       map[string]chan workerproto.Event
 	sequence      sessionstore.Sequence
 	sent          map[inbox.ID]bool // only under host.delivery
+	draining      atomic.Bool       // process-lifetime delivery cutoff; never undone
 	retired       atomic.Bool
 	expectedStop  atomic.Bool
 	waited        chan error
@@ -326,7 +328,11 @@ func (h *Host) dispatch() {
 		failure := h.failure
 		h.mu.Unlock()
 		if p != nil && !closing && failure == nil && !p.retired.Load() {
+			retiring := p.draining.Load()
 			for _, input := range h.journal.Pending() {
+				if retiring && inbox.ValidateIntervention(input, p.controlScope) != nil {
+					continue
+				}
 				if p.sent[input.ID] {
 					continue
 				}
@@ -534,7 +540,7 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 			}
 			sawReady = true
 			p.ready <- nil
-		case "busy", "quiesced", "activity_snapshot":
+		case "drained", "activity_snapshot":
 			p.mu.Lock()
 			waiter := p.waiting[event.ID]
 			delete(p.waiting, event.ID)
@@ -547,8 +553,16 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 				failure = errors.New("unsolicited worker control response")
 				break
 			}
-			if event.Type == "quiesced" {
+			if event.Type == "drained" {
+				// The same ordered gate admits interventions and closes their lane.
+				// Previously admitted but unpersisted controls remain in ingress;
+				// their exact old scope makes replacement reconciliation inert.
+				if err := p.host.lockDelivery(p.host.ctx); err != nil {
+					failure = err
+					break
+				}
 				p.retired.Store(true)
+				p.host.unlockDelivery()
 			}
 			waiter <- event
 		case "error":
@@ -589,9 +603,7 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 	p.host.mu.Lock()
 	owner := p.host.current == p
 	if owner {
-		if p.retired.Load() && failure == nil {
-			p.host.stopped = true
-		} else if !p.host.closing {
+		if !(p.retired.Load() && failure == nil) && !p.host.closing {
 			p.host.failure = errors.Join(ErrStopped, failure)
 		}
 	}
@@ -620,31 +632,62 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 	}
 }
 
-// Reload probes first, then fences pipe delivery. Busy work is never canceled.
-// Cancellation after a quiesce request is admitted is ambiguous: no replacement
-// is launched until the old process has exited, even if the caller times out.
+// Reload stages once and establishes an ordered input cutoff. Busy work drains
+// naturally; only exact scoped interventions pass the retiring generation.
+// After admission ctx cancels the wait, never retirement or eventual replacement.
 func (h *Host) Reload(ctx context.Context, candidate []string) error {
 	return h.handoff(ctx, candidate, false)
 }
 
-// RetireForHostReplacement naturally quiesces and actually joins the worker,
-// seals future admission, and retains ingress ownership until explicit Close.
-// It never starts another process. A timeout is not a drained receipt.
+// RetireForHostReplacement uses the same drain and joins but seals admission
+// instead of starting a candidate. Ingress ownership survives until Close.
 func (h *Host) RetireForHostReplacement(ctx context.Context) error {
 	return h.handoff(ctx, nil, true)
+}
+
+type reloadHandoff struct {
+	done   chan struct{}
+	result error // published by closing done
+}
+
+// ReloadPending is observation only, never cleanup or exit proof.
+func (h *Host) ReloadPending() bool { return h.reload.Load() }
+
+// AwaitReload observes the host-owned result after a disconnected/canceled wait.
+func (h *Host) AwaitReload(ctx context.Context) error {
+	h.mu.Lock()
+	state := h.handoffState
+	h.mu.Unlock()
+	if state == nil {
+		return errors.New("no reload admitted")
+	}
+	return awaitReload(ctx, state)
+}
+func awaitReload(ctx context.Context, state *reloadHandoff) error {
+	select {
+	case <-state.done:
+		return state.result
+	case <-ctx.Done():
+		return fmt.Errorf("reload wait ended; host still owns any admitted retirement: %w", context.Cause(ctx))
+	}
 }
 
 func (h *Host) handoff(ctx context.Context, candidate []string, retireHost bool) error {
 	if !h.reload.CompareAndSwap(false, true) {
 		return fmt.Errorf("%w: another reload is in progress", ErrBusy)
 	}
-	defer h.reload.Store(false)
+	armed := false
+	state := &reloadHandoff{done: make(chan struct{})}
 	h.mu.Lock()
 	closing, failure := h.closing || h.sealed, h.failure
-	finished := make(chan struct{})
-	h.reloadDone = finished
+	h.reloadDone = state.done
 	h.mu.Unlock()
-	defer close(finished)
+	defer func() {
+		if !armed {
+			h.reload.Store(false)
+			close(state.done)
+		}
+	}()
 	if closing {
 		return ErrClosed
 	}
@@ -653,7 +696,6 @@ func (h *Host) handoff(ctx context.Context, candidate []string, retireHost bool)
 	}
 	var stage staged
 	var err error
-	used := false
 	if !retireHost {
 		if len(candidate) == 0 {
 			candidate = h.config.Candidate
@@ -663,106 +705,175 @@ func (h *Host) handoff(ctx context.Context, candidate []string, retireHost bool)
 			return fmt.Errorf("candidate rejected; current worker unchanged: %w", err)
 		}
 		defer func() {
-			if !used {
+			if !armed {
 				h.discardStage(stage.command[0])
 			}
 		}()
 	}
-
 	if err := h.lockDelivery(ctx); err != nil {
 		return err
 	}
-	defer func() { h.unlockDelivery(); h.wake() }()
-	if err = context.Cause(ctx); err != nil {
-		return err
-	}
 	h.mu.Lock()
-	p := h.current
-	safeStopped := h.stopped
-	closing = h.closing || h.sealed
-	failure = h.failure
-	h.mu.Unlock()
-	if closing {
-		return ErrClosed
-	}
-	if failure != nil {
-		return failure
-	}
-	if p != nil {
-		for _, input := range h.journal.Pending() {
-			if p.sent[input.ID] {
-				return fmt.Errorf("%w: input %s has not reached session persistence", ErrBusy, input.ID)
-			}
+	p, safeStopped := h.current, h.stopped
+	closing, failure = h.closing || h.sealed, h.failure
+	if err = context.Cause(ctx); err == nil && !closing && failure == nil && (p != nil || safeStopped) {
+		// This is the irreversible admission boundary. The host, not this wait,
+		// owns the pipe write and every subsequent cleanup/replacement step.
+		h.handoffState, armed = state, true
+		if p != nil {
+			p.draining.Store(true)
 		}
+	}
+	h.mu.Unlock()
+	if !armed {
+		h.unlockDelivery()
+		if err != nil {
+			return err
+		}
+		if closing {
+			return ErrClosed
+		}
+		if failure != nil {
+			return failure
+		}
+		return ErrStopped
+	}
+	go func() {
+		state.result = h.completeHandoff(p, safeStopped, stage, retireHost)
+		h.reload.Store(false)
+		close(state.done)
+		h.wake()
+	}()
+	return awaitReload(ctx, state)
+}
+
+// completeHandoff receives delivery ownership and always releases it after the
+// ordered stop write. No client context is allowed past the admission boundary.
+func (h *Host) completeHandoff(p *process, safeStopped bool, stage staged, retireHost bool) (result error) {
+	used := false
+	defer func() {
+		if result != nil {
+			h.mu.Lock()
+			if !h.closing && h.current == nil && !h.stopped {
+				h.failure = errors.Join(ErrStopped, result)
+			}
+			h.mu.Unlock()
+		}
+		if !retireHost && !used {
+			h.discardStage(stage.command[0])
+		}
+	}()
+	if p != nil {
 		id := uuid.New().String()
 		reply := make(chan workerproto.Event, 1)
 		p.mu.Lock()
 		p.waiting[id] = reply
 		p.mu.Unlock()
-		if err = workerproto.Write(p.input, workerproto.Request{Type: "quiesce", Protocol: workerproto.Version, ID: id}); err != nil {
+		err := workerproto.Write(p.input, workerproto.Request{Type: "drain", Protocol: workerproto.Version, ID: id})
+		h.unlockDelivery()
+		h.wake()
+		defer func() { p.mu.Lock(); delete(p.waiting, id); p.mu.Unlock() }()
+		if err != nil {
 			p.cancel()
-			return fmt.Errorf("quiesce transport uncertain; no replacement started: %w", err)
+			return fmt.Errorf("drain transport uncertain; no replacement started: %w", err)
 		}
-		var response workerproto.Event
+		h.status(Status{Generation: p.generation, Build: p.build, Message: "Replacement scheduled; ordinary submissions queued; scoped graph/helper interventions remain available"})
 		select {
-		case response = <-reply:
+		case <-reply:
 		case <-p.done:
-			// A clean, fast child may exit before this waiter is scheduled.
-			// Its already-buffered control response remains authoritative.
 			select {
-			case response = <-reply:
+			case <-reply:
 			default:
 				return errors.Join(ErrStopped, p.result())
 			}
-		case <-ctx.Done():
-			return fmt.Errorf("quiesce outcome unconfirmed; no replacement started: %w", context.Cause(ctx))
-		}
-		if response.Type == "busy" {
-			return fmt.Errorf("%w: %s", ErrBusy, response.Error)
+		case <-h.ctx.Done():
+			return ErrClosed
 		}
 		select {
 		case <-p.done:
-		case <-ctx.Done():
-			return fmt.Errorf("old worker shutdown incomplete; no replacement started: %w", context.Cause(ctx))
+		case <-h.ctx.Done():
+			return ErrClosed
 		}
-		if err = p.result(); err != nil {
-			return fmt.Errorf("old worker shutdown failed: %w", err)
+		if err := p.result(); err != nil {
+			return fmt.Errorf("old worker cleanup/exit failed: %w", err)
+		}
+		if !p.cleanupProven.Load() {
+			return errors.New("old worker cleanup proof missing; no replacement started")
+		}
+		// Actually acquire/release the writer lease after the old process and all
+		// output callbacks joined. A receipt or successful exit alone is not enough.
+		lease, err := localfile.AcquireLease(h.config.Bootstrap.Directory, h.config.Bootstrap.SessionID)
+		if err != nil {
+			return fmt.Errorf("old worker lease release unconfirmed: %w", err)
+		}
+		if err := lease.Close(); err != nil {
+			return err
 		}
 		safeStopped = true
+		h.mu.Lock()
+		h.stopped = true // only cleanup receipt + process/output joins + lease probe authorize this
+		h.mu.Unlock()
+	} else {
+		h.unlockDelivery()
 	}
 	if !safeStopped {
 		return ErrStopped
 	}
 	if retireHost {
-		// Same mutex as Submit's WaitGroup.Add. No new admission can race Wait.
 		h.mu.Lock()
-		h.sealed = true
-		h.failure = ErrStopped
+		h.sealed, h.failure = true, ErrStopped
 		h.mu.Unlock()
 		h.admissionOnce.Do(func() { go func() { h.admissions.Wait(); close(h.admissionDone) }() })
-		select {
-		case <-h.admissionDone:
-		case <-ctx.Done():
-			return fmt.Errorf("host retirement admission join unconfirmed: %w", context.Cause(ctx))
-		}
+		<-h.admissionDone
 		h.status(Status{Message: "Worker drained and joined; ingress retained until explicit host stop", Stopped: true})
 		h.finish(ErrStopped)
 		return nil
 	}
 	h.status(Status{Message: "Old worker exited; starting replacement", Stopped: true})
-	p, err = h.launch(ctx, stage)
-	used = p != nil
+	// Close sets closing before canceling h.ctx and joins this handoff before
+	// releasing ingress or leases, including any racing startup process.
+	h.mu.Lock()
+	closing := h.closing || h.sealed
+	h.mu.Unlock()
+	if closing {
+		return ErrClosed
+	}
+	startup, cancel := context.WithTimeout(h.ctx, 30*time.Second)
+	defer cancel()
+	next, err := h.launch(startup, stage)
+	used = next != nil
 	if err != nil {
-		// The candidate may have touched the session. Never automatically downgrade.
-		if p != nil {
-			p.expectedStop.Store(true)
-			p.cancel()
-			_ = p.input.Close()
+		if next != nil {
+			next.expectedStop.Store(true)
+			next.cancel()
+			_ = next.input.Close()
+			<-next.done
 		}
 		h.status(Status{Message: "Replacement failed; session stopped, no automatic downgrade", Err: err, Stopped: true})
 		return fmt.Errorf("replacement failed after retirement: %w", err)
 	}
 	return nil
+}
+
+// SubmitIntervention acknowledges durable admission only, not consumption or
+// drain. Delivery/closure is generation-bound; an undelivered stale intent is
+// reconciled as failed, never applied to a replacement generation.
+func (h *Host) SubmitIntervention(ctx context.Context, input inbox.Input) error {
+	if err := h.lockDelivery(ctx); err != nil {
+		return err
+	}
+	defer h.unlockDelivery()
+	h.mu.Lock()
+	p := h.current
+	closed := h.closing || h.closed || h.sealed || h.failure != nil
+	h.mu.Unlock()
+	if p == nil || closed || p.retired.Load() {
+		return ErrStopped
+	}
+	if err := inbox.ValidateIntervention(input, p.controlScope); err != nil {
+		return err
+	}
+	return h.Submit(ctx, input)
 }
 
 // Close is explicit user shutdown, not reload: canceling active work is allowed.

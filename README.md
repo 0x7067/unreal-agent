@@ -10,6 +10,8 @@ An async-first agent harness from Unreal Labs.
 
 Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)
 (target and incremental roadmap; not a statement of current guarantees).
+Current simplifications and remaining work:
+[upstream alignment](docs/plans/upstream-alignment.md).
 The [M1.5 adversarial-client verification](docs/verification/durable-adversarial-m15-20261027.md)
 records stalled-client isolation, measured publication bounds, and authentication
 test limits. The [M1.6 lifecycle verification](docs/verification/durable-lifecycle-m16-20261028.md)
@@ -34,8 +36,8 @@ Help/version never load `.env`; subagents inherit the parent environment without
 reloading it. Tool wall-time thresholds and the concurrent-operation admission
 bound are disabled by default; environment settings can enable explicit limits.
 See [environment trust and model compaction settings](cmd/unreal-agent-runner/README.md#environment-and-workspace-trust).
-Unlisted provider/model settings now use a 64,000-token compaction threshold,
-not zero; configure smaller-context models explicitly.
+Unlisted provider/model settings use upstream's zero-value compaction threshold;
+configure their context window/threshold explicitly.
 
 ## Headless sessions and reconnectable TUI (M1.1–M1.6)
 
@@ -151,9 +153,11 @@ changes separately first; no workspace code is built automatically. Use
 `-worker-executable /absolute/trusted/unreal-agent-tui` to select a replacement
 explicitly, or `-session ID` to resume after a frontend restart.
 
-Reload is refused while model/tool/subagent work or an unfinished TaskGraph is
-active (including a candidate awaiting acceptance). It never kills active work
-just to reload. New inputs are durably queued across the handoff; accepted,
+Reload is scheduled while model/tool/subagent work finishes naturally. Graphs
+awaiting acceptance and retained helpers require explicit intervention; reload
+never accepts results or kills work implicitly. New ordinary inputs are durably
+queued; scoped `/graph` and `/agents` controls remain available. Canceling a client
+wait does not undo an admitted reload. Accepted,
 session-persisted and model-delivered are distinct states. UI-code updates still
 require a frontend restart. See [reload lifecycle and limits](docs/plans/hot-reload.md).
 

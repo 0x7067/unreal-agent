@@ -121,11 +121,20 @@ func mcApply(inputs *Inbox, ev mcEvent, o *mcOracle, trace []mcEvent) error {
 		if o.frozen {
 			return fmt.Errorf("internal: admission offered while oracle says frozen %s", where)
 		}
+		request := submission{input: Input{ID: ev.id, Kind: InputExternal}, admitted: make(chan struct{})}
 		select {
-		case inputs.submissions <- Input{ID: ev.id, Kind: InputExternal}:
+		case inputs.submissions <- request:
+			select {
+			case <-request.admitted:
+			case <-time.After(mcWatchdog):
+				return fmt.Errorf("missing definitive admission acknowledgment %s", where)
+			}
 			if _, dup := o.seen[ev.id]; !dup {
 				o.seen[ev.id] = struct{}{}
 				o.queue = append(o.queue, ev.id)
+			}
+			if inputs.HasPending() != (len(o.queue) != 0) {
+				return fmt.Errorf("queued ownership disagrees with admitted FIFO %s", where)
 			}
 			return nil
 		case <-time.After(mcWatchdog):
@@ -418,7 +427,7 @@ func TestInboxFrozenBlocksAdmission(t *testing.T) {
 		t.Fatal(err) // freezes hand over [a]; the oracle queue is now empty
 	}
 	select {
-	case inputs.submissions <- Input{ID: "b", Kind: InputExternal}:
+	case inputs.submissions <- submission{input: Input{ID: "b", Kind: InputExternal}, admitted: make(chan struct{})}:
 		t.Fatal("submission was received while frozen")
 	case <-time.After(mcFrozenBlockWait):
 	}

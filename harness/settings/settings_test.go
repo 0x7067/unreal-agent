@@ -182,8 +182,8 @@ func TestLoadMergesModelsWithinProviders(t *testing.T) {
 		{provider: "other", model: "gpt-6-astra", threshold: 50_000},
 		{provider: "openai", model: "custom", threshold: 100_000},
 		{provider: "other", model: "custom", threshold: 40_000},
-		{provider: "missing", model: "gpt-6-astra", threshold: DefaultCompactionThreshold},
-		{provider: "openai", model: "missing", threshold: DefaultCompactionThreshold},
+		{provider: "missing", model: "gpt-6-astra", threshold: 0},
+		{provider: "openai", model: "missing", threshold: 0},
 	} {
 		if got := configured.Model(test.provider, test.model).CompactionThreshold; got != test.threshold {
 			t.Fatalf("%s/%s threshold = %d, want %d", test.provider, test.model, got, test.threshold)
@@ -227,17 +227,31 @@ func writeSettings(t *testing.T, path, contents string) {
 	}
 }
 
-func TestModelFallbackAndListedCheck(t *testing.T) {
-	for _, configured := range []Settings{{}, {Providers: map[string]Provider{"empty": {}}}} {
-		if got := configured.Model("empty", "unknown"); got.CompactionThreshold != DefaultCompactionThreshold || got.ContextWindow != 0 {
-			t.Fatalf("fallback = %#v", got)
-		}
-		if _, listed := configured.LookupModel("empty", "unknown"); listed {
-			t.Fatal("unknown model reported listed")
+func TestModelUnknownReturnsZeroValue(t *testing.T) {
+	for _, configured := range []Settings{
+		{},
+		{Providers: map[string]Provider{"empty": {}}},
+		{Providers: map[string]Provider{"empty": {Models: []Model{{ID: "listed", Name: "Listed", ContextWindow: 100_000, CompactionThreshold: 50_000}}}}},
+	} {
+		for _, provider := range []string{"empty", "missing"} {
+			if got := configured.Model(provider, "unknown"); got != (Model{}) {
+				t.Fatalf("%s/unknown = %#v, want zero value", provider, got)
+			}
 		}
 	}
-	configured := Settings{Providers: map[string]Provider{"p": {Models: []Model{{ID: "listed", CompactionThreshold: 0}}}}}
-	if got, listed := configured.LookupModel("p", "listed"); !listed || got.CompactionThreshold != 0 || configured.Model("p", "listed") != got {
-		t.Fatalf("listed settings changed: %#v, %v", got, listed)
+}
+
+func TestModelPreservesListedSettings(t *testing.T) {
+	for _, model := range []Model{
+		{ID: "listed", Name: "Listed", ContextWindow: 100_000, CompactionThreshold: 75_000},
+		{ID: "listed", CompactionThreshold: 0},
+	} {
+		configured := Settings{Providers: map[string]Provider{"p": {Models: []Model{model}}}}
+		if got := configured.Model("p", "listed"); got != model {
+			t.Fatalf("listed settings = %#v, want %#v", got, model)
+		}
+		if got := configured.Model("other", "listed"); got != (Model{}) {
+			t.Fatalf("model from another provider = %#v, want zero value", got)
+		}
 	}
 }

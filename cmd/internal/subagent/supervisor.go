@@ -39,7 +39,10 @@ const (
 )
 
 type Config struct {
-	Hub *Hub
+	// OnWorkChanged is called after authoritative ownership changes. It must
+	// not block. Callers must re-read HasPendingWork; this is not a snapshot.
+	OnWorkChanged func()
+	Hub           *Hub
 	// RequireCleanupProof requires a fresh runner work-drain receipt for every launched child.
 	RequireCleanupProof bool
 	// prepare is a package-private deterministic I/O seam; production uses the
@@ -82,6 +85,10 @@ type Supervisor struct {
 	admissionMu          sync.Mutex
 	admissions           map[operation.ID]bool
 	admissionBytes       int
+	workMu               sync.Mutex
+	actorPending         bool
+	workRequests         int
+	workDeliveries       int
 }
 
 // New starts a supervisor. Its child processes stop when ctx is canceled.
@@ -140,14 +147,53 @@ func (current *Supervisor) Handlers() []operation.RemoteJobHandler {
 	return []operation.RemoteJobHandler{current.run, current.message}
 }
 
+// HasPendingWork reports native child ownership, not operation ticket completion.
+// It is a pure local read: the actor and admission/delivery goroutines publish
+// under workMu, independently of the bounded diagnostic activity projection.
+func (current *Supervisor) HasPendingWork() bool {
+	current.workMu.Lock()
+	defer current.workMu.Unlock()
+	return current.pendingWorkLocked()
+}
+
+func (current *Supervisor) pendingWorkLocked() bool {
+	return current.actorPending || current.workRequests != 0 || current.workDeliveries != 0
+}
+
+func (current *Supervisor) changeWork(change func()) {
+	current.workMu.Lock()
+	before := current.pendingWorkLocked()
+	change()
+	changed := before != current.pendingWorkLocked()
+	current.workMu.Unlock()
+	if changed && current.config.OnWorkChanged != nil {
+		current.config.OnWorkChanged()
+	}
+}
+
+func (s *state) publishWork(completedRequests int) {
+	current := s.supervisor
+	current.changeWork(func() {
+		current.actorPending = s.activeProcesses != 0 || s.pendingPreps != 0 || len(s.pendingFinals) != 0 ||
+			len(s.owners) != 0 || len(s.messages) != 0 || len(s.runQueue) != 0 || len(s.messageQueue) != 0 ||
+			len(s.deliveryInputs) != 0 || current.cleanupErr != nil
+		current.workRequests -= completedRequests
+	})
+}
+
 func (current *Supervisor) do(request func(*state)) error {
 	if err := current.ctx.Err(); err != nil {
 		return err
 	}
+	current.changeWork(func() { current.workRequests++ })
 	select {
-	case current.requests <- request:
+	case current.requests <- func(s *state) {
+		request(s)
+		s.publishWork(1)
+	}:
 		return nil
 	case <-current.ctx.Done():
+		current.changeWork(func() { current.workRequests-- })
 		return current.ctx.Err()
 	}
 }
@@ -162,6 +208,9 @@ func (current *Supervisor) loop() {
 		current.stopWorkers()
 		current.readers.Wait()
 		current.activity.joined()
+		// All owned workers are joined. Shutdown may discard undelivered
+		// operation updates; a missing cleanup proof still retains ownership.
+		current.changeWork(func() { current.actorPending = current.cleanupErr != nil })
 	}()
 	s := &state{
 		supervisor: current,
@@ -171,6 +220,7 @@ func (current *Supervisor) loop() {
 	}
 	shutdown := current.ctx.Done()
 	for {
+		s.publishWork(0)
 		if shutdown == nil && s.activeProcesses == 0 && s.pendingPreps == 0 && len(s.pendingFinals) == 0 {
 			return
 		}
@@ -211,6 +261,9 @@ func (current *handler) RemoteJobPlanVersion() operation.RemoteJobPlanVersion {
 
 func (current *handler) AddRemoteJob(value operation.Operation) error {
 	s := current.supervisor
+	// Count admission before any actor handoff (including admissionMu waits).
+	s.changeWork(func() { s.workRequests++ })
+	defer s.changeWork(func() { s.workRequests-- })
 	s.admissionMu.Lock()
 	if s.admissions[value.ID] {
 		s.admissionMu.Unlock()
@@ -1104,10 +1157,15 @@ func (s *state) flushDelivery(c *child, generation int, n int) {
 // post is reserved for owned workers. Shutdown stops external admission but must
 // still process their finite completion/drain continuations before actor exit.
 func (current *Supervisor) post(request func(*state)) error {
+	current.changeWork(func() { current.workRequests++ })
 	select {
-	case current.requests <- request:
+	case current.requests <- func(s *state) {
+		request(s)
+		s.publishWork(1)
+	}:
 		return nil
 	case <-current.done:
+		current.changeWork(func() { current.workRequests-- })
 		return errors.New("subagent supervisor joined")
 	}
 }

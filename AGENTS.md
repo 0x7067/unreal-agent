@@ -26,7 +26,7 @@ The README glossary and components table define the core terms (Input, Inbox, Se
 - Translators run synchronously on the loop and must not do I/O. They only produce serializable `harness/operation` values. The session store records them atomically with the tool-call status, and only then does the coordinator dispatch them to the operation manager actor (shell, image, skill use, remote jobs; built on `harness/primitives`).
 - `harness/taskgraph` = a pure DAG reducer (`graph.go`) driven by a single-goroutine `Runtime` and exposed to the model as the TaskGraph tool. Checkpoints are re-validated with `Graph.Validate` on resume.
 - Compatibility: session-store items and operations are serializable and versioned. Resuming an unsupported version must fail explicitly. Preserve backward reads of old sessions.
-- Binaries: `cmd/unreal-agent-runner` -> `cmd/internal/agentrunner` (one-shot run, JSONL events on stdout). The TUI is a frontend that supervises a resident worker (the same binary run with `worker`): `workerhost` (frontend side, `/reload` at quiescent points) talks to `workerruntime` over the private `workerproto` pipe protocol. Subagents: `cmd/internal/subagent`. Providers/auth: `cmd/internal/providers`.
+- Binaries: `cmd/unreal-agent-runner` -> `cmd/internal/agentrunner` (one-shot run, JSONL events on stdout). The TUI is a frontend that supervises a resident worker (the same binary run with `worker`): `workerhost` (frontend side, `/reload` via graceful `StopWhenIdle`) talks to `workerruntime` over the private `workerproto` pipe protocol. Subagents: `cmd/internal/subagent`. Providers/auth: `cmd/internal/providers`.
 
 ## Learnings
 

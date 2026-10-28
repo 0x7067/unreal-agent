@@ -8,9 +8,10 @@ import (
 
 // This is an opt-in discriminated variant of attach/v1, advertised separately.
 // Hosts must never send it to a client that has not requested runtime control.
-const CapabilityRuntime = "runtime_replacement_v1"
-const CapabilityRuntimeDrain = "runtime_drain_v1"
-const CapabilityHostRetire = "host_retire_v1"
+// v2 capabilities gate scheduled replacement semantics; wire records remain v1.
+const CapabilityRuntime = "runtime_replacement_v2"
+const CapabilityRuntimeDrain = "runtime_drain_v2"
+const CapabilityHostRetire = "host_retire_v2"
 
 type RuntimeRequest struct {
 	Version            int

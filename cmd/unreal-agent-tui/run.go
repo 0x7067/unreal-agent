@@ -259,7 +259,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		}
 	}
 	selectedModel := llm.Model{ID: opts.model, ReasoningEffort: llm.ReasoningEffort(opts.effort),
-		CompactionThreshold: compactionThreshold(modelSettings, provider.Name, opts.model, settingsPath, output)}
+		CompactionThreshold: modelSettings.Model(provider.Name, opts.model).CompactionThreshold}
 	workspace, err := os.Getwd()
 	if err != nil {
 		return err
@@ -417,12 +417,4 @@ func newSubagentFactory(opts options, directory, workspace, operationDirectory s
 		return supervisor.Handlers(), nil
 	}
 	return factory, stderr, nil
-}
-
-// compactionThreshold shares Settings.Model's fallback with startup and model switches.
-func compactionThreshold(configured settings.Settings, provider, model, path string, output io.Writer) int64 {
-	if _, listed := configured.LookupModel(provider, model); !listed {
-		fmt.Fprintf(output, "warning: provider %q model %q is not listed; using compaction threshold %d tokens; configure %s\n", provider, model, settings.DefaultCompactionThreshold, path)
-	}
-	return configured.Model(provider, model).CompactionThreshold
 }

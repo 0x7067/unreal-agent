@@ -863,7 +863,7 @@ func (m model) View() tea.View {
 		}
 	}
 	if m.reloading {
-		status, color = "Reloading worker · checking candidate and idle boundary", m.theme.StatusAccent
+		status, color = "Reload pending · finishing current work; new messages queued", m.theme.StatusAccent
 		if m.attached && m.reloadState == "queued" {
 			status = "Upgrade queued · waiting for natural idle drain; current work continues"
 		}

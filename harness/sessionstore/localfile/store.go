@@ -504,3 +504,19 @@ func validateSessionID(id session.ID) error {
 	}
 	return nil
 }
+
+// ControlOperations reads the actual initialized and updated checkpoints, not
+// Resume's unfinished-work projection. Callers must hold the writer lease.
+func (store *Store) ControlOperations(ctx context.Context, id session.ID) ([]operation.Operation, error) {
+	state, _, err := store.readState(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var result []operation.Operation
+	for _, op := range state.Operations {
+		if _, ok := state.controlOperationInputs[op.ID]; ok {
+			result = append(result, op)
+		}
+	}
+	return result, nil
+}

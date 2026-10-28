@@ -90,10 +90,9 @@ if their runner receives `-load-dotenv`.
 ## Model compaction settings
 
 The TUI shares the runner's [model settings and fallback](../unreal-agent-runner/README.md#model-compaction-settings).
-Unlisted provider/model pairs use `DefaultCompactionThreshold = 64000` tokens,
-including model changes in the TUI. Listed settings retain their configured
-threshold, or `context_window / 2` when omitted/zero. Configure smaller-context
-models explicitly; the fallback is not a claim about the actual context window.
+Unlisted provider/model pairs return zero-value settings, matching upstream.
+Configure their context window and compaction threshold explicitly; the TUI does
+not infer a 64k threshold or warn that a fallback is active.
 
 ## Subagents
 
@@ -155,12 +154,13 @@ from workspace settings or environment variables. Candidates must support the
 private `worker-probe`, `worker`, and embedded `agent-runner` subcommands. The
 probe checks protocol/session compatibility without consulting auth, config,
 workspace dotenv, or opening a terminal. Worker identity/generation is shown in
-the transcript header; reload progress, busy rejection, and errors appear in the
+the transcript header; scheduled reload progress and errors appear in the
 status row.
 
-Reload is allowed only at a proven idle boundary. Active model calls, graph/tool
-work, or input not yet proven session-persisted block replacement rather than
-canceling work. Probe failures leave the old worker running. If replacement fails
+Reload schedules an ordinary stop after current work finishes naturally. New
+ordinary input queues for the replacement; scoped graph/helper interventions
+remain available to finish retained work. Canceling the client wait does not undo
+an admitted reload. Probe failures leave the old worker running. If replacement fails
 after old-worker retirement, the session stays stopped; there is no automatic
 binary downgrade. New text still receives conservative session-persistence
 status. In this locally supervised mode (not `attach`), Ctrl+C shutdown,
@@ -219,3 +219,12 @@ state. Restarting attach after a deliberate shutdown can report matching
 canonical outcomes without starting a host or provider. See the
 [lifecycle implementation/proof work log](../../docs/plans/durable-lifecycle-controls.md)
 for current verification status and conservative limits.
+
+### Controls during scheduled reload
+
+New ordinary messages queue for the replacement. Use `/graph status NAME`,
+`/graph accept NAME TASK GENERATION EVIDENCE`, `/graph reject NAME TASK GENERATION EVIDENCE`
+or `/graph cancel NAME` for explicit existing-graph intervention. `/agents message`
+and `/agents stop HANDLE@GEN` remain generation-bound. These controls require a
+host advertising the intervention capability when attached. Canceling a wait does
+not undo an admitted reload. See [reload lifecycle](../../docs/plans/hot-reload.md).

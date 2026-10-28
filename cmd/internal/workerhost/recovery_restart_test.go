@@ -325,19 +325,8 @@ func TestM21OwnedProcessLossAndRestart(t *testing.T) {
 				}
 			}
 			waitResponses(t, records, wantResponses)
-			for {
-				err := host.Reload(ctx, nil)
-				if err == nil {
-					break
-				}
-				if !errors.Is(err, ErrBusy) {
-					t.Fatalf("recovery quiescence barrier: %v", err)
-				}
-				select {
-				case <-records.changed:
-				case <-ctx.Done():
-					t.Fatal("recovery never reached confirmed quiescence")
-				}
+			if err := host.Reload(ctx, nil); err != nil {
+				t.Fatalf("recovery ordered drain barrier: %v", err)
 			}
 			recovered := m21ReadItems(t, directory)
 			var inputs []inbox.Input
@@ -411,19 +400,37 @@ func TestM21OwnedProcessLossAndRestart(t *testing.T) {
 				t.Fatalf("terminal replay barrier: %v", err)
 			}
 			got := m21ReadItems(t, directory)
-			if len(got) != len(stable)+1 || !reflect.DeepEqual(got[:len(stable)], stable) {
+			if len(got) != len(stable)+2 || !reflect.DeepEqual(got[:len(stable)], stable) {
 				t.Fatalf("terminal restart changed committed prefix or added work: %d -> %d items", len(stable), len(got))
 			}
-			drain, ok := got[len(stable)].Data.(inbox.Input)
-			if !ok || drain.Kind != inbox.InputControl {
-				t.Fatal("quiescence tail is not a cleanup control")
+			// Natural retirement now records its ordinary process-lifetime stop,
+			// followed by fresh owner cleanup evidence. Neither record is a new
+			// model turn, tool intent, effect, or recovered external submission.
+			var tailIDs []inbox.ID
+			for index, mode := range []inbox.ControlMode{inbox.StopWhenIdle, inbox.ExecutionDrained} {
+				item := got[len(stable)+index]
+				input, ok := item.Data.(inbox.Input)
+				if item.Kind != sessionstore.ItemInput || !ok || input.Kind != inbox.InputControl || input.ID == "" {
+					t.Fatalf("retirement tail %d is not a canonical control: %+v", index, item)
+				}
+				if item.Sequence != stable[len(stable)-1].Sequence+sessionstore.Sequence(index+1) {
+					t.Fatal("retirement tail lost canonical sequence continuity")
+				}
+				tailIDs = append(tailIDs, input.ID)
+				control, err := input.DecodeControlMessage()
+				if err != nil || control.Mode != mode {
+					t.Fatalf("unexpected replay tail %d: %+v %v", index, control, err)
+				}
+				if mode == inbox.StopWhenIdle {
+					if control.Reason != "worker replacement" || control.Parameters != nil {
+						t.Fatalf("unexpected natural-stop intent: %+v", control)
+					}
+				} else if control.Parameters.(inbox.ExecutionDrainReceipt) != (inbox.ExecutionDrainReceipt{Version: 1, Scope: replayScope}) {
+					t.Fatal("replay cleanup tail is not fresh scope-bound evidence")
+				}
 			}
-			control, err := drain.DecodeControlMessage()
-			if err != nil || control.Mode != inbox.ExecutionDrained {
-				t.Fatalf("unexpected replay tail: %+v %v", control, err)
-			}
-			if control.Parameters.(inbox.ExecutionDrainReceipt).Scope != replayScope {
-				t.Fatal("replay cleanup tail is not scope-bound")
+			if tailIDs[0] == tailIDs[1] {
+				t.Fatal("stop and cleanup evidence reused one input identity")
 			}
 
 			if calls.Load() != firstCalls {
@@ -433,7 +440,7 @@ func TestM21OwnedProcessLossAndRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			m21AssertLeases(t, directory, false)
-			t.Logf("owned producer killed and joined: %s: %d provider requests; committed prefix unchanged and only fresh cleanup tail on second restart; terminal completion is not direct manager-admission instrumentation", boundary, firstCalls)
+			t.Logf("owned producer killed and joined: %s: %d provider requests; committed prefix unchanged and only ordered stop/fresh cleanup tail on second restart; terminal completion is not direct manager-admission instrumentation", boundary, firstCalls)
 		})
 	}
 }

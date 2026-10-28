@@ -159,7 +159,6 @@ func helperRequests(scanner *bufio.Scanner, store *localfile.Store, lease *local
 	if err := workerproto.Write(os.Stdout, workerproto.Event{Type: "ready"}); err != nil {
 		return err
 	}
-	busy := false
 	for scanner.Scan() {
 		var request workerproto.Request
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
@@ -197,12 +196,6 @@ func helperRequests(scanner *bufio.Scanner, store *localfile.Store, lease *local
 					time.Sleep(time.Hour)
 				}
 			}
-			if text == "busy" {
-				busy = true
-			}
-			if text == "idle" {
-				busy = false
-			}
 			if err := store.AppendInput(context.Background(), b.SessionID, input); err != nil {
 				return err
 			}
@@ -210,17 +203,17 @@ func helperRequests(scanner *bufio.Scanner, store *localfile.Store, lease *local
 				return outputErr
 			}
 			seen[input.ID] = true
-		case "quiesce":
-			if busy {
-				if err := workerproto.Write(os.Stdout, workerproto.Event{Type: "busy", ID: request.ID, Error: "fixture model active"}); err != nil {
-					return err
-				}
-				continue
+		case "drain":
+			// This stub has no execution owner. Busy behavior is covered with the
+			// actual runtime; the fixture still supplies explicit cleanup evidence.
+			payload, _ := json.Marshal(inbox.ControlMessage{Mode: inbox.ExecutionDrained, Parameters: inbox.ExecutionDrainReceipt{Version: 1, Scope: b.ControlScope}})
+			if err := store.AppendInput(context.Background(), b.SessionID, inbox.Input{ID: inbox.ID("drain-" + request.ID), Kind: inbox.InputControl, Payload: payload}); err != nil {
+				return err
 			}
 			if err := lease.Close(); err != nil {
 				return err
 			}
-			return workerproto.Write(os.Stdout, workerproto.Event{Type: "quiesced", ID: request.ID})
+			return workerproto.Write(os.Stdout, workerproto.Event{Type: "drained", ID: request.ID})
 		case "stop":
 			return nil
 		default:
@@ -354,27 +347,18 @@ func TestIdleReloadRetainsSessionAndDeduplicatesReplay(t *testing.T) {
 	waitInput(t, r, "second")
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.items) != 2 {
-		t.Fatalf("replay duplicated UI history: %d items", len(r.items))
+	if len(r.items) != 3 {
+		t.Fatalf("want two external inputs and fresh cleanup receipt: %d items", len(r.items))
 	}
 	if pending := h.journal.Pending(); len(pending) != 0 {
 		t.Fatalf("unacknowledged inputs: %+v", pending)
 	}
 }
-func TestBusyAndBadCandidateLeaveWorkerUntouched(t *testing.T) {
+func TestBadCandidateLeavesCurrentWorkerUntouched(t *testing.T) {
 	h, r, _ := testHost(t, "")
 	send(t, h, "work", "busy")
 	waitInput(t, r, "work")
 	before, pid := generation(h)
-	if err := h.RetireForHostReplacement(t.Context()); !errors.Is(err, ErrBusy) {
-		t.Fatalf("active host retirement: %v", err)
-	}
-	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
-		t.Fatalf("busy reload: %v", err)
-	}
-	if _, next := generation(h); next != pid {
-		t.Fatal("busy reload replaced worker")
-	}
 	if err := h.Reload(t.Context(), []string{"/nonexistent/worker", "worker"}); err == nil {
 		t.Fatal("missing candidate accepted")
 	}
@@ -553,8 +537,8 @@ func TestInputAdmittedWhileDeliveryFrozenSurvivesReplacement(t *testing.T) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.items) != 1 {
-		t.Fatal("held input duplicated after reload")
+	if len(r.items) != 2 {
+		t.Fatal("want held input and fresh cleanup receipt")
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
+	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/session"
@@ -132,15 +133,21 @@ func TestRealWorkerIdleReloadAndBusyModel(t *testing.T) {
 	}
 	waitInput(t, records, "first-real")
 	before, pid := generation(h)
-	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
-		t.Fatalf("busy model reload = %v", err)
+	reloaded := make(chan error, 1)
+	go func() { reloaded <- h.Reload(t.Context(), nil) }()
+	waitIdleStop(t, records)
+	select {
+	case err := <-reloaded:
+		t.Fatalf("busy work retired early: %v", err)
+	default:
 	}
+
 	if _, after := generation(h); after != pid {
 		t.Fatal("busy model killed")
 	}
 	close(release)
 	waitResponses(t, records, 1)
-	if err := h.Reload(t.Context(), nil); err != nil {
+	if err := <-reloaded; err != nil {
 		t.Fatal(err)
 	}
 	after, newPID := generation(h)
@@ -182,9 +189,15 @@ func TestRealWorkerBusyShellDoesNotRepeatEffects(t *testing.T) {
 	send(t, h, "shell-input", "run shell")
 	waitFile(t, filepath.Join(workspace, "shell-started"))
 	_, pid := generation(h)
-	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
-		t.Fatalf("busy shell reload = %v", err)
+	reloaded := make(chan error, 1)
+	go func() { reloaded <- h.Reload(t.Context(), nil) }()
+	waitIdleStop(t, records)
+	select {
+	case err := <-reloaded:
+		t.Fatalf("busy work retired early: %v", err)
+	default:
 	}
+
 	if _, next := generation(h); next != pid {
 		t.Fatal("live shell replaced")
 	}
@@ -192,7 +205,7 @@ func TestRealWorkerBusyShellDoesNotRepeatEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitResponses(t, records, 2)
-	if err := h.Reload(t.Context(), nil); err != nil {
+	if err := <-reloaded; err != nil {
 		t.Fatal(err)
 	}
 	effect, err := os.ReadFile(filepath.Join(workspace, "effect"))
@@ -200,7 +213,7 @@ func TestRealWorkerBusyShellDoesNotRepeatEffects(t *testing.T) {
 		t.Fatalf("side effect repeated: %q %v", effect, err)
 	}
 }
-func TestRealWorkerCompletedUnacceptedGraphBlocksReload(t *testing.T) {
+func TestRealWorkerScheduledGraphReloadAllowsScopedAcceptance(t *testing.T) {
 	var calls atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := calls.Add(1)
@@ -251,13 +264,46 @@ func TestRealWorkerCompletedUnacceptedGraphBlocksReload(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	_, pid := generation(h)
-	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
-		t.Fatalf("unaccepted graph reload = %v", err)
-	}
+	before, pid := generation(h)
+	scope := h.ControlScope()
+	reloaded := make(chan error, 1)
+	go func() { reloaded <- h.Reload(t.Context(), nil) }()
+	waitIdleStop(t, records)
 	if _, next := generation(h); next != pid {
 		t.Fatal("unaccepted graph was replaced")
 	}
+	send(t, h, "queued-after-cutoff", "next generation only")
+	intervene := func(id, targetScope string, gen int) error {
+		arguments := fmt.Sprintf(`{"action":"accept","name":"reload-graph","task_id":"candidate","generation":%d,"evidence":"read candidate.txt: exact candidate output"}`, gen)
+		payload, _ := json.Marshal(inbox.ControlMessage{Mode: inbox.InvokeTool, Parameters: inbox.ToolInvocation{Scope: targetScope, Call: llm.ToolCall{CallID: id, Name: "TaskGraph", Arguments: arguments}}})
+		return h.SubmitIntervention(t.Context(), inbox.Input{ID: inbox.ID(id), Kind: inbox.InputControl, Payload: payload})
+	}
+	if err := intervene("wrong-scope", scope+"-stale", 1); err == nil {
+		t.Fatal("stale worker scope admitted")
+	}
+	if err := intervene("stale-task", scope, 99); err != nil {
+		t.Fatal(err)
+	}
+	waitInvocation(t, records, "stale-task")
+	select {
+	case err := <-reloaded:
+		t.Fatalf("stale acceptance retired graph: %v", err)
+	default:
+	}
+	if err := intervene("accept-task", scope, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-reloaded; err != nil {
+		t.Fatal(err)
+	}
+	waitInput(t, records, "queued-after-cutoff")
+	if after, next := generation(h); after != before+1 || next == pid {
+		t.Fatal("scheduled replacement not joined/started")
+	}
+	if err := intervene("closed-old-generation", scope, 1); err == nil {
+		t.Fatal("old-generation intervention admitted after replacement")
+	}
+
 }
 func TestRealWorkerBusySubagentAndIdleJoin(t *testing.T) {
 	var calls atomic.Int64
@@ -293,15 +339,21 @@ func TestRealWorkerBusySubagentAndIdleJoin(t *testing.T) {
 		t.Fatal("child model never started")
 	}
 	_, pid := generation(h)
-	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
-		t.Fatalf("busy subagent reload = %v", err)
+	reloaded := make(chan error, 1)
+	go func() { reloaded <- h.Reload(t.Context(), nil) }()
+	waitIdleStop(t, records)
+	select {
+	case err := <-reloaded:
+		t.Fatalf("busy work retired early: %v", err)
+	default:
 	}
+
 	if _, next := generation(h); next != pid {
 		t.Fatal("busy subagent replaced")
 	}
 	close(release)
 	waitResponses(t, records, 2)
-	if err := h.Reload(t.Context(), nil); err != nil {
+	if err := <-reloaded; err != nil {
 		t.Fatal(err)
 	}
 }
@@ -587,5 +639,57 @@ func TestRealWorkerActivityRoundtripDuringBlockedChildShell(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("inspection consulted model: %d calls", calls.Load())
+	}
+}
+
+// Canonical persistence, not an idle observation or timer, witnesses stop admission.
+func waitIdleStop(t *testing.T, r *recorder) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		r.mu.Lock()
+		found := false
+		for _, item := range r.items {
+			if input, ok := item.Data.(inbox.Input); ok && input.Kind == inbox.InputControl {
+				c, _ := input.DecodeControlMessage()
+				if c.Mode == inbox.StopWhenIdle {
+					found = true
+				}
+			}
+		}
+		r.mu.Unlock()
+		if found {
+			return
+		}
+		select {
+		case <-r.changed:
+		case <-deadline:
+			t.Fatal("no ordered stop persistence")
+		}
+	}
+}
+func waitInvocation(t *testing.T, r *recorder, id inbox.ID) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		r.mu.Lock()
+		found := false
+		for _, item := range r.items {
+			if input, ok := item.Data.(inbox.Input); ok && input.Kind == inbox.InputControl {
+				c, _ := input.DecodeControlMessage()
+				if c.Mode == inbox.ToolInvocationFinished && c.Parameters.(inbox.ToolInvocationResult).InputID == id {
+					found = true
+				}
+			}
+		}
+		r.mu.Unlock()
+		if found {
+			return
+		}
+		select {
+		case <-r.changed:
+		case <-deadline:
+			t.Fatal("no intervention result")
+		}
 	}
 }

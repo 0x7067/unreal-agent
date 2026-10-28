@@ -3,9 +3,11 @@ package resident
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,16 +60,25 @@ func TestRuntimeControlIdleReplacesOnlyCurrentGeneration(t *testing.T) {
 		t.Fatal("client reader did not join")
 	}
 }
-func TestRuntimeReplacementBlockedByActiveModelDoesNotCancelIt(t *testing.T) {
-	entered, canceled := make(chan struct{}), make(chan struct{})
+func TestRuntimeReplacementWaitsForActiveModelWithoutCancelingIt(t *testing.T) {
+	entered, release, canceled := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	finish := func() { once.Do(func() { close(release) }) }
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		close(entered)
-		<-r.Context().Done()
-		close(canceled)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			close(canceled)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"scheduled\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"m\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"finished naturally\"}]}]}}\n\n")
 	}))
 	t.Cleanup(provider.Close)
 	_, backend, state, _, _ := residentLifecycleFixture(t, provider, true)
+	defer finish()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	c := lifecycleDial(t, ctx, backend, state)
@@ -81,19 +92,34 @@ func TestRuntimeReplacementBlockedByActiveModelDoesNotCancelIt(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("model never started")
 	}
-	result, err := c.RuntimeControl(ctx, attachproto.RuntimeRequest{Version: 1, Action: "replace", ExpectedGeneration: gen})
-	var blocked *attachclient.RuntimeError
-	if !errors.As(err, &blocked) || result.State != "blocked" || result.Generation != gen {
-		t.Fatalf("active work not blocked: %+v %v", result, err)
+	type result struct {
+		s   attachproto.RuntimeStatus
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		s, err := c.RuntimeControl(ctx, attachproto.RuntimeRequest{Version: 1, Action: "replace", ExpectedGeneration: gen})
+		done <- result{s, err}
+	}()
+	waitRuntimeStopArmed(t, ctx, state)
+	select {
+	case r := <-done:
+		t.Fatalf("reload settled while model active: %+v", r)
+	default:
 	}
 	select {
 	case <-canceled:
-		t.Fatal("runtime upgrade canceled unrelated model")
+		t.Fatal("reload canceled active model")
 	default:
 	}
-	checked, err := c.RuntimeControl(ctx, attachproto.RuntimeRequest{Version: 1, Action: "check"})
-	if err != nil || checked.Generation != gen {
-		t.Fatalf("active worker changed: %+v %v", checked, err)
+	finish()
+	select {
+	case r := <-done:
+		if r.err != nil || r.s.State != "completed" || r.s.Generation != gen+1 {
+			t.Fatalf("scheduled replacement: %+v", r)
+		}
+	case <-ctx.Done():
+		t.Fatal("reload did not complete after natural model finish")
 	}
 }
 func TestRuntimeCapabilityRemainsOptIn(t *testing.T) {

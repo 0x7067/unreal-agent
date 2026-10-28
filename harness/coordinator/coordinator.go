@@ -3,7 +3,6 @@ package coordinator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -21,6 +20,11 @@ type Dependencies struct {
 	// A recorded session policy takes precedence on resume.
 	CompactionFailureLimit int
 	ToolHeartbeatInterval  time.Duration
+	// PendingWork observes owner-authoritative work outside operation envelopes.
+	// WorkChanged wakes the loop when that ownership or producer traffic changes.
+	// Nil preserves ordinary standalone behavior. Neither is snapshot permission.
+	PendingWork func() bool
+	WorkChanged <-chan struct{}
 	// ActivitySummary is a bounded, redacted, snapshot-only callback; it must not perform I/O.
 	ActivitySummary func() string
 	// ControlScope binds public lifecycle intents to this runtime generation.
@@ -35,32 +39,11 @@ type Dependencies struct {
 	Operations     operation.Manager
 }
 
-var (
-	// ErrBusy means quiescence was refused without canceling live work.
-	ErrBusy = errors.New("coordinator is busy")
-	// ErrQuiesced is returned by Run only after successful idle retirement.
-	ErrQuiesced = errors.New("coordinator quiesced")
-	// ErrStopped means Run exited without quiescing. Its cause, if any, is
-	// joined to this sentinel when returned by TryQuiesce.
-	ErrStopped = errors.New("coordinator stopped without quiescing")
-)
-
 type Coordinator interface {
-	// Run owns one session's decision loop until a stop control completes or
+	// Run owns one session's decision loop until an ordinary stop completes or
 	// the context is canceled. It returns nil for a completed stop. It is
-	// single-use; its caller must cancel the Inbox when Run returns. Successful
-	// quiescent retirement returns ErrQuiesced, never nil.
+	// single-use; its caller must cancel and join the Inbox when Run returns.
 	Run(context.Context) error
-
-	// TryQuiesce asks the decision loop to retire only if it is idle, fencing
-	// inbox admission and draining accepted inputs before its final decision.
-	// Busy requests do not cancel any work. Before Run it waits for Run or ctx
-	// cancellation; after Run it returns nil if quiesced, otherwise ErrStopped
-	// joined with Run's cause. Once admitted, the request waits for a definitive
-	// loop result: cancellation observed before commit aborts retirement, but
-	// cancellation after commit cannot mask success. A nil result guarantees
-	// retirement has committed; Run may still be unwinding its defers.
-	TryQuiesce(context.Context) error
 }
 
 func New(dependencies Dependencies) Coordinator {

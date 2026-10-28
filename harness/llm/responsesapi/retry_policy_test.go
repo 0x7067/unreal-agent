@@ -57,7 +57,7 @@ func TestRetryAfterMessage(t *testing.T) {
 		{"try again in 0s", 0},
 		{"try again in -1s", 0},
 		{"try again in NaNs", 0},
-		{"try again in 999999999999999999999s", time.Duration(1<<63 - 1)},
+		{"try again in 999999999999999999999s", 0},
 		{"try again in 1 minute", 0},
 		{"try again in 12snowflakes", 0},
 		{"try again in 2", 0},
@@ -83,11 +83,11 @@ func TestRetryAfterHeader(t *testing.T) {
 		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
 		{"0", 0},
 		{"-1", 0},
-		{"1.5", 1500 * time.Millisecond},
+		{"1.5", 0},
 		{"9223372036", 9223372036 * time.Second},
-		{"9223372037", time.Duration(1<<63 - 1)},
-		{"18446744073709551615", time.Duration(1<<63 - 1)},
-		{"999999999999999999999", time.Duration(1<<63 - 1)},
+		{"9223372037", 0},
+		{"18446744073709551615", 0},
+		{"999999999999999999999", 0},
 		{"garbage", 0},
 		{"", 0},
 	} {
@@ -115,9 +115,9 @@ func TestResponseRetryDelay(t *testing.T) {
 		{name: "overloaded", attempt: 1, code: "server_is_overloaded", want: 10 * time.Second},
 		{name: "slow down", attempt: 2, code: "slow_down", want: 20 * time.Second},
 		{name: "overload capped", attempt: 100, code: "slow_down", want: time.Minute},
-		{name: "message hint uncapped", attempt: 1, code: "rate_limit_exceeded", message: "try again in 3600s", want: time.Hour},
-		{name: "header hint uncapped", attempt: 1, header: "86400", want: 24 * time.Hour},
-		{name: "short hint", attempt: 1, code: "rate_limit_exceeded", message: "try again in 28ms", want: 2 * time.Second},
+		{name: "message hint capped", attempt: 1, code: "rate_limit_exceeded", message: "try again in 3600s", want: 30 * time.Second},
+		{name: "header hint capped", attempt: 1, header: "86400", want: 30 * time.Second},
+		{name: "short hint", attempt: 1, code: "rate_limit_exceeded", message: "try again in 28ms", want: 28 * time.Millisecond},
 		{name: "longer hint wins", attempt: 1, code: "rate_limit_exceeded", message: "try again in 20s", header: "10", want: 20 * time.Second},
 		{name: "header beats message", attempt: 1, code: "rate_limit_exceeded", message: "try again in 10s", header: "20", want: 20 * time.Second},
 		{name: "invalid header uses message", attempt: 1, code: "rate_limit_exceeded", message: "try again in 5s", header: "invalid", want: 5 * time.Second},
@@ -139,7 +139,7 @@ func TestResponseRetryDelay(t *testing.T) {
 				if test.code == "rate_limit_exceeded" {
 					hint = max(hint, retryAfterMessage(test.message))
 				}
-				if hint >= got && delay != got {
+				if hint > 0 && delay != got {
 					t.Fatal("jitter shortened the server hint")
 				}
 			}
@@ -147,7 +147,7 @@ func TestResponseRetryDelay(t *testing.T) {
 	}
 }
 
-func TestRetryHintFloors(t *testing.T) {
+func TestRetryHintsOverrideBackoff(t *testing.T) {
 	policy := primitives.DefaultRemoteRequest("test", "test", "http://example.invalid").RetryPolicy
 	now := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
@@ -157,17 +157,19 @@ func TestRetryHintFloors(t *testing.T) {
 		jitter              float64
 		want                time.Duration
 	}{
-		{name: "short hint high attempt", headers: http.Header{"Retry-After": {"1"}}, attempt: 100, want: 30 * time.Second},
-		{name: "jittered local wins", headers: http.Header{"Retry-After": {"1"}}, attempt: 1, jitter: 0.5, want: 1800 * time.Millisecond},
-		{name: "hint between jittered and base", headers: http.Header{"Retry-After": {"1.9"}}, attempt: 1, jitter: 0.5, want: 1900 * time.Millisecond},
-		{name: "overload hint below local", code: "server_is_overloaded", headers: http.Header{"Retry-After": {"3"}}, attempt: 2, jitter: 0.5, want: 18 * time.Second},
-		{name: "overload long floor", code: "slow_down", headers: http.Header{"Retry-After": {"120"}}, attempt: 100, jitter: 0.99, want: 120 * time.Second},
-		{name: "ms precedence", headers: http.Header{"Retry-After-Ms": {"3000"}, "Retry-After": {"120"}}, attempt: 1, jitter: 0.99, want: 3 * time.Second},
-		{name: "invalid ms fallback", headers: http.Header{"Retry-After-Ms": {"NaN"}, "Retry-After": {"120"}}, attempt: 1, jitter: 0.99, want: 120 * time.Second},
-		{name: "message beats ms", code: "rate_limit_exceeded", message: "try again in 120s", headers: http.Header{"Retry-After-Ms": {"3000"}, "Retry-After": {"180"}}, attempt: 1, jitter: 0.5, want: 120 * time.Second},
-		{name: "long date", headers: http.Header{"Retry-After": {now.Add(time.Hour).Format(http.TimeFormat)}}, attempt: 100, jitter: 0.99, want: time.Hour},
-		{name: "huge hint", headers: http.Header{"Retry-After": {"1e300"}}, attempt: 100, jitter: 0.99, want: time.Duration(1<<63 - 1)},
-		{name: "huge message", code: "rate_limit_exceeded", message: "try again in 999999999999999999999s", attempt: 100, jitter: 0.99, want: time.Duration(1<<63 - 1)},
+		{name: "ms-only ignored", headers: http.Header{"Retry-After-Ms": {"3000"}}, attempt: 1, jitter: 0.5, want: 1800 * time.Millisecond},
+		{name: "short message high attempt", code: "rate_limit_exceeded", message: "try again in 1ms", attempt: 100, jitter: 0.99, want: time.Millisecond},
+		{name: "short hint high attempt", headers: http.Header{"Retry-After": {"1"}}, attempt: 100, want: time.Second},
+		{name: "short hint overrides local", headers: http.Header{"Retry-After": {"1"}}, attempt: 1, jitter: 0.5, want: time.Second},
+		{name: "fractional header ignored", headers: http.Header{"Retry-After": {"1.9"}}, attempt: 1, jitter: 0.5, want: 1800 * time.Millisecond},
+		{name: "overload hint below local", code: "server_is_overloaded", headers: http.Header{"Retry-After": {"3"}}, attempt: 2, jitter: 0.5, want: 3 * time.Second},
+		{name: "overload hint capped before overload backoff", code: "slow_down", headers: http.Header{"Retry-After": {"120"}}, attempt: 100, jitter: 0.99, want: policy.MaxBackoff},
+		{name: "ms ignored", headers: http.Header{"Retry-After-Ms": {"3000"}, "Retry-After": {"120"}}, attempt: 1, jitter: 0.99, want: policy.MaxBackoff},
+		{name: "invalid ms fallback", headers: http.Header{"Retry-After-Ms": {"NaN"}, "Retry-After": {"120"}}, attempt: 1, jitter: 0.99, want: policy.MaxBackoff},
+		{name: "longer seconds header wins then capped", code: "rate_limit_exceeded", message: "try again in 120s", headers: http.Header{"Retry-After-Ms": {"3000"}, "Retry-After": {"180"}}, attempt: 1, jitter: 0.5, want: policy.MaxBackoff},
+		{name: "long date", headers: http.Header{"Retry-After": {now.Add(time.Hour).Format(http.TimeFormat)}}, attempt: 100, jitter: 0.99, want: policy.MaxBackoff},
+		{name: "huge hint ignored", headers: http.Header{"Retry-After": {"1e300"}}, attempt: 100, jitter: 0.5, want: 27 * time.Second},
+		{name: "huge message ignored", code: "rate_limit_exceeded", message: "try again in 999999999999999999999s", attempt: 100, jitter: 0.5, want: 27 * time.Second},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := responseRetryDelay(policy, test.attempt, &APIError{Code: test.code, Message: test.message}, test.headers, now, test.jitter); got != test.want {

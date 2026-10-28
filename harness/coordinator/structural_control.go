@@ -34,21 +34,29 @@ func (c *coordinator) admitStructuralControl(ctx context.Context, id inbox.ID, d
 	if !ok {
 		return nil
 	}
+	fail := func(message string) error {
+		return c.recordControl(ctx, inbox.ControlMessage{Mode: inbox.ToolInvocationFinished, Parameters: inbox.ToolInvocationResult{InputID: id, CallID: invocation.Call.CallID, Status: "failed", Error: boundedControlText(message, 2048)}})
+	}
 	opID := structuralOperationID(id)
 	meta := structuralControl{InputID: id, Call: invocation.Call, Status: tool.CallStatus{WaitingFor: []operation.ID{opID}}}
+	if invocation.Scope != "" && invocation.Scope != c.dependencies.ControlScope {
+		if value, exists := c.state.operations[opID]; exists && !operationIsTerminal(value.Status) {
+			return fmt.Errorf("unfinished structural intervention belongs to an old runtime scope; execution outcome unknown")
+		}
+		if _, exists := c.state.operations[opID]; !exists {
+			return fail("runtime scope changed; intervention not dispatched")
+		}
+	}
 	if value, exists := c.state.operations[opID]; exists {
 		c.state.controlOperations[opID] = meta
 		return c.finishStructuralControl(ctx, value)
-	}
-	fail := func(message string) error {
-		return c.recordControl(ctx, inbox.ControlMessage{Mode: inbox.ToolInvocationFinished, Parameters: inbox.ToolInvocationResult{InputID: id, CallID: invocation.Call.CallID, Status: "failed", Error: boundedControlText(message, 2048)}})
 	}
 	if c.stop.cancellationRequested {
 		return fail("session shutdown already requested; control not dispatched")
 	}
 	translator, enabled := c.dependencies.Tools.Resolve(invocation.Call.Name)
 	if !enabled {
-		return fail("AgentControl is not enabled for this session")
+		return fail("structural tool is not enabled for this session")
 	}
 	collector := &toolCallContext{}
 	status := translator.Translate(collector, invocation.Call)
@@ -85,7 +93,7 @@ func (c *coordinator) finishStructuralControl(ctx context.Context, value operati
 	outcome := inbox.ToolInvocationResult{InputID: meta.InputID, CallID: meta.Call.CallID, Status: string(value.Status)}
 	translator, enabled := c.dependencies.Tools.Resolve(meta.Call.Name)
 	if !enabled {
-		outcome.Error = "AgentControl result translator unavailable"
+		outcome.Error = "structural result translator unavailable"
 	} else {
 		result, err := translator.TranslateResult(meta.Call.CallID, meta.Status, []operation.Operation{value})
 		if err != nil {

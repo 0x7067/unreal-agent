@@ -74,9 +74,11 @@ type Settings struct {
 }
 
 // ToolInvocation requests a registered structural control without a model turn.
-// Only AgentControl is admitted; ordinary execution still uses model tool calls.
+// Scoped TaskGraph interventions and AgentControl are admitted; ordinary execution
+// still uses model tool calls.
 type ToolInvocation struct {
-	Call llm.ToolCall
+	Scope string `json:",omitzero"` // Host incarnation/generation; required for graph interventions.
+	Call  llm.ToolCall
 }
 
 // ToolInvocationResult is emitted only after an operation checkpoint is durable.
@@ -153,11 +155,22 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 		if err := json.Unmarshal(envelope.Parameters, &invocation, json.RejectUnknownMembers(true)); err != nil {
 			return ControlMessage{}, fmt.Errorf("decode tool invocation: %w", err)
 		}
-		if invocation.Call.Name != "AgentControl" || strings.TrimSpace(invocation.Call.CallID) == "" || len(invocation.Call.CallID) > 128 || len(invocation.Call.Arguments) > 64<<10 {
+		if (invocation.Call.Name != "AgentControl" && invocation.Call.Name != "TaskGraph") || strings.TrimSpace(invocation.Call.CallID) == "" || len(invocation.Call.CallID) > 128 || len(invocation.Call.Arguments) > 64<<10 {
 			return ControlMessage{}, fmt.Errorf("invalid structural AgentControl invocation")
 		}
 		if !jsontext.Value(invocation.Call.Arguments).IsValid() {
 			return ControlMessage{}, fmt.Errorf("invalid structural control arguments JSON")
+		}
+		if len(invocation.Scope) > 256 || invocation.Scope != "" && strings.TrimSpace(invocation.Scope) == "" {
+			return ControlMessage{}, fmt.Errorf("invalid intervention scope")
+		}
+		if invocation.Call.Name == "TaskGraph" || invocation.Scope != "" {
+			if invocation.Scope == "" {
+				return ControlMessage{}, fmt.Errorf("graph intervention requires runtime scope")
+			}
+			if err := validateInterventionCall(invocation); err != nil {
+				return ControlMessage{}, err
+			}
 		}
 		request.Parameters = invocation
 	case ToolInvocationFinished:

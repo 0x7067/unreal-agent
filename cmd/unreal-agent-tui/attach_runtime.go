@@ -17,9 +17,10 @@ import (
 // The attach frontend selects no executable and owns no worker. Its existing
 // optional reload/build interfaces delegate only to the authenticated host.
 type attachedRuntimeWriter struct {
-	drainEnabled bool
-	pendingMu    sync.Mutex
-	pendingID    string
+	drainEnabled         bool
+	interventionsEnabled bool
+	pendingMu            sync.Mutex
+	pendingID            string
 	*attachclient.Client
 	generation atomic.Uint64
 	enabled    bool
@@ -28,6 +29,9 @@ type attachedRuntimeWriter struct {
 func attachedWriter(c *attachclient.Client, s attachclient.Snapshot) inbox.Writer {
 	w := &attachedRuntimeWriter{Client: c}
 	for _, capability := range s.Hello.Capabilities {
+		if capability == attachproto.CapabilityIntervention {
+			w.interventionsEnabled = true
+		}
 		if capability == attachproto.CapabilityRuntimeDrain {
 			w.drainEnabled = true
 		}

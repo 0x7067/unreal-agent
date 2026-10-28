@@ -26,15 +26,15 @@ func (transport *retryHintTransport) RoundTrip(*http.Request) (*http.Response, e
 	return &http.Response{StatusCode: 429, Header: headers, Body: io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"rate_limit_error","message":"wait"}}`))}, nil
 }
 
-func TestExchangeRetryHintFloors(t *testing.T) {
+func TestExchangeRetryHintsOverrideBackoff(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		headers        http.Header
 		floor, ceiling time.Duration
 	}{
-		{"uncapped seconds", http.Header{"Retry-After": {"120"}}, 120 * time.Second, 120 * time.Second},
+		{"capped seconds", http.Header{"Retry-After": {"120"}}, 30 * time.Second, 30 * time.Second},
 		{"ms precedence", http.Header{"Retry-After-Ms": {"3000"}, "Retry-After": {"120"}}, 3 * time.Second, 3 * time.Second},
-		{"short hint uses local", http.Header{"Retry-After-Ms": {"1"}}, 1600 * time.Millisecond, 2 * time.Second},
+		{"short hint replaces local", http.Header{"Retry-After-Ms": {"1"}}, time.Millisecond, time.Millisecond},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {

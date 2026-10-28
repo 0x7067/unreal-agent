@@ -140,7 +140,9 @@ func (s *Supervisor) reserveDelivery(ctx context.Context, n int) error {
 		s.deliveryMu.Lock()
 		if s.deliveryBytes+n <= maxDeliveryBytes {
 			s.deliveryBytes += n
+			// A reservation remains owned through queued and active Submit.
 			s.deliveryMu.Unlock()
+			s.changeWork(func() { s.workDeliveries++ })
 			return nil
 		}
 		changed := s.deliveryChanged
@@ -158,6 +160,7 @@ func (s *Supervisor) releaseDelivery(n int) {
 	close(s.deliveryChanged)
 	s.deliveryChanged = make(chan struct{})
 	s.deliveryMu.Unlock()
+	s.changeWork(func() { s.workDeliveries-- })
 }
 func (s *Supervisor) deliveryLoop() {
 	defer s.readers.Done()

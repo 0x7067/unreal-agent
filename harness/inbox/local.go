@@ -3,13 +3,15 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 )
 
 type Inbox struct {
 	ctx         context.Context
-	submissions chan Input
+	submissions chan submission
 	output      chan Input
 	controls    chan admissionRequest
+	pending     atomic.Int64
 }
 
 var _ Writer = (*Inbox)(nil)
@@ -24,7 +26,7 @@ func New(ctx context.Context, seenIDs []ID) (*Inbox, error) {
 	}
 	inputs := &Inbox{
 		ctx:         ctx,
-		submissions: make(chan Input),
+		submissions: make(chan submission),
 		output:      make(chan Input),
 		controls:    make(chan admissionRequest),
 	}
@@ -44,8 +46,12 @@ func (inputs *Inbox) Submit(ctx context.Context, input Input) error {
 	}
 	input = cloneInput(input)
 
+	request := submission{input: input, admitted: make(chan struct{})}
 	select {
-	case inputs.submissions <- input:
+	case inputs.submissions <- request:
+		// The actor publishes queued ownership before acknowledging. Once
+		// admitted, late caller cancellation cannot hide accepted input.
+		<-request.admitted
 		return nil
 	case <-ctx.Done():
 		return context.Cause(ctx)
@@ -53,6 +59,16 @@ func (inputs *Inbox) Submit(ctx context.Context, input Input) error {
 		return context.Cause(inputs.ctx)
 	}
 }
+
+type submission struct {
+	input    Input
+	admitted chan struct{}
+}
+
+// HasPending reports actor-owned, accepted but undelivered input. Read only
+// after checking producer ownership: producers release ownership after Submit
+// acknowledges, so required completion traffic cannot disappear between checks.
+func (inputs *Inbox) HasPending() bool { return inputs.pending.Load() != 0 }
 
 func (inputs *Inbox) Output() <-chan Input {
 	return inputs.output
@@ -109,8 +125,9 @@ func (inputs *Inbox) changeAdmission(ctx context.Context, freeze bool) (admissio
 	return result, result.err
 }
 
-func (inputs *Inbox) run(seen map[ID]struct{}, submissions <-chan Input) {
+func (inputs *Inbox) run(seen map[ID]struct{}, submissions <-chan submission) {
 	defer close(inputs.output)
+	defer inputs.pending.Store(0)
 
 	queued := make([]Input, 0)
 	frozen := false
@@ -122,7 +139,7 @@ func (inputs *Inbox) run(seen map[ID]struct{}, submissions <-chan Input) {
 			next = queued[0]
 		}
 
-		var admission <-chan Input
+		var admission <-chan submission
 		if !frozen {
 			admission = submissions
 		}
@@ -137,19 +154,23 @@ func (inputs *Inbox) run(seen map[ID]struct{}, submissions <-chan Input) {
 			if frozen {
 				drained = queued
 				queued = nil
+				inputs.pending.Store(0)
 			}
 			request.result <- admissionResult{inputs: drained}
 
-		case input := <-admission:
-			if _, duplicate := seen[input.ID]; duplicate {
-				continue
+		case request := <-admission:
+			input := request.input
+			if _, duplicate := seen[input.ID]; !duplicate {
+				seen[input.ID] = struct{}{}
+				queued = append(queued, input)
+				inputs.pending.Add(1)
 			}
-			seen[input.ID] = struct{}{}
-			queued = append(queued, input)
+			close(request.admitted)
 
 		case output <- next:
 			queued[0] = Input{}
 			queued = queued[1:]
+			inputs.pending.Add(-1)
 
 		case <-inputs.ctx.Done():
 			return

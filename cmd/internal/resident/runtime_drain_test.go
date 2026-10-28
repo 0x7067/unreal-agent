@@ -1,11 +1,15 @@
 package resident
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,10 +20,13 @@ import (
 )
 
 // Both branches use real resident+worker and a fake provider only at HTTP.
-func TestRuntimeNaturalDrainCompletesOrCancelsOnlyUpgrade(t *testing.T) {
+func TestRuntimeNaturalDrainCompletesDespiteCanceledClientWait(t *testing.T) {
 	for _, cancelUpgrade := range []bool{false, true} {
 		t.Run(fmt.Sprint(cancelUpgrade), func(t *testing.T) {
 			entered, release, canceled := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			finish := func() { releaseOnce.Do(func() { close(release) }) }
+			defer finish()
 			var calls atomic.Int64
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
@@ -88,6 +95,7 @@ func TestRuntimeNaturalDrainCompletesOrCancelsOnlyUpgrade(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("upgrade never queued")
 			}
+			waitRuntimeStopArmed(t, ctx, state)
 			if cancelUpgrade {
 				if err := c.CancelRuntime(ctx, event.ID); err != nil {
 					t.Fatal(err)
@@ -109,14 +117,25 @@ func TestRuntimeNaturalDrainCompletesOrCancelsOnlyUpgrade(t *testing.T) {
 				if calls.Load() != 1 {
 					t.Fatal("model replayed")
 				}
-				close(release)
+				finish()
+				want := fmt.Sprintf("%s/%d", c.Snapshot().Hello.Incarnation, gen+1)
+				for c.ControlScope() != want {
+					select {
+					case <-ctx.Done():
+						t.Fatal("host abandoned admitted reload after canceled client wait")
+					case <-time.After(5 * time.Millisecond):
+					}
+				}
+				if calls.Load() != 1 {
+					t.Fatal("canceled wait replayed model")
+				}
 			} else {
 				select {
 				case r := <-done:
 					t.Fatalf("replacement completed while provider held: %+v", r)
 				default:
 				}
-				close(release)
+				finish()
 				var r result
 				select {
 				case r = <-done:
@@ -139,3 +158,20 @@ func TestRuntimeNaturalDrainCompletesOrCancelsOnlyUpgrade(t *testing.T) {
 var _ interface {
 	CancelRuntime(context.Context, string) error
 } = (*attachclient.Client)(nil)
+
+// Observe the canonical ordinary stop, not the initial queued UI reply: only
+// after this point does canceling a client wait leave retirement host-owned.
+func waitRuntimeStopArmed(t *testing.T, ctx context.Context, state string) {
+	t.Helper()
+	for {
+		data, err := os.ReadFile(filepath.Join(state, "lifecycle.session.jsonl"))
+		if err == nil && bytes.Contains(data, []byte(`"Mode":"when_idle"`)) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("ordinary stop never armed: %v", ctx.Err())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
