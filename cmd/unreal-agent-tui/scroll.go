@@ -8,13 +8,26 @@ import (
 
 type mouseFrame struct{}
 
-// Bubble Tea renders after every Update, so wheel bursts are coalesced in the filter.
+// Bubble Tea renders after every Update, so redundant terminal events and wheel
+// bursts are coalesced in the filter.
 type mouseScreen struct {
 	model
 	framePending bool
+	lastSize     tea.WindowSizeMsg
 }
 
 func (s *mouseScreen) filter(_ tea.Model, msg tea.Msg) tea.Msg {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		// Some terminals report their size again when switching tabs. Bubble
+		// Tea erases the screen before Update for every size message, so this
+		// must happen in the filter, not just in model.Update. Keep the first
+		// valid size even if it matches newModel's default dimensions.
+		if size.Width <= 0 || size.Height <= 0 || size == s.lastSize {
+			return nil
+		}
+		s.lastSize = size
+		return msg
+	}
 	wheel, ok := msg.(tea.MouseWheelMsg)
 	if !ok {
 		return msg
