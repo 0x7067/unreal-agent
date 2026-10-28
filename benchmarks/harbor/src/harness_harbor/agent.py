@@ -148,24 +148,30 @@ class UnrealAgent(BaseInstalledAgent):
         }
         if connection.configured_base_url:
             env["UNREAL_HARNESS_LLM_BASE_URL"] = connection.configured_base_url
+        # The runner refuses a session lease under a shared writable ancestor such
+        # as the /logs mount, so the store lives in a private directory and its
+        # sessions are copied into the collected logs afterwards.
+        sessions = shlex.quote(str(logs / "sessions"))
         command = (
             "if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then "
             f"export SSL_CERT_FILE={self._remote}/ca.pem; fi; "
             'export SHELL="$(command -v bash)"; '
+            'store="$(mktemp -d)" || exit 1; '
             + shlex.join(
                 [
                     str(self._remote / "runner"),
                     "-workspace",
                     ".",
                     "-session-directory",
-                    str(logs / "sessions"),
-                    "-log-directory",
-                    str(logs / "logs"),
                 ]
             )
+            + ' "$store" '
+            + shlex.join(["-log-directory", str(logs / "logs")])
             + f" <{shlex.quote(str(logs / 'request.json'))}"
             + f" >{shlex.quote(str(logs / 'runner.jsonl'))}"
-            + f" 2>{shlex.quote(str(logs / 'runner.stderr'))}"
+            + f" 2>{shlex.quote(str(logs / 'runner.stderr'))}; "
+            + f'status=$?; mkdir -p {sessions} && cp -R "$store/." {sessions}/; '
+            + "exit $status"
         )
         await self.exec_as_agent(environment, command=command, env=env)
 
