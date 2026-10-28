@@ -52,24 +52,29 @@ Run `unreal-agent-runner -h` for options and the JSON request fields.
 
 ## Environment and workspace trust
 
-Workspace `.env` files are **not loaded by default**. Credentials, endpoints,
-proxies and paths inherited from the parent process remain trusted. To explicitly
-trust a workspace's environment:
+Workspace `.env` files are **loaded automatically**, matching upstream. Use
+`-load-dotenv=false` to skip loading:
 
 ```sh
-unreal-agent-runner -workspace ./trusted-project -load-dotenv -p 'Summarize this project.'
+unreal-agent-runner -workspace ./project -load-dotenv=false -p 'Summarize this project.'
 ```
 
-Migration from older versions: export configuration from a trusted shell, or add
-`-load-dotenv` only after reviewing the workspace's `.env`. Opt-in can redirect
-credentials through endpoint/proxy settings, and change provider/model and
-config/state paths. Variables fill unset environment entries, except
-`SANDBOX_EGRESS_PROXY`, which can replace its inherited value and is copied to
-`HTTPS_PROXY`. Changes are scoped to the run. Flags are parsed before loading;
-help never loads the file, even with `-load-dotenv`. The TUI uses the same opt-in
-flag and also skips loading for `-version`. Subagents always inherit the parent's
+Review the workspace's `.env` before running: it can redirect credentials through
+endpoint/proxy settings and change provider/model and config/state paths.
+Variables fill unset environment entries, except `SANDBOX_EGRESS_PROXY`, which
+can replace its inherited value and is copied to `HTTPS_PROXY`. Changes are scoped
+to the run. Flags are parsed before loading; help never loads the file.
+The TUI does not load `.env` by default, but offers an explicit `-load-dotenv`
+option and skips loading for help/version. Subagents always inherit the parent's
 environment and never reload workspace `.env`, even with `-load-dotenv` present.
 The library's `LoadDotEnv(path)` remains available for explicit trusted-file use.
+
+Tool wall-time warnings, automatic cancellation and the concurrent-operation
+admission bound are **disabled by default**, matching upstream. Set
+`UNREAL_HARNESS_OPERATION_WARN_AFTER`, `UNREAL_HARNESS_OPERATION_TIMEOUT` (durations),
+or `UNREAL_HARNESS_MAX_OPERATIONS` (integer) to opt into limits. Zero disables each
+limit. Explicit per-call Bash thresholds remain supported. A timeout requests
+cancellation; it does not establish that owned work has drained.
 
 ## Model compaction settings
 

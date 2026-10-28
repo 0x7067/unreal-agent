@@ -152,3 +152,23 @@ func TestToolsClickOutsideCardsDoesNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestToolSummaryMatchesUpstream(t *testing.T) {
+	for _, tc := range []struct{ name, arguments, want string }{
+		{"Bash", `{"command":"go test ./... -count=1"}`, "go test ./... -count=1"},
+		{"Bash", `{"command":"TOKEN=value curl --header Authorization:value"}`, "TOKEN=value curl --header Authorization:value"},
+		{"Bash", `{"command":"printf 'hello'\necho done"}`, "printf 'hello' echo done"},
+		{"ViewImage", `{"path":"screenshots/result.png"}`, "screenshots/result.png"},
+		{"CustomTool", `{"query":"show this argument"}`, `{"query":"show this argument"}`},
+		{"Bash", `{"command":`, `{"command":`},
+		{"Agent", `{"prompt":`, `{"prompt":`},
+		{"Bash", `{"command":"echo \u001b[2Jvisible"}`, "echo visible"},
+		{"Bash", `{"command":"` + strings.Repeat("x", 170) + `"}`, strings.Repeat("x", 159) + "…"},
+	} {
+		t.Run(tc.name+"/"+tc.want[:min(30, len(tc.want))], func(t *testing.T) {
+			if got := toolSummary(tc.name, tc.arguments); got != tc.want {
+				t.Fatalf("summary = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

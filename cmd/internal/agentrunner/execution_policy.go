@@ -9,13 +9,12 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 )
 
-// Runner defaults are an executable policy, not library defaults. The underlying
-// manager/runtime retain zero-value compatibility. Explicit environment zero
-// disables a threshold; output limits are not time or resource limits.
+// Runner defaults match upstream: no wall thresholds or work admission bound.
+// Environment or embedding configuration may opt into limits; explicit zero
+// disables a threshold. Output limits are not time or resource limits.
 func executionPolicy(config Config, getenv func(string) string) (executionbudget.Policy, int, error) {
 	policy := config.Budget
 	if policy == (executionbudget.Policy{}) {
-		policy = executionbudget.Policy{WarnAfter: 30 * time.Second, Timeout: 120 * time.Second}
 		for _, field := range []struct {
 			name   string
 			target *time.Duration
@@ -37,7 +36,7 @@ func executionPolicy(config Config, getenv func(string) string) (executionbudget
 	if err := policy.Validate(); err != nil {
 		return policy, 0, fmt.Errorf("operation budget: %w", err)
 	}
-	maxOperations := 64
+	maxOperations := 0
 	if raw := strings.TrimSpace(getenv("UNREAL_HARNESS_MAX_OPERATIONS")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 0 {

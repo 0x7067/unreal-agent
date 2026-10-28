@@ -595,7 +595,7 @@ func (m *model) apply(item sessionstore.Item) {
 		card := m.card(callKey{data.TurnID, data.CallID})
 		if call, ok := m.structuralCalls[data.CallID]; ok {
 			card.name, card.arguments = call.Name, call.Arguments
-			card.summary = "structural control · inspect result"
+			card.summary = toolSummary(call.Name, call.Arguments)
 		}
 		if card.terminal && slices.ContainsFunc(data.Operations, func(op operation.Operation) bool {
 			return op.Status == operation.StatusReady || op.Status == operation.StatusAwaiting || op.Status == operation.StatusCanceling

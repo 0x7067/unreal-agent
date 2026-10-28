@@ -16,13 +16,15 @@ func TestRunnerExecutionPolicyDefaultsOverridesAndDisable(t *testing.T) {
 		max    int
 		bad    bool
 	}{
-		{name: "executable defaults", want: executionbudget.Policy{WarnAfter: 30 * time.Second, Timeout: 120 * time.Second}, max: 64},
+		{name: "upstream defaults"},
 		{name: "disabled", env: map[string]string{"UNREAL_HARNESS_OPERATION_WARN_AFTER": "0", "UNREAL_HARNESS_OPERATION_TIMEOUT": "0", "UNREAL_HARNESS_MAX_OPERATIONS": "0"}, max: 0},
 		{name: "custom", env: map[string]string{"UNREAL_HARNESS_OPERATION_WARN_AFTER": "2s", "UNREAL_HARNESS_OPERATION_TIMEOUT": "5s", "UNREAL_HARNESS_MAX_OPERATIONS": "7"}, want: executionbudget.Policy{WarnAfter: 2 * time.Second, Timeout: 5 * time.Second}, max: 7},
-		{name: "embedding policy", env: map[string]string{"UNREAL_HARNESS_OPERATION_TIMEOUT": "wrong"}, config: Config{Budget: executionbudget.Policy{Timeout: time.Second}}, want: executionbudget.Policy{Timeout: time.Second}, max: 64},
+		{name: "embedding policy", env: map[string]string{"UNREAL_HARNESS_OPERATION_TIMEOUT": "wrong"}, config: Config{Budget: executionbudget.Policy{Timeout: time.Second}}, want: executionbudget.Policy{Timeout: time.Second}},
 		{name: "invalid duration", env: map[string]string{"UNREAL_HARNESS_OPERATION_TIMEOUT": "wrong"}, bad: true},
 		{name: "negative threshold", env: map[string]string{"UNREAL_HARNESS_OPERATION_WARN_AFTER": "-1s"}, bad: true},
-		{name: "invalid order", env: map[string]string{"UNREAL_HARNESS_OPERATION_TIMEOUT": "1s"}, bad: true},
+		{name: "timeout only", env: map[string]string{"UNREAL_HARNESS_OPERATION_TIMEOUT": "1s"}, want: executionbudget.Policy{Timeout: time.Second}},
+		{name: "warning only", env: map[string]string{"UNREAL_HARNESS_OPERATION_WARN_AFTER": "1s"}, want: executionbudget.Policy{WarnAfter: time.Second}},
+		{name: "invalid order", env: map[string]string{"UNREAL_HARNESS_OPERATION_WARN_AFTER": "2s", "UNREAL_HARNESS_OPERATION_TIMEOUT": "1s"}, bad: true},
 		{name: "negative resource bound", env: map[string]string{"UNREAL_HARNESS_MAX_OPERATIONS": "-1"}, bad: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -34,5 +36,24 @@ func TestRunnerExecutionPolicyDefaultsOverridesAndDisable(t *testing.T) {
 				t.Fatalf("policy=%+v max=%d want=%+v/%d", got, maxOperations, test.want, test.max)
 			}
 		})
+	}
+}
+
+func TestRunnerDefaultPolicyDoesNotCapWorkOrExplicitLongTimeout(t *testing.T) {
+	policy, limit, err := executionPolicy(Config{}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := executionbudget.NewAccount(executionbudget.Limits{MaxOperations: limit})
+	for i := range 128 {
+		lease, err := account.Acquire()
+		if err != nil {
+			t.Fatalf("default policy capped operation %d: %v", i+1, err)
+		}
+		t.Cleanup(lease.Release)
+	}
+	requested := executionbudget.Policy{Timeout: time.Hour}
+	if got := executionbudget.Constrain(policy, requested); got != requested {
+		t.Fatalf("default policy shortened explicit timeout: %+v", got)
 	}
 }

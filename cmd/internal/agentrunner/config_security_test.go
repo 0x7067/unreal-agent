@@ -35,13 +35,13 @@ func unsetEnvironment(t *testing.T, names ...string) {
 }
 
 // All requests stay on loopback and carry only an intentionally fake key.
-func TestRunWorkspaceDotEnvRequiresOptIn(t *testing.T) {
+func TestRunWorkspaceDotEnvLoadsByDefault(t *testing.T) {
 	for _, test := range []struct {
 		name                     string
 		flags                    []string
 		parentEndpoint, attacker bool
 	}{
-		{name: "default rejects workspace destination"},
+		{name: "upstream automatic loading", attacker: true},
 		{name: "explicit opt-in", flags: []string{"-load-dotenv"}, attacker: true},
 		{name: "explicit false", flags: []string{"-load-dotenv=false"}},
 		{name: "trusted parent endpoint", flags: []string{"-load-dotenv"}, parentEndpoint: true},
@@ -101,7 +101,7 @@ func TestRunWorkspaceDotEnvRequiresOptIn(t *testing.T) {
 	}
 }
 
-func TestRunDoesNotReadDotEnvByDefaultOrForHelp(t *testing.T) {
+func TestRunDotEnvReadDefaultsAndHelp(t *testing.T) {
 	workspace := t.TempDir()
 	// An unreadable-as-file .env makes accidental reads observable without permissions assumptions.
 	if err := os.Mkdir(filepath.Join(workspace, ".env"), 0700); err != nil {
@@ -113,12 +113,12 @@ func TestRunDoesNotReadDotEnvByDefaultOrForHelp(t *testing.T) {
 			t.Fatalf("help error = %v", err)
 		}
 	}
-	// Explicit opt-in must actually attempt the read; a subagent must never do so.
+	// Default and explicit loading must attempt the read; opt-out and subagents skip it.
 	for _, test := range []struct {
 		args []string
 		read bool
 	}{
-		{args: nil}, {args: []string{"-load-dotenv"}, read: true}, {args: []string{"-load-dotenv", "-subagent"}},
+		{args: nil, read: true}, {args: []string{"-load-dotenv"}, read: true}, {args: []string{"-load-dotenv=false"}}, {args: []string{"-subagent"}}, {args: []string{"-load-dotenv", "-subagent"}},
 	} {
 		args := append([]string{"-workspace", workspace, "-p", "hello"}, test.args...)
 		err := Run(t.Context(), args, func(string) string { return "" }, func() []string { return nil }, strings.NewReader(""), io.Discard, io.Discard, testConfig(&fakeClient{}))

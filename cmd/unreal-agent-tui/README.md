@@ -78,8 +78,8 @@ The inherited process environment remains trusted, including credentials and
 unreal-agent-tui -load-dotenv
 ```
 
-Migration from older versions: export configuration from a trusted shell or add
-`-load-dotenv` only for reviewed workspaces. Opt-in can change credential destinations
+Unlike the runner, the TUI does not automatically load `.env`, matching upstream.
+Use `-load-dotenv` only for reviewed workspaces. Opt-in can change credential destinations
 (endpoint/proxy), provider, model, and config/state paths. Variables fill unset
 environment entries, except `SANDBOX_EGRESS_PROXY`, which can replace its inherited
 value and is copied to `HTTPS_PROXY`. CLI flags still take precedence. Loading is

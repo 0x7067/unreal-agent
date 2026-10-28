@@ -18,7 +18,11 @@ const ToolCallRunningPayload = "Tool call is still running. Its result arrives i
 //go:embed prompts/preamble.md
 var preambleFile string
 
-var preamble = strings.TrimSpace(preambleFile)
+//go:embed prompts/coordination.md
+var coordinationFile string
+
+// Keep the upstream preamble separate from the fork's conditional tool guidance.
+var preamble = strings.TrimSpace(preambleFile) + "\n\n" + strings.TrimSpace(coordinationFile)
 
 type builder struct {
 	request         llm.Request

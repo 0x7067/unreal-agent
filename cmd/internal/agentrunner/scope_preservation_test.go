@@ -13,7 +13,7 @@ import (
 // This proves prompt delivery and a no-delegation execution path, not live-model
 // judgment about whether to test or delegate. Those behavioral evaluations stay
 // distinct from deterministic harness integration.
-func TestSupervisionPreservesScopeAndVerificationPolicy(t *testing.T) {
+func TestSupervisionPreservesRepositoryPolicyWithConditionalCoordination(t *testing.T) {
 	for _, scenario := range []struct{ name, request, policy string }{
 		{"tag only", "Tag v1.2.4 on HEAD; no push.", "Tagging metadata alone requires no build."},
 		{"code change", "Fix the parser and tag v1.2.4.", "After code changes, targeted tests and rebuild are required."},
@@ -30,14 +30,16 @@ func TestSupervisionPreservesScopeAndVerificationPolicy(t *testing.T) {
 					}
 				}
 				for _, guidance := range []string{
-					"Choose the smallest operation that satisfies the user's request.",
-					"tagging a release does not by itself require a full test/check/build pipeline",
-					"Preserve necessary verification for code changes and required repository validation",
+					"When using TaskGraph",
+					"When AgentControl is available",
 					scenario.policy,
 				} {
 					if !strings.Contains(system, guidance) {
 						t.Errorf("missing guidance %q", guidance)
 					}
+				}
+				if strings.Contains(system, "Scope and proportional execution") {
+					t.Error("general fork policy remains in the core instructions")
 				}
 				observed = true
 				return messageResponse("scope inspected; fixture performs no work"), nil

@@ -453,8 +453,12 @@ for exact worker/queue/frame limits and lifecycle contracts.
 
 ### Budgets, reuse and explicit limits
 
-Runner/frontend policy defaults are **30s warning, 120s cancellation request, 64
+Runner/frontend policy defaults were originally **30s warning, 120s cancellation request, 64
 work-operation envelopes**, configured by:
+
+Current defaults match upstream: warnings, automatic cancellation and the work
+admission bound are disabled. The following values are optional explicit limits,
+not defaults:
 
 ```text
 UNREAL_HARNESS_OPERATION_WARN_AFTER=30s

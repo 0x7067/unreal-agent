@@ -9,10 +9,10 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 )
 
-// Frontend defaults are explicit policy, not library defaults. Each wall budget
-// warns/requests cancellation; it never claims an uncooperative tool drained.
+// Frontend defaults match upstream: no wall thresholds or work admission bound.
+// Explicitly configured budgets request cancellation, never prove actual drain.
 func configuredBudgets(getenv func(string) string) (executionbudget.Policy, int, error) {
-	policy := executionbudget.Policy{WarnAfter: 30 * time.Second, Timeout: 120 * time.Second}
+	var policy executionbudget.Policy
 	for _, entry := range []struct {
 		name  string
 		value *time.Duration
@@ -25,7 +25,7 @@ func configuredBudgets(getenv func(string) string) (executionbudget.Policy, int,
 			*entry.value = duration
 		}
 	}
-	limit := 64
+	limit := 0
 	if text := strings.TrimSpace(getenv("UNREAL_HARNESS_MAX_OPERATIONS")); text != "" {
 		parsed, err := strconv.Atoi(text)
 		if err != nil || parsed < 0 {

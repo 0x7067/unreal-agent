@@ -172,7 +172,7 @@ func Run(
 		return nil
 	})
 	sessionDirectory := flags.String("session-directory", "", "directory containing session files; defaults to $XDG_STATE_HOME/unreal-agent/sessions, or $HOME/.local/state/unreal-agent/sessions")
-	loadDotEnvFile := flags.Bool("load-dotenv", false, "trust and load workspace .env (may change credential destinations); ignored for subagents")
+	loadDotEnvFile := flags.Bool("load-dotenv", true, "load workspace .env (may change credential destinations); ignored for subagents")
 	workspaceDirectory := flags.String("workspace", ".", "agent workspace and Bash working directory")
 	logDirectory := flags.String("log-directory", "", "optional session JSONL log directory; unset writes only to stdout")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
@@ -262,8 +262,8 @@ func Run(
 	}
 	environment := &environmentScope{}
 	if *loadDotEnvFile && !*isSubagent {
-		// Only explicit opt-in trusts workspace environment. Subagents inherit
-		// their parent's environment even when -load-dotenv is supplied.
+		// Match upstream workspace loading. Subagents inherit the parent's
+		// environment instead of independently re-reading .env.
 		environment, err = loadDotEnv(filepath.Join(workspace, ".env"))
 		if err != nil {
 			return err

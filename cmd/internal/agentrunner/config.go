@@ -19,8 +19,8 @@ type Config struct {
 	// SubagentCommand starts a subagent runner: an executable and its leading
 	// arguments. Nil runs this executable with no leading arguments.
 	SubagentCommand []string
-	// Optional process-local operation policy. A zero Budget selects executable
-	// defaults (environment thresholds accept explicit 0). Sharing ResourceAccount with an
+	// Optional process-local operation policy. A zero Budget uses environment
+	// thresholds, which default to disabled. Sharing ResourceAccount with an
 	// embedding runner bounds all of its nested managers together. Remote child
 	// process internals are not claimed to be counted by this live account.
 	ResourceAccount *executionbudget.Account

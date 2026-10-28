@@ -26,11 +26,13 @@ limits](cmd/unreal-agent-runner/README.md#task-graphs).
 
 ## Configuration safety
 
-Runner and TUI do not load workspace `.env` files unless explicitly launched with
-`-load-dotenv`. Existing shell environment remains trusted. When migrating from
-older automatic loading, export trusted configuration or opt in only after
-reviewing the file; endpoint/proxy settings can redirect credentials. Help/version
-never load `.env`; subagents inherit the parent environment without reloading it.
+The runner automatically loads workspace `.env` files, matching upstream; use
+`-load-dotenv=false` to skip loading. The TUI does not load them by default,
+also matching upstream; `-load-dotenv` enables its optional loader. Review workspace
+configuration before running: endpoint/proxy settings can redirect credentials.
+Help/version never load `.env`; subagents inherit the parent environment without
+reloading it. Tool wall-time thresholds and the concurrent-operation admission
+bound are disabled by default; environment settings can enable explicit limits.
 See [environment trust and model compaction settings](cmd/unreal-agent-runner/README.md#environment-and-workspace-trust).
 Unlisted provider/model settings now use a 64,000-token compaction threshold,
 not zero; configure smaller-context models explicitly.

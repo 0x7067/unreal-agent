@@ -64,7 +64,7 @@ func TestAgentCommandsAreExplicitAndBounded(t *testing.T) {
 
 func TestExecutableSummariesOmitSecretsAndShellSyntax(t *testing.T) {
 	for _, command := range []string{"curl --header Authorization:secret-value", "TOKEN=secret-value curl", "sh -c 'echo secret-value'", "$(secret-value)", "printf secret-value"} {
-		got := toolSummary("Bash", fmt.Sprintf(`{"command":%q}`, command))
+		got := safeExecutableSummary(command)
 		if strings.Contains(got, "secret-value") || !strings.Contains(got, "hidden") {
 			t.Fatalf("unsafe summary %q", got)
 		}
@@ -197,10 +197,23 @@ func TestAgentStructuralInputHasStableIdentityAndHonestAdmission(t *testing.T) {
 	}
 }
 
-func TestNestedToolSummariesDoNotLeakCommandsPromptsOrMessages(t *testing.T) {
+func TestNestedToolSummariesShowArguments(t *testing.T) {
 	for _, tc := range []struct{ name, args string }{{"Agent", `{"name":"reviewer","prompt":"secret-value"}`}, {"SendMessage", `{"to":"reviewer","message":"secret-value"}`}, {"AgentControl", `{"action":"message","handle":"opaque","message":"secret-value"}`}, {"TaskGraph", `{"action":"start","name":"validation","tasks":[{"command":"secret-value"}]}`}} {
-		if got := toolSummary(tc.name, tc.args); strings.Contains(got, "secret-value") {
-			t.Fatalf("%s leaked private tool content: %s", tc.name, got)
+		if got := toolSummary(tc.name, tc.args); got != tc.args {
+			t.Fatalf("%s summary = %q, want %q", tc.name, got, tc.args)
 		}
+	}
+}
+
+func TestStructuralToolCardShowsArguments(t *testing.T) {
+	m := toolsModel(t, defaultTheme, 160, 50, 0)
+	call := llm.ToolCall{CallID: "control", Name: "AgentControl", Arguments: `{"action":"message","handle":"reviewer","message":"check the sidebar"}`}
+	m.structuralCalls = map[string]llm.ToolCall{call.CallID: call}
+	m.apply(sessionstore.Item{Data: sessionstore.ToolCallStatus{TurnID: "turn", CallID: call.CallID}})
+	if len(m.tools) != 1 || m.tools[0].summary != call.Arguments {
+		t.Fatalf("structural tool arguments not shown: %+v", m.tools)
+	}
+	if !strings.Contains(ansi.Strip(m.View().Content), `"action":"message"`) {
+		t.Fatal("structural tool arguments missing from sidebar")
 	}
 }

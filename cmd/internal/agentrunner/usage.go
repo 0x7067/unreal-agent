@@ -31,10 +31,10 @@ Request schema (JSON object; unknown fields are rejected):
   include_partial_messages: boolean (optional; accepted but ignored)
 
 Execution policy environment (runner policy, not an execution sandbox):
-  UNREAL_HARNESS_OPERATION_WARN_AFTER: duration; default 30s; 0 disables warning.
-  UNREAL_HARNESS_OPERATION_TIMEOUT: duration; default 120s; 0 disables timeout.
+  UNREAL_HARNESS_OPERATION_WARN_AFTER: duration; default 0 (warning disabled).
+  UNREAL_HARNESS_OPERATION_TIMEOUT: duration; default 0 (timeout disabled).
     Expiry requests cancellation; owned work remains visible until actual drain.
-  UNREAL_HARNESS_MAX_OPERATIONS: integer; default 64; 0 disables work admission bound.
+  UNREAL_HARNESS_MAX_OPERATIONS: integer; default 0 (work admission unbounded).
     Shared in-process operation envelopes include root and graph managers, not
     remote-process internals or all OS processes. Management admission is separate.
 `

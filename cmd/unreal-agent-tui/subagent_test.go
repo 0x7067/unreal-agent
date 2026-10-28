@@ -14,10 +14,10 @@ import (
 )
 
 func TestToolSummarySubagents(t *testing.T) {
-	if got := toolSummary("Agent", `{"name":"research","prompt":"find the cause"}`); got != "research · supervised execution" {
+	if got := toolSummary("Agent", `{"name":"research","prompt":"find the cause"}`); got != `{"name":"research","prompt":"find the cause"}` {
 		t.Fatalf("Agent summary = %q", got)
 	}
-	if got := toolSummary("SendMessage", `{"to":"parent","message":"need a decision"}`); got != "to parent · message contents hidden" {
+	if got := toolSummary("SendMessage", `{"to":"parent","message":"need a decision"}`); got != `{"to":"parent","message":"need a decision"}` {
 		t.Fatalf("SendMessage summary = %q", got)
 	}
 }

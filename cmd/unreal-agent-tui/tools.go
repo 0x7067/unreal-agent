@@ -46,35 +46,14 @@ func toolSummary(name, arguments string) string {
 	var input struct {
 		Command string `json:"command"`
 		Path    string `json:"path"`
-		Name    string `json:"name"`
-		Prompt  string `json:"prompt"`
-		To      string `json:"to"`
-		Message string `json:"message"`
-		Action  string `json:"action"`
-		Handle  string `json:"handle"`
 	}
-	decoded := json.Unmarshal([]byte(arguments), &input) == nil
-	if decoded {
+	if json.Unmarshal([]byte(arguments), &input) == nil {
 		switch name {
 		case "Bash":
-			arguments = safeExecutableSummary(input.Command)
+			arguments = input.Command
 		case "ViewImage":
 			arguments = input.Path
-		case "Agent":
-			arguments = input.Name + " · supervised execution"
-		case "SendMessage":
-			arguments = "to " + input.To + " · message contents hidden"
-		case "AgentControl":
-			arguments = input.Action + " · " + input.Handle + " · structural control"
-		case "TaskGraph":
-			arguments = input.Action + " · " + input.Name + " · task graph"
 		}
-	}
-	if !decoded && (name == "Agent" || name == "SendMessage" || name == "AgentControl" || name == "TaskGraph") {
-		arguments = "arguments hidden"
-	}
-	if name == "Bash" && !strings.HasSuffix(arguments, " · arguments hidden") {
-		arguments = "shell command · arguments hidden"
 	}
 	return ansi.Truncate(singleLine(arguments), 160, "…")
 }
