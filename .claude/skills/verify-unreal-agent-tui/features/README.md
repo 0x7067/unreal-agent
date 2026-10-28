@@ -25,3 +25,7 @@ Recipes for proving user-facing TUI behavior with `scripts/tui.sh`. Read [SKILL.
 - [Conversation](./conversation.md): sending a message, the markdown reply, wheel and PgUp scrolling, hiding reasoning.
 - [Tools pane](./tools-pane.md): the tool card list, keyboard navigation, wheel scrolling, and opening details by click or Enter.
 - [Tool details](./tool-details.md): result output, scrolling, returning with Esc.
+
+- [Durable attach](./durable-attach.md): explicitly hosted turn, TUI detach/replacement, late tool output and independent identity/request-count checks.
+
+- [Durable reconnect](./durable-reconnect.md): lost-ack same-ID retry, held cursor snapshot during commits, private local view restoration and owned tmux-server cleanup.

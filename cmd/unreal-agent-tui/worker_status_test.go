@@ -246,3 +246,10 @@ func TestWorkerIdentityDisplayKeepsFullBuild(t *testing.T) {
 		})
 	}
 }
+
+func TestAttachedQueuedUpgradeVisibleWhileRequestPending(t *testing.T) {
+	m, _ := lifecycleTestModel(t)
+	m.reloading = true
+	m.reloadState = "queued"
+	assertWorkerStatusForeground(t, m, "Upgrade queued · waiting for natural idle drain; current work continues", m.theme.StatusAccent)
+}

@@ -244,6 +244,7 @@ func (model *gatedLogModel) Respond(ctx context.Context, request llm.Request, _ 
 
 func assertCoordinatorExecutionLog(t *testing.T, items []sessionstore.Item, submitted []inbox.Input, requests int, returned map[int]llm.Response) {
 	t.Helper()
+	requestControls := validateM23RequestControls(t, items)
 	var inputs []inbox.Input
 	var previous session.TurnID
 	var recordedAt time.Time
@@ -257,6 +258,16 @@ func assertCoordinatorExecutionLog(t *testing.T, items []sessionstore.Item, subm
 		recordedAt = item.RecordedAt
 		switch value := item.Data.(type) {
 		case inbox.Input:
+			if requestControls[value.ID] {
+				control, err := value.DecodeControlMessage()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if r := control.Parameters.(inbox.ModelRequestRecord); r.Action == "started" && r.Attempt != 1 {
+					t.Fatalf("non-restarting coordinator charged retry attempt: %#v", r)
+				}
+				continue
+			}
 			inputs = append(inputs, value)
 		case session.Turn:
 			if value.ID == "" || turnIDs[value.ID] || value.PreviousTurnID != previous || value.Type != session.TurnRegular {

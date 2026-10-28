@@ -1,0 +1,95 @@
+=== RUN   TestAdversarialStalledWatcherRealWorker
+=== RUN   TestAdversarialStalledWatcherRealWorker/protocol
+=== RUN   TestAdversarialStalledWatcherRealWorker/session
+=== RUN   TestAdversarialStalledWatcherRealWorker/token
+=== RUN   TestAdversarialStalledWatcherRealWorker/after
+=== RUN   TestAdversarialStalledWatcherRealWorker/control
+=== RUN   TestAdversarialStalledWatcherRealWorker/shutdown
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_payload
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_frame
+=== RUN   TestAdversarialStalledWatcherRealWorker/partial_frame
+=== NAME  TestAdversarialStalledWatcherRealWorker
+    adversarial_test.go:371: same-UID real transport; 23 accepted identities preserved; provider requests=5 (batching intentionally unconstrained)
+    adversarial_test.go:90: resident Serve joined (including worker Close), not merely socket EOF
+--- PASS: TestAdversarialStalledWatcherRealWorker (12.84s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/protocol (0.93s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/session (0.92s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/token (1.04s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/after (0.93s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/control (0.97s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/shutdown (0.89s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_payload (1.10s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_frame (0.97s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/partial_frame (1.05s)
+=== RUN   TestAdversarialMeasuredPublicationBounds
+=== RUN   TestAdversarialMeasuredPublicationBounds/frames
+    adversarial_test.go:418: before overflow frames=256 bytes=39424 next-frame=154
+=== RUN   TestAdversarialMeasuredPublicationBounds/bytes
+    adversarial_test.go:418: before overflow frames=32 bytes=8198784 next-frame=256212
+--- PASS: TestAdversarialMeasuredPublicationBounds (0.17s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/frames (0.00s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/bytes (0.16s)
+=== RUN   TestAdversarialStalledWatcherRealWorker
+=== RUN   TestAdversarialStalledWatcherRealWorker/protocol
+=== RUN   TestAdversarialStalledWatcherRealWorker/session
+=== RUN   TestAdversarialStalledWatcherRealWorker/token
+=== RUN   TestAdversarialStalledWatcherRealWorker/after
+=== RUN   TestAdversarialStalledWatcherRealWorker/control
+=== RUN   TestAdversarialStalledWatcherRealWorker/shutdown
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_payload
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_frame
+=== RUN   TestAdversarialStalledWatcherRealWorker/partial_frame
+=== NAME  TestAdversarialStalledWatcherRealWorker
+    adversarial_test.go:371: same-UID real transport; 23 accepted identities preserved; provider requests=6 (batching intentionally unconstrained)
+    adversarial_test.go:90: resident Serve joined (including worker Close), not merely socket EOF
+--- PASS: TestAdversarialStalledWatcherRealWorker (12.24s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/protocol (0.90s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/session (0.88s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/token (1.00s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/after (0.92s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/control (0.91s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/shutdown (0.91s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_payload (0.98s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_frame (1.01s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/partial_frame (0.97s)
+=== RUN   TestAdversarialMeasuredPublicationBounds
+=== RUN   TestAdversarialMeasuredPublicationBounds/frames
+    adversarial_test.go:418: before overflow frames=256 bytes=39424 next-frame=154
+=== RUN   TestAdversarialMeasuredPublicationBounds/bytes
+    adversarial_test.go:418: before overflow frames=32 bytes=8198784 next-frame=256212
+--- PASS: TestAdversarialMeasuredPublicationBounds (0.16s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/frames (0.00s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/bytes (0.16s)
+=== RUN   TestAdversarialStalledWatcherRealWorker
+=== RUN   TestAdversarialStalledWatcherRealWorker/protocol
+=== RUN   TestAdversarialStalledWatcherRealWorker/session
+=== RUN   TestAdversarialStalledWatcherRealWorker/token
+=== RUN   TestAdversarialStalledWatcherRealWorker/after
+=== RUN   TestAdversarialStalledWatcherRealWorker/control
+=== RUN   TestAdversarialStalledWatcherRealWorker/shutdown
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_payload
+=== RUN   TestAdversarialStalledWatcherRealWorker/oversized_frame
+=== RUN   TestAdversarialStalledWatcherRealWorker/partial_frame
+=== NAME  TestAdversarialStalledWatcherRealWorker
+    adversarial_test.go:371: same-UID real transport; 23 accepted identities preserved; provider requests=6 (batching intentionally unconstrained)
+    adversarial_test.go:90: resident Serve joined (including worker Close), not merely socket EOF
+--- PASS: TestAdversarialStalledWatcherRealWorker (12.80s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/protocol (0.94s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/session (1.02s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/token (1.04s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/after (1.02s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/control (1.03s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/shutdown (1.00s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_payload (0.95s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/oversized_frame (1.00s)
+    --- PASS: TestAdversarialStalledWatcherRealWorker/partial_frame (1.01s)
+=== RUN   TestAdversarialMeasuredPublicationBounds
+=== RUN   TestAdversarialMeasuredPublicationBounds/frames
+    adversarial_test.go:418: before overflow frames=256 bytes=39424 next-frame=154
+=== RUN   TestAdversarialMeasuredPublicationBounds/bytes
+    adversarial_test.go:418: before overflow frames=32 bytes=8198784 next-frame=256212
+--- PASS: TestAdversarialMeasuredPublicationBounds (0.17s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/frames (0.00s)
+    --- PASS: TestAdversarialMeasuredPublicationBounds/bytes (0.16s)
+PASS
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/resident	39.398s

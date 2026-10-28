@@ -1,0 +1,8 @@
+Id=ua-m34-resident-1793176575.service
+ActiveState=active
+SubState=running
+TimeoutStopUSec=10s
+RuntimeMaxUSec=5min
+MainPID=2469048
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/ua-m34-resident-1793176575.service
+KillMode=control-group

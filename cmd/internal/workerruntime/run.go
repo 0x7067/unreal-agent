@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/durablejob"
 	"io"
 	"io/fs"
 	"os"
@@ -108,6 +109,9 @@ func run(ctx context.Context, input io.Reader, output, stderr io.Writer, getenv 
 }
 
 func validateBootstrap(b workerproto.Bootstrap) error {
+	if len(b.ControlScope) > 256 || b.ControlScope != "" && strings.TrimSpace(b.ControlScope) == "" {
+		return fmt.Errorf("%w: invalid control scope", ErrProtocol)
+	}
 	if err := b.Budget.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrProtocol, err)
 	}
@@ -166,6 +170,12 @@ func canonicalDirectory(path string) (string, error) {
 }
 
 func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Writer, getenv func(string) string, b workerproto.Bootstrap, startID string, available []providers.Provider) (quiesced bool, responseID string, result error) {
+	// A direct private caller may omit the scope; mint fresh execution identity.
+	// Resident hosts always supply their exact incarnation/generation scope.
+	if b.ControlScope == "" {
+		b.ControlScope = uuid.New().String()
+	}
+
 	responseID = startID
 	directory, err := canonicalDirectory(b.Directory)
 	if err != nil {
@@ -200,10 +210,48 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 	} else if err != nil {
 		return false, responseID, err
 	}
-	for _, op := range restored.Operations {
-		if !terminal(op.Status) {
-			return false, responseID, fmt.Errorf("refuse resume: operation %q has unresolved status %q", op.ID, op.Status)
+	lifecycle, err := sessionstore.ReadLifecycle(ctx, store, b.SessionID)
+	if err != nil {
+		return false, responseID, err
+	}
+	// Resolve only inert provider metadata before checking independent owners.
+	// Launch and resume must hash the same effective endpoint; no client/key or
+	// external execution is initialized before the ownership/recovery fences.
+	b, err = normalizeDurableOwner(b, available)
+	if err != nil {
+		return false, responseID, err
+	}
+	// Preserve the native refusal-before-environment boundary. This pure first
+	// stage only identifies exact new plan envelopes that may need trusted config;
+	// it authorizes no execution and does not bypass the configured owner gates.
+	if err := validateNativeBeforeConfiguration(restored.Operations, b.SessionID); err != nil {
+		return false, responseID, fmt.Errorf("refuse resume: operation has unresolved status: %w", err)
+	}
+	trustedJobs, err := loadTrustedJobs(getenv)
+	if err != nil {
+		return false, responseID, err
+	}
+	// The worker owns this process. Retain executor authority only in trustedJobs;
+	// ordinary native shell children must not inherit the startup credential.
+	if trustedJobs != nil {
+		if err := os.Unsetenv(durablejob.TokenEnvironment); err != nil {
+			return false, responseID, err
 		}
+	}
+	extensions, err := loadExtensions(getenv(extensionConfigEnvironment))
+	if err != nil {
+		return false, responseID, err
+	}
+	timersSetting := getenv("UNREAL_AGENT_DURABLE_TIMERS")
+	if timersSetting != "" && timersSetting != "1" {
+		return false, responseID, errors.New("durable timers require explicit value1")
+	}
+	workloads := workloadConfiguration{jobs: trustedJobs, extensions: extensions, timers: timersSetting == "1"}
+	if err := validateWorkloadOwnership(ctx, b, lifecycle, restored.Operations, workloads); err != nil {
+		return false, responseID, err
+	}
+	if err := validateWorkloadRecovery(restored.Operations, workloads, b.SessionID); err != nil {
+		return false, responseID, fmt.Errorf("refuse resume: operation has unresolved status: %w", err)
 	}
 	// No writer runs during history transfer. Install the observer only after the
 	// last typed history frame, before starting the coordinator: no gaps/duplicates.
@@ -229,6 +277,16 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 		_ = events.write(workerproto.Event{Type: "item", Item: &item})
 	})
 	defer store.RemoveObserver(observer)
+	proof := &runtimeCleanupEvidence{}
+	defer func() {
+		if proof.managerSeen && proof.ownersSeen && proof.modelsSeen {
+			// An execution/read cancellation is not cleanup uncertainty. Only
+			// independently established joins authorize the canonical receipt.
+			result = errors.Join(result, finalizeRuntimeLifecycle(store, b, proof))
+		} else if result == nil {
+			result = errors.New("runtime cleanup proof unavailable")
+		}
+	}()
 	provider, err := providers.Find(available, b.Provider)
 	if err != nil {
 		return false, responseID, err
@@ -245,7 +303,12 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 		return false, responseID, err
 	}
 	calls := newJoinedClient(client)
-	defer func() { calls.shutdown(); result = errors.Join(result, client.Close()) }()
+	defer func() {
+		calls.shutdown()
+		proof.modelsErr = client.Close()
+		proof.modelsSeen = true
+		result = errors.Join(result, proof.modelsErr)
+	}()
 	// During setup, caller cancellation must still tear down partial owners.
 	// Once the coordinator starts, it owns cancellation: canceling its context
 	// first would discard operation updates before their terminal states persist.
@@ -259,15 +322,39 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 	}
 	// Join even partial operation setup. Once running, the coordinator's
 	// graceful-stop defer below runs first, while operation updates are live.
-	owners := &ownedExecution{}
+	owners := &ownedExecution{trustedJobs: trustedJobs, extensions: extensions, timersEnabled: workloads.timers, stderr: stderr}
+	if b.DurableSubagents {
+		retained := lifecycle.RetainedRemoteOperations
+		for _, op := range restored.Operations {
+			if _, ok := retained[op.ID]; ok {
+				retained[op.ID] = op
+			}
+		}
+		for _, op := range retained {
+			state, err := operation.DecodeRemoteJobState(op)
+			if err != nil || state.Plan.Type != "subagent.run" || state.Plan.Version != 2 {
+				continue
+			}
+			owners.durableRetained = append(owners.durableRetained, op)
+		}
+	}
 	var operations operation.Manager
 	defer func() {
 		cancelOwners()
 		if operations != nil {
 			for range operations.Updates() {
 			}
+			if waiter, ok := operations.(interface{ AwaitStopped(context.Context) error }); ok {
+				proof.managerErr = waiter.AwaitStopped(context.Background())
+				proof.managerSeen = true
+			}
 		}
-		result = errors.Join(result, owners.wait())
+		proof.ownersErr = owners.wait()
+		proof.jobsJoined = owners.trustedJobs != nil && proof.ownersErr == nil
+		proof.extensionsJoined = owners.extensions != nil && proof.ownersErr == nil
+		proof.timersJoined = owners.timers != nil && proof.ownersErr == nil
+		proof.ownersSeen = true
+		result = errors.Join(result, proof.ownersErr)
 		for range inputs.Output() {
 		}
 	}()
@@ -298,7 +385,8 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 	for _, definition := range registry.StaticDefinitions() {
 		builder.AddTool(definition.Tool)
 	}
-	current := coordinator.New(coordinator.Dependencies{SessionID: b.SessionID, Restored: restored, Sessions: store, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary})
+	current := coordinator.New(coordinator.Dependencies{ControlScope: b.ControlScope,
+		SessionID: b.SessionID, Restored: restored, Sessions: committedCheckpointStore{Store: store, owners: owners}, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary})
 	if err := events.write(workerproto.Event{Type: "ready", ID: startID}); err != nil {
 		return false, responseID, err
 	}

@@ -189,7 +189,7 @@ func TestCoordinatorHardStopDiscardsLateModelResponse(t *testing.T) {
 		run.input(t, externalEvent(t, 0, "first", "hello"))
 		run.input(t, stopInput(t, "stop", inbox.StopHard))
 		run.assertRunning(t)
-		run.respond(t, 0, llm.Response{Output: []llm.Item{{
+		run.respond(t, 0, llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "late", Name: tool.ViewImageName, Arguments: `{}`},
 		}}})
 		if len(run.store.appendedResponses) != 0 || len(run.store.appendedStatuses) != 0 || len(run.calls) != 1 {
@@ -297,9 +297,10 @@ func TestCoordinatorDrainsInboxAndOperationsBeforeCallingModel(t *testing.T) {
 				foundInput = true
 			}
 		}
-		if !foundInput || len(run.store.appendedInputs) != 1 || len(run.store.savedOperations) != 1 {
+		if !foundInput || len(run.store.appendedInputs) != 2 || len(run.store.savedOperations) != 1 {
 			t.Fatal("request omitted the input, or selected and drained events were not persisted exactly once")
 		}
+		assertFixtureRequestStart(t, run.store.appendedInputs[1], run.current.state.currentTurnID, 2, 1)
 	})
 }
 
@@ -369,6 +370,9 @@ func TestCoordinatorWhenIdleDeliversRestoredResults(t *testing.T) {
 				run.store.resume.Operations = nil
 				run.current.dependencies.Restored = run.store.resume
 				if stage != "completed" {
+					if stage == "request-started" {
+						run.store.items = append(run.store.items, storedItem(4, sessionstore.ItemInput, fixtureRequestStart(t, "delivered", 1, 0)))
+					}
 					run.store.items = append(run.store.items,
 						storedItem(4, sessionstore.ItemTurn, session.Turn{ID: "delivered", PreviousTurnID: "turn-1", Type: session.TurnRegular}),
 					)
@@ -500,7 +504,7 @@ func stopInput(t *testing.T, id inbox.ID, mode inbox.ControlMode) inbox.Input {
 }
 
 func textResponse(text string) llm.Response {
-	return llm.Response{Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: text}}}}
+	return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: text}}}}
 }
 
 func assertStopResult(t *testing.T, request llm.Request, callID, want string) {

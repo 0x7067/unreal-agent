@@ -1,0 +1,302 @@
+=== RUN   TestAttachLocalStateRoundTrip
+--- PASS: TestAttachLocalStateRoundTrip (0.00s)
+=== RUN   TestAttachLocalStateRejectsInvalid
+=== RUN   TestAttachLocalStateRejectsInvalid/UUID
+=== RUN   TestAttachLocalStateRejectsInvalid/count
+=== RUN   TestAttachLocalStateRejectsInvalid/encoded-size
+=== RUN   TestAttachLocalStateRejectsInvalid/version
+=== RUN   TestAttachLocalStateRejectsInvalid/negative
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-control
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-size
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-size
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-utf8
+=== RUN   TestAttachLocalStateRejectsInvalid/duplicate
+=== RUN   TestAttachLocalStateRejectsInvalid/text-size
+=== RUN   TestAttachLocalStateRejectsInvalid/namespace
+=== RUN   TestAttachLocalStateRejectsInvalid/offset
+--- PASS: TestAttachLocalStateRejectsInvalid (0.01s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/UUID (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/count (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/encoded-size (0.01s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/negative (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-control (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-utf8 (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/duplicate (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/text-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/offset (0.00s)
+=== RUN   TestAttachLocalStateRejectsJSON
+=== RUN   TestAttachLocalStateRejectsJSON/corrupt
+=== RUN   TestAttachLocalStateRejectsJSON/unknown
+=== RUN   TestAttachLocalStateRejectsJSON/control-input
+=== RUN   TestAttachLocalStateRejectsJSON/namespace
+=== RUN   TestAttachLocalStateRejectsJSON/version
+=== RUN   TestAttachLocalStateRejectsJSON/trailing
+=== RUN   TestAttachLocalStateRejectsJSON/oversize
+--- PASS: TestAttachLocalStateRejectsJSON (0.03s)
+    --- PASS: TestAttachLocalStateRejectsJSON/corrupt (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/unknown (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/control-input (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/trailing (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/oversize (0.03s)
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular
+--- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular (0.00s)
+=== RUN   TestAttachLocalStateAggregateLimit
+--- PASS: TestAttachLocalStateAggregateLimit (0.13s)
+=== RUN   TestAttachLocalStateNormalizedPayloadBoundary
+--- PASS: TestAttachLocalStateNormalizedPayloadBoundary (0.01s)
+=== RUN   TestAttachLocalStateLeaseFencesDisconnectedFrontend
+--- PASS: TestAttachLocalStateLeaseFencesDisconnectedFrontend (0.00s)
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure
+--- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed (0.02s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first (0.01s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure (0.01s)
+=== RUN   TestAttachLocalViewRoundTripSelectionExpansionAndScroll
+--- PASS: TestAttachLocalViewRoundTripSelectionExpansionAndScroll (1.44s)
+=== RUN   TestAttachLocalViewRetainedNeverAutomaticallyExecutes
+--- PASS: TestAttachLocalViewRetainedNeverAutomaticallyExecutes (0.01s)
+=== RUN   TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho
+--- PASS: TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho (0.01s)
+=== RUN   TestAttachQuitFromExpandedToolWithDraft
+--- PASS: TestAttachQuitFromExpandedToolWithDraft (0.01s)
+=== RUN   TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho
+--- PASS: TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho (0.05s)
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/accepted
+--- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection (0.03s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected (0.02s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/accepted (0.02s)
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.09s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation c79ae5fdf3670de75efe19fe932336df34b76f009362e7d94c81b6d32ab56410 generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation 6b8869db30ef71f8d5fd1764f90efb01aa88b67500ac4181b429540e1148cda3 generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.46s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.72s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.73s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+=== RUN   TestAttachLocalStateRoundTrip
+--- PASS: TestAttachLocalStateRoundTrip (0.00s)
+=== RUN   TestAttachLocalStateRejectsInvalid
+=== RUN   TestAttachLocalStateRejectsInvalid/count
+=== RUN   TestAttachLocalStateRejectsInvalid/version
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-control
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-size
+=== RUN   TestAttachLocalStateRejectsInvalid/text-size
+=== RUN   TestAttachLocalStateRejectsInvalid/encoded-size
+=== RUN   TestAttachLocalStateRejectsInvalid/namespace
+=== RUN   TestAttachLocalStateRejectsInvalid/negative
+=== RUN   TestAttachLocalStateRejectsInvalid/offset
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-size
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-utf8
+=== RUN   TestAttachLocalStateRejectsInvalid/UUID
+=== RUN   TestAttachLocalStateRejectsInvalid/duplicate
+--- PASS: TestAttachLocalStateRejectsInvalid (0.01s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/count (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-control (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/text-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/encoded-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/negative (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/offset (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-utf8 (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/UUID (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/duplicate (0.00s)
+=== RUN   TestAttachLocalStateRejectsJSON
+=== RUN   TestAttachLocalStateRejectsJSON/corrupt
+=== RUN   TestAttachLocalStateRejectsJSON/unknown
+=== RUN   TestAttachLocalStateRejectsJSON/control-input
+=== RUN   TestAttachLocalStateRejectsJSON/namespace
+=== RUN   TestAttachLocalStateRejectsJSON/version
+=== RUN   TestAttachLocalStateRejectsJSON/trailing
+=== RUN   TestAttachLocalStateRejectsJSON/oversize
+--- PASS: TestAttachLocalStateRejectsJSON (0.03s)
+    --- PASS: TestAttachLocalStateRejectsJSON/corrupt (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/unknown (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/control-input (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/trailing (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/oversize (0.03s)
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular
+--- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular (0.00s)
+=== RUN   TestAttachLocalStateAggregateLimit
+--- PASS: TestAttachLocalStateAggregateLimit (0.13s)
+=== RUN   TestAttachLocalStateNormalizedPayloadBoundary
+--- PASS: TestAttachLocalStateNormalizedPayloadBoundary (0.02s)
+=== RUN   TestAttachLocalStateLeaseFencesDisconnectedFrontend
+--- PASS: TestAttachLocalStateLeaseFencesDisconnectedFrontend (0.00s)
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure
+--- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed (0.02s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first (0.01s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure (0.01s)
+=== RUN   TestAttachLocalViewRoundTripSelectionExpansionAndScroll
+--- PASS: TestAttachLocalViewRoundTripSelectionExpansionAndScroll (1.46s)
+=== RUN   TestAttachLocalViewRetainedNeverAutomaticallyExecutes
+--- PASS: TestAttachLocalViewRetainedNeverAutomaticallyExecutes (0.01s)
+=== RUN   TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho
+--- PASS: TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho (0.01s)
+=== RUN   TestAttachQuitFromExpandedToolWithDraft
+--- PASS: TestAttachQuitFromExpandedToolWithDraft (0.01s)
+=== RUN   TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho
+--- PASS: TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho (0.05s)
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/accepted
+--- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection (0.03s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected (0.02s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/accepted (0.02s)
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.09s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation 81c2340d2319b626b5bec222f9e3c297f21cda0c496f4da915ef41ce5feb514e generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation 246920ed1c27989396de32b4f5a90838aa025f0d6c95fd2965fdc9cb6dc319ac generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.45s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.71s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.74s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+=== RUN   TestAttachLocalStateRoundTrip
+--- PASS: TestAttachLocalStateRoundTrip (0.00s)
+=== RUN   TestAttachLocalStateRejectsInvalid
+=== RUN   TestAttachLocalStateRejectsInvalid/text-size
+=== RUN   TestAttachLocalStateRejectsInvalid/encoded-size
+=== RUN   TestAttachLocalStateRejectsInvalid/version
+=== RUN   TestAttachLocalStateRejectsInvalid/namespace
+=== RUN   TestAttachLocalStateRejectsInvalid/negative
+=== RUN   TestAttachLocalStateRejectsInvalid/offset
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-utf8
+=== RUN   TestAttachLocalStateRejectsInvalid/duplicate
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-control
+=== RUN   TestAttachLocalStateRejectsInvalid/identifier-size
+=== RUN   TestAttachLocalStateRejectsInvalid/draft-size
+=== RUN   TestAttachLocalStateRejectsInvalid/UUID
+=== RUN   TestAttachLocalStateRejectsInvalid/count
+--- PASS: TestAttachLocalStateRejectsInvalid (0.01s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/text-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/encoded-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/negative (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/offset (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-utf8 (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/duplicate (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-control (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/identifier-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/draft-size (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/UUID (0.00s)
+    --- PASS: TestAttachLocalStateRejectsInvalid/count (0.00s)
+=== RUN   TestAttachLocalStateRejectsJSON
+=== RUN   TestAttachLocalStateRejectsJSON/corrupt
+=== RUN   TestAttachLocalStateRejectsJSON/unknown
+=== RUN   TestAttachLocalStateRejectsJSON/control-input
+=== RUN   TestAttachLocalStateRejectsJSON/namespace
+=== RUN   TestAttachLocalStateRejectsJSON/version
+=== RUN   TestAttachLocalStateRejectsJSON/trailing
+=== RUN   TestAttachLocalStateRejectsJSON/oversize
+--- PASS: TestAttachLocalStateRejectsJSON (0.03s)
+    --- PASS: TestAttachLocalStateRejectsJSON/corrupt (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/unknown (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/control-input (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/namespace (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/version (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/trailing (0.00s)
+    --- PASS: TestAttachLocalStateRejectsJSON/oversize (0.03s)
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode
+=== RUN   TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular
+--- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/ancestor-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-symlink (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/file-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/directory-mode (0.00s)
+    --- PASS: TestAttachLocalStateUnsafePathsNoOutsideMutation/nonregular (0.00s)
+=== RUN   TestAttachLocalStateAggregateLimit
+--- PASS: TestAttachLocalStateAggregateLimit (0.13s)
+=== RUN   TestAttachLocalStateNormalizedPayloadBoundary
+--- PASS: TestAttachLocalStateNormalizedPayloadBoundary (0.01s)
+=== RUN   TestAttachLocalStateLeaseFencesDisconnectedFrontend
+--- PASS: TestAttachLocalStateLeaseFencesDisconnectedFrontend (0.00s)
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first
+=== RUN   TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure
+--- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed (0.02s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/saved_first (0.01s)
+    --- PASS: TestAttachLocalViewSavedBeforeDispatchAndFailureClosed/save_failure (0.01s)
+=== RUN   TestAttachLocalViewRoundTripSelectionExpansionAndScroll
+--- PASS: TestAttachLocalViewRoundTripSelectionExpansionAndScroll (1.43s)
+=== RUN   TestAttachLocalViewRetainedNeverAutomaticallyExecutes
+--- PASS: TestAttachLocalViewRetainedNeverAutomaticallyExecutes (0.01s)
+=== RUN   TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho
+--- PASS: TestAttachLocalViewConflictingRetainedPayloadCannotReplaceAcceptedEcho (0.01s)
+=== RUN   TestAttachQuitFromExpandedToolWithDraft
+--- PASS: TestAttachQuitFromExpandedToolWithDraft (0.01s)
+=== RUN   TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho
+--- PASS: TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho (0.05s)
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected
+=== RUN   TestAttachAcknowledgmentStatesAndCapacityRejection/accepted
+--- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection (0.03s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/capacity_rejected (0.02s)
+    --- PASS: TestAttachAcknowledgmentStatesAndCapacityRejection/accepted (0.02s)
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.09s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation eedd3b7858c14f6bdd86e101a4fe01b2d82c56d90a44ac722af9852cd9f04320 generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation cde5c8d85b2ba08f8a7358bd961642148cdaf765f1ad3dc89f5e69da61b1a29f generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.48s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.72s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.76s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+PASS
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui	23.255s

@@ -36,6 +36,9 @@ type coordinator struct {
 	state        loopState
 	stop         stopState
 	cancelModel  context.CancelFunc
+	modelCalls   map[session.TurnID]struct{} // callback ownership, including superseded requests
+	abort        *foregroundAbortState
+	requests     requestLedger
 
 	// Lifecycle synchronization never protects loopState: only Run owns it.
 	lifecycleOnce sync.Once
@@ -50,6 +53,9 @@ type stopState struct {
 }
 
 type loopState struct {
+	lifecycle         sessionstore.LifecycleHistory
+	abortRequests     map[inbox.ID]inbox.ForegroundAbort
+	abortResults      map[inbox.ID]inbox.ForegroundAbortResult
 	controlInputs     map[inbox.ID]inbox.ToolInvocation
 	controlCompleted  map[inbox.ID]bool
 	controlOperations map[operation.ID]structuralControl
@@ -64,6 +70,7 @@ type loopState struct {
 	compactionFailureLimit    int
 	compactionDisabled        bool
 	manualCompaction          bool
+	manualCompactionInput     inbox.ID
 	currentTurnID             session.TurnID
 	currentTurnType           session.TurnType
 	toolCalls                 map[toolCallKey]toolCallState
@@ -88,6 +95,8 @@ type toolCallKey struct {
 }
 
 type toolCallContext struct {
+	turnID     session.TurnID
+	now        time.Time
 	operations []operation.Operation
 }
 
@@ -128,6 +137,15 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 	if err := current.restore(ctx); err != nil {
 		return err
 	}
+	// Recovery of an admitted but unfinished lifecycle intent is a separate policy.
+	// Never silently redispatch it or restart its interrupted model/tools.
+	if err := current.state.lifecycle.ValidateResume(); err != nil {
+		return err
+	}
+
+	if err := current.prepareRequestRecovery(ctx); err != nil {
+		return err
+	}
 
 	// Accept queued new user input before surfacing a restored failure. Do not
 	// schedule or dispatch any recorded tool work merely to retry a failed turn.
@@ -158,7 +176,7 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 	if err := current.dispatchOperationsToManager(); err != nil {
 		return err
 	}
-	current.state.callModel = toolCallStatusesRequireModelResponse(statuses)
+	current.state.callModel = current.state.callModel || toolCallStatusesRequireModelResponse(statuses)
 
 	var heartbeat <-chan time.Time
 	for {
@@ -173,6 +191,14 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 			}
 			if stopped {
 				return ctx.Err()
+			}
+		} else if current.abort != nil {
+			done, err := current.advanceForegroundAbort(ctx)
+			if err != nil {
+				return err
+			}
+			if done {
+				continue
 			}
 		} else if callModel {
 			if err := current.requestModelResponse(modelContext, modelResponses); err != nil {
@@ -227,7 +253,17 @@ func (current *coordinator) Run(ctx context.Context) (result error) {
 			current.clearToolGrace()
 
 		case received := <-modelResponses:
+			delete(current.modelCalls, received.turnID)
+			if current.abort != nil {
+				if err := current.discardAbortedResponse(ctx, received); err != nil {
+					return err
+				}
+				continue
+			}
 			if current.cancelModel == nil || received.turnID != current.state.currentTurnID {
+				if err := current.preserveSupersededUsage(ctx, received); err != nil {
+					return err
+				}
 				continue
 			}
 			if err := current.processModelResponse(ctx, received); err != nil {
@@ -274,6 +310,7 @@ func (current *coordinator) processEvents(ctx context.Context) (bool, error) {
 	if current.state.manualCompaction && current.cancelModel == nil {
 		if _, err := current.dependencies.ContextBuilder.BuildCompaction(); err != nil {
 			current.state.manualCompaction = false
+			current.state.manualCompactionInput = ""
 		}
 	}
 	return (current.state.manualCompaction && current.cancelModel == nil) || current.state.callModel || (current.pendingInputs() > 0 && current.cancelModel == nil && len(current.state.graceToolCalls) == 0), nil
@@ -299,6 +336,9 @@ func (current *coordinator) processModelResponse(ctx context.Context, modelRespo
 	current.interruptModel()
 	if modelResponse.err != nil {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := current.recordTransportUsage(ctx, modelResponse); err != nil {
 			return err
 		}
 		return fmt.Errorf("call model for turn %q: %w", modelResponse.turnID, modelResponse.err)
@@ -343,12 +383,12 @@ func (current *coordinator) handleStop() (bool, error) {
 }
 
 func (current *coordinator) isIdle() bool {
-	return current.cancelModel == nil && current.pendingInputs() == 0 &&
+	return current.abort == nil && len(current.modelCalls) == 0 && current.cancelModel == nil && current.pendingInputs() == 0 &&
 		len(current.state.toolCalls) == 0 && !current.hasPendingOperations()
 }
 
 func (current *coordinator) isWaitingForOnlyToolCalls() bool {
-	return current.cancelModel == nil && current.stop.request.Mode != inbox.StopHard &&
+	return current.abort == nil && current.cancelModel == nil && current.stop.request.Mode != inbox.StopHard &&
 		current.pendingInputs() == 0 && len(current.state.toolCalls) != 0
 }
 
@@ -429,6 +469,21 @@ func (current *coordinator) cancelOperations() error {
 }
 
 func (current *coordinator) buildModelRequest() (llm.Request, session.TurnType, error) {
+	if a := current.requests.latest; a != nil && !a.completed && a.record.Action == "interrupted" {
+		if a.mode == inbox.CompactionRequest {
+			built, err := current.dependencies.ContextBuilder.BuildCompaction()
+			if err != nil {
+				return llm.Request{}, "", requestStateError("cannot rebuild the charged compaction intent")
+			}
+			return built.Request, session.TurnCompaction, nil
+		}
+		built, err := current.dependencies.ContextBuilder.Build()
+		if err != nil {
+			return llm.Request{}, "", fmt.Errorf("rebuild regular request: %w", err)
+		}
+		return built.Request, session.TurnRegular, nil
+	}
+
 	if current.state.manualCompaction || (!current.state.compactionDisabled && current.dependencies.ContextBuilder.NeedsCompaction()) {
 		if built, err := current.dependencies.ContextBuilder.BuildCompaction(); err == nil {
 			return built.Request, session.TurnCompaction, nil
@@ -446,12 +501,23 @@ func (current *coordinator) requestModelResponse(
 	results chan<- modelResponseResult,
 ) error {
 	current.interruptModel()
+	if a := current.requests.latest; a != nil && !a.completed && a.record.Action == "started" {
+		if err := current.recordRequestAction(ctx, "superseded", "New work superseded the previous request; late output is not authority."); err != nil {
+			return err
+		}
+	}
+	if err := current.supersedeCompactionForNewManual(ctx); err != nil {
+		return err
+	}
 	if err := current.disableUnusableCompaction(ctx); err != nil {
 		return err
 	}
 	request, turnType, err := current.buildModelRequest()
 	if err != nil {
 		return err
+	}
+	if turnType == session.TurnCompaction && current.compactionFailureLimit() > 100000 {
+		return requestStateError("compaction policy exceeds supported attempt bound")
 	}
 	if turnType == session.TurnCompaction && current.state.compactionFailureLimit == 0 {
 		if err := current.recordControl(ctx, inbox.ControlMessage{
@@ -461,12 +527,15 @@ func (current *coordinator) requestModelResponse(
 			return err
 		}
 	}
-	// Manual requests are one-shot, including when no history is eligible.
-	current.state.manualCompaction = false
+	// The committed turn consumes only its applicable manual trigger. A retry
+	// retains its recorded origin rather than losing a manual-only request.
 	turn := session.Turn{
 		ID:             session.TurnID(uuid.New().String()),
 		PreviousTurnID: current.state.currentTurnID,
 		Type:           turnType,
+	}
+	if err := current.chargeModelRequest(ctx, turn); err != nil {
+		return err
 	}
 	item, err := current.addItemToLocalState(sessionstore.Item{
 		Kind: sessionstore.ItemTurn,
@@ -482,6 +551,10 @@ func (current *coordinator) requestModelResponse(
 	requestContext, cancel := context.WithCancel(ctx)
 	current.cancelModel = cancel
 	current.state.callModel = false
+	if current.modelCalls == nil {
+		current.modelCalls = make(map[session.TurnID]struct{})
+	}
+	current.modelCalls[turn.ID] = struct{}{}
 	go func() {
 		response, err := current.dependencies.LLM.Respond(requestContext, request, llm.RequestOptions{
 			CacheKey: string(current.dependencies.SessionID),
@@ -518,6 +591,21 @@ func (current *coordinator) handleInboxInput(ctx context.Context, input inbox.In
 			return err
 		}
 		switch request.Mode {
+		case inbox.ShutdownSession:
+			value := request.Parameters.(inbox.ShutdownSessionRequest)
+			if value.Scope != current.dependencies.ControlScope {
+				return current.recordControl(ctx, inbox.ControlMessage{Mode: inbox.SessionShutdownFinished, Parameters: inbox.SessionShutdownResult{Version: 1, InputID: input.ID, Scope: value.Scope, Phase: "refused", Error: "runtime ownership scope changed; no work canceled"}})
+			}
+			if err := current.recordRequestAction(ctx, "stopped", "Explicit session shutdown; no request retry."); err != nil {
+				return err
+			}
+			current.acceptStop(inbox.ControlMessage{Mode: inbox.StopHard, Reason: "explicit scoped session shutdown"})
+		case inbox.SessionShutdownFinished, inbox.ExecutionDrained:
+			return nil
+		case inbox.AbortForeground:
+			return current.beginForegroundAbort(ctx, input.ID, request.Parameters.(inbox.ForegroundAbort))
+		case inbox.ForegroundAbortFinished:
+			return nil
 		case inbox.InvokeTool:
 			return current.admitStructuralControl(ctx, input.ID, true)
 		case inbox.ToolInvocationFinished:
@@ -531,6 +619,11 @@ func (current *coordinator) handleInboxInput(ctx context.Context, input inbox.In
 			}
 			return nil
 		case inbox.StopHard, inbox.StopWhenIdle:
+			if request.Mode == inbox.StopHard {
+				if err := current.recordRequestAction(ctx, "stopped", "Explicit hard stop; no request retry."); err != nil {
+					return err
+				}
+			}
 			current.acceptStop(request)
 		}
 	}
@@ -687,9 +780,16 @@ func (current *coordinator) addItemToLocalState(
 				item.Data,
 			)
 		}
+		// A fork reads parent history, but does not acquire its request authority.
+		current.requests = requestLedger{inheritedTurn: current.state.currentTurnID}
+		current.state.manualCompaction = false
+		current.state.manualCompactionInput = ""
 		// FIXME: Forks leave inherited calls without results and retain pending-input accounting.
 		clear(current.state.toolCalls)
 		clear(current.state.operations)
+		current.state.lifecycle = sessionstore.LifecycleHistory{}
+		clear(current.state.abortRequests)
+		clear(current.state.abortResults)
 		clear(current.state.controlInputs)
 		clear(current.state.controlCompleted)
 		clear(current.state.controlOperations)
@@ -705,6 +805,9 @@ func (current *coordinator) addItemToLocalState(
 		}
 		if err := input.Validate(); err != nil {
 			return sessionstore.Item{}, fmt.Errorf("invalid input: %w", err)
+		}
+		if err := current.state.lifecycle.Observe(input); err != nil {
+			return sessionstore.Item{}, err
 		}
 		if input.Kind == inbox.InputExternal {
 			if err := current.dependencies.ContextBuilder.AddExternalInput(input); err != nil {
@@ -725,18 +828,56 @@ func (current *coordinator) addItemToLocalState(
 			}
 			current.dependencies.ContextBuilder.AddControlMessage(request)
 			switch request.Mode {
+			case inbox.AbortForeground:
+				if current.state.abortRequests == nil {
+					current.state.abortRequests = make(map[inbox.ID]inbox.ForegroundAbort)
+				}
+				value := request.Parameters.(inbox.ForegroundAbort)
+				if prior, exists := current.state.abortRequests[input.ID]; exists && prior != value {
+					return sessionstore.Item{}, fmt.Errorf("conflicting foreground abort identity %s", input.ID)
+				}
+				current.state.abortRequests[input.ID] = value
+			case inbox.ForegroundAbortFinished:
+				result := request.Parameters.(inbox.ForegroundAbortResult)
+				intent, exists := current.state.abortRequests[result.InputID]
+				if !exists || intent.TargetTurnID != result.TargetTurnID {
+					return sessionstore.Item{}, fmt.Errorf("foreground abort outcome has no matching intent/target")
+				}
+				if prior, exists := current.state.abortResults[result.InputID]; exists && prior.Status != "uncertain" && prior != result {
+					return sessionstore.Item{}, fmt.Errorf("conflicting final foreground abort outcome")
+				}
+				if current.state.abortResults == nil {
+					current.state.abortResults = make(map[inbox.ID]inbox.ForegroundAbortResult)
+				}
+				current.state.abortResults[result.InputID] = result
+				if result.Status == "completed" && result.TargetTurnID == string(current.state.currentTurnID) {
+					current.consumeAbortedTurn()
+				}
 			case inbox.InvokeTool:
 				current.state.controlInputs[input.ID] = request.Parameters.(inbox.ToolInvocation)
 			case inbox.ToolInvocationFinished:
 				result := request.Parameters.(inbox.ToolInvocationResult)
 				current.state.controlCompleted[result.InputID] = true
 				delete(current.state.controlInputs, result.InputID)
+			case inbox.CompactionRequest:
+				if err := current.observeCompactionRequest(request.Parameters.(inbox.CompactionRequestRecord)); err != nil {
+					return sessionstore.Item{}, err
+				}
+			case inbox.ModelRequest:
+				if err := current.observeRequestRecord(request.Parameters.(inbox.ModelRequestRecord)); err != nil {
+					return sessionstore.Item{}, err
+				}
+			case inbox.StopHard:
+				if a := current.requests.latest; a != nil && !a.completed && (a.record.Action == "started" || a.record.Action == "interrupted") {
+					a.stoppedByControl = true
+				}
 			case inbox.SetCompactionPolicy:
 				current.state.compactionFailureLimit = request.Parameters.(inbox.CompactionPolicy).FailureLimit
 			case inbox.CompactionDisabled:
 				current.state.compactionDisabled = true
 			case inbox.Compact:
 				current.state.manualCompaction = true
+				current.state.manualCompactionInput = input.ID
 			}
 			if request.Mode == inbox.Heartbeat {
 				current.state.availableInputs++
@@ -751,12 +892,19 @@ func (current *coordinator) addItemToLocalState(
 				item.Data,
 			)
 		}
+		if err := current.observeRequestTurn(turn); err != nil {
+			return sessionstore.Item{}, err
+		}
 		current.state.currentTurnID = turn.ID
 		current.state.currentTurnType = turn.Type
 		current.state.currentTurnInputs = current.state.availableInputs
 		current.state.currentTurnExternalInputs = current.state.externalInputs
-		// A turn consumes any pending manual compaction request during replay.
-		current.state.manualCompaction = false
+		// A regular retry must not consume a newer manual intent. Compaction
+		// recovery handles original vs newer manual identities before charging.
+		if a := current.requests.byTurn[turn.ID]; a == nil || a.mode != inbox.ModelRequest || a.record.Attempt == 1 {
+			current.state.manualCompaction = false
+			current.state.manualCompactionInput = ""
+		}
 		if turn.Type != session.TurnCompaction {
 			current.dependencies.ContextBuilder.Commit()
 		}
@@ -773,11 +921,18 @@ func (current *coordinator) addItemToLocalState(
 			return item, nil
 		}
 		current.state.respondedTurns[response.TurnID] = struct{}{}
+		if current.requestResponseInert(response.TurnID) {
+			current.state.failedTurns[response.TurnID] = struct{}{}
+			return item, nil
+		}
+		if a := current.requests.byTurn[response.TurnID]; a != nil {
+			a.completed = true
+		}
 		if current.state.currentTurnType == session.TurnCompaction && response.TurnID == current.state.currentTurnID {
 			current.applyCompactionResponse(response.Response)
 			return item, nil
 		}
-		if response.Response.Failure != nil {
+		if response.Response.Failure != nil || response.Response.Stop != llm.StopComplete {
 			current.state.failedTurns[response.TurnID] = struct{}{}
 		}
 		// The complete output includes messages, reasoning, and tool calls.
@@ -823,7 +978,7 @@ func (current *coordinator) addItemToLocalState(
 }
 
 func (current *coordinator) addToolCallsToLocalState(response sessionstore.ModelResponse) {
-	if response.Response.Failure != nil {
+	if response.Response.Failure != nil || response.Response.Stop != llm.StopComplete || current.requestResponseInert(response.TurnID) {
 		return
 	}
 	for _, output := range response.Response.Output {
@@ -969,7 +1124,7 @@ func (current *coordinator) scheduleToolCall(
 	call llm.ToolCall,
 ) (sessionstore.ToolCallStatus, error) {
 	translator, exists := current.dependencies.Tools.Resolve(call.Name)
-	toolContext := &toolCallContext{}
+	toolContext := &toolCallContext{turnID: key.turnID, now: time.Now().UTC()}
 	var status tool.CallStatus
 	if exists {
 		status = translator.Translate(toolContext, call)
@@ -998,6 +1153,11 @@ func (current *coordinator) scheduleToolCall(
 	}
 	return toolCallStatus, nil
 }
+
+// CurrentTurnID is optional pure turn metadata; Context.Submit remains unchanged.
+func (current *toolCallContext) CurrentTimeUTC() time.Time { return current.now }
+
+func (current *toolCallContext) CurrentTurnID() string { return string(current.turnID) }
 
 func (current *toolCallContext) Submit(spec operation.Spec) operation.ID {
 	id := operation.ID(uuid.New().String())

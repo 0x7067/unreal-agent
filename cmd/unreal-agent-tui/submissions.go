@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"strings"
 	"uuid"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/attachclient"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 )
@@ -21,6 +23,7 @@ const (
 	submissionQueued
 	submissionUnconfirmed
 	submissionFailed
+	submissionUncertain
 )
 
 func (s submissionState) status() string {
@@ -31,6 +34,8 @@ func (s submissionState) status() string {
 		return "Queued · not yet persisted"
 	case submissionUnconfirmed:
 		return "Run ended · persistence unconfirmed"
+	case submissionUncertain:
+		return "Delivery uncertain · retry same input ID and payload"
 	case submissionFailed:
 		return "Send failed · not persisted"
 	default:
@@ -39,6 +44,35 @@ func (s submissionState) status() string {
 }
 
 func (m *model) startSubmission(text string) tea.Cmd {
+	if m.attached {
+		if strings.TrimSpace(text) == "/upgrade" {
+			return m.startAttachedUpgrade(false)
+		}
+		if strings.TrimSpace(text) == "/cancel-upgrade" {
+			return m.startAttachedUpgrade(true)
+		}
+		if writer, ok := m.inputs.(*attachedRuntimeWriter); ok && writer.enabled && m.attachConnected {
+			switch strings.TrimSpace(text) {
+			case "/builds":
+				return m.startBuildInspection()
+			case "/reload":
+				return m.startReload()
+			}
+		}
+		if handled, cmd := m.startAttachedLifecycle(text); handled {
+			return cmd
+		}
+		switch {
+		case strings.TrimSpace(text) == "/reconnect":
+			return m.startAttachReconnect()
+		case strings.TrimSpace(text) == "/retry" || strings.HasPrefix(strings.TrimSpace(text), "/retry "):
+			return m.retryAttached(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/retry")))
+		}
+	}
+	if m.attached && (!m.attachConnected || strings.HasPrefix(strings.TrimSpace(text), "/")) {
+		m.append("Attach", "Host controls and disconnected submissions are unavailable in attach v1. Draft retained.")
+		return nil
+	}
 	// Defense in depth for callers other than the Enter handler: this local
 	// command must never become model input, durable ingress, or session history.
 	if trimmed := strings.TrimSpace(text); trimmed == "/agents" || strings.HasPrefix(trimmed, "/agents ") {
@@ -50,22 +84,11 @@ func (m *model) startSubmission(text string) tea.Cmd {
 	if strings.TrimSpace(text) == "/reload" {
 		return m.startReload()
 	}
-	id := inbox.ID(uuid.New().String())
-	m.composer.Reset()
-	if m.pendingSubmissions == nil {
-		m.pendingSubmissions = make(map[inbox.ID]struct{})
+	if m.attached && !m.canRetainAttached(text) {
+		m.append("Send rejected", "Client retry buffer full or input too large; draft retained, nothing sent.")
+		return nil
 	}
-	m.pendingSubmissions[id] = struct{}{}
-	m.sending = len(m.pendingSubmissions) > 0
-	// Explicit user action reveals the local echo, unlike background appends.
-	m.selection = textSelection{}
-	m.dragComposer = false
-	m.lines = append(m.lines, message{label: "You", text: terminaltext.Clean(text), inputID: id, submission: submissionSending})
-	m.renderConversation()
-	m.conversation.GotoBottom()
-	// Admission order is fixed here on the UI goroutine, before Bubble Tea
-	// schedules any result waiter. Snapshot the writer too: tests and callers
-	// may replace m.inputs while earlier records are still pending.
+	id := inbox.ID(uuid.New().String())
 	kind := inbox.InputExternal
 	var body any = text
 	if strings.TrimSpace(text) == "/compact" {
@@ -73,6 +96,31 @@ func (m *model) startSubmission(text string) tea.Cmd {
 		body = inbox.ControlMessage{Mode: inbox.Compact}
 	}
 	payload, err := json.Marshal(body)
+	if m.attached {
+		if err != nil {
+			m.append("Send rejected", err.Error()+"; draft retained, nothing sent.")
+			return nil
+		}
+		m.retainAttached(inbox.Input{ID: id, Kind: kind, Payload: payload})
+		state := m.captureAttachView()
+		state.Draft = ""
+		if saveErr := m.saveAttachView(state); saveErr != nil {
+			delete(m.attachOutbox, id)
+			m.append("Send rejected", "Could not save stable retry identity; draft retained, nothing sent: "+saveErr.Error())
+			return nil
+		}
+	}
+	m.composer.Reset()
+	if m.pendingSubmissions == nil {
+		m.pendingSubmissions = make(map[inbox.ID]struct{})
+	}
+	m.pendingSubmissions[id] = struct{}{}
+	m.sending = true
+	m.selection = textSelection{}
+	m.dragComposer = false
+	m.lines = append(m.lines, message{label: "You", text: terminaltext.Clean(text), inputID: id, submission: submissionSending})
+	m.renderConversation()
+	m.conversation.GotoBottom()
 	if m.submissionQueue == nil {
 		m.submissionQueue = newSubmissionQueue(m.ctx)
 	}
@@ -115,10 +163,21 @@ func (m *model) finishSubmission(msg submitted) {
 	if m.lines[index].submission == submissionPersisted || m.lines[index].submission == submissionFailed {
 		return
 	}
-	if msg.err != nil {
+	if m.attached && m.lines[index].submission == submissionQueued && msg.err != nil {
+		if !errors.Is(msg.err, attachclient.ErrUncertain) {
+			m.append("Retry failed", msg.err.Error()+"; prior durable acceptance remains confirmed.")
+		}
+		return
+	}
+	if errors.Is(msg.err, attachclient.ErrUncertain) {
+		m.setSubmission(index, submissionUncertain)
+		m.append("Delivery uncertain", msg.err.Error()+"\nPress F5 to reconnect, then /retry this input ID. The original payload and identity are retained; do not send a new message to retry.")
+	} else if msg.err != nil {
 		m.setSubmission(index, submissionFailed)
 		m.append("Send failed", msg.err.Error())
-		m.composer.SetValue(strings.TrimSpace(msg.text + "\n" + m.composer.Value()))
+		if !m.attached {
+			m.composer.SetValue(strings.TrimSpace(msg.text + "\n" + m.composer.Value()))
+		}
 	} else if !m.ended {
 		m.setSubmission(index, submissionQueued)
 	}

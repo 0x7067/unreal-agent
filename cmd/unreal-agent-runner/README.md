@@ -227,3 +227,38 @@ docker run --rm -i --user "$(id -u):$(id -g)" \
 ```
 
 Each release also publishes its Git tag (for example, `v0.1.0`) for version pinning.
+
+## Independent headless host and lifecycle controls
+
+`unreal-agent-runner host -runtime-directory "$PRIVATE_RUNTIME"
+-session-directory "$SESSION_DIRECTORY" -session "$SESSION_ID"
+-workspace "$ABSOLUTE_WORKSPACE"` owns a stable session independently of any
+attached frontend. The runtime directory must already be private (0700). Provider
+selection belongs to this explicit host startup, not attach or reconnect.
+`unreal-agent-runner attach` watches/submits external inputs over the same-UID
+local transport; it never starts a replacement host automatically.
+
+The public attach protocol remains version 1. New typed lifecycle admission is
+negotiated through `foreground_abort.v1` and `session_shutdown.v1` capabilities;
+only exact-scope abort/shutdown intents are admitted, never results, drain
+receipts, or arbitrary controls. SDK `SubmitLifecycle` requires its existing
+single `Next` reader and acknowledges ingress only. Matching canonical outcomes
+are authoritative. TUI `/abort`, `/shutdown` and `/retry-control ID` expose these
+separately from ordinary detach and external-input retry.
+
+The private worker protocol is version **3** (old private workers are explicitly
+rejected); the canonical session format remains version **2**. A new process gets
+a fresh generation-bound control scope. Strong owned supervisors require fresh
+per-launch child cleanup receipts. A full committed explicit-background progress
+report can acknowledge its Run ticket while its child remains owned/running;
+that terminal ticket is not task completion or cleanup. Shutdown still joins the
+child and requires its receipt. Default/task and legacy unproved supervisors do
+not gain this early acknowledgement behavior.
+
+A cleanup deadline or worker EOF cannot release shutdown authority. The shared
+parent authority lease fences both resident and one-shot writers; journal-only,
+pending/uncertain canonical intents and unproven retained remote ownership refuse
+automatic restart before providers/tools initialize. This is not generic remote
+recovery, a sandbox, proof of provider-side billing cancellation, or proof against
+arbitrary escaped daemons. See the [M1.6 work log](../../docs/plans/durable-lifecycle-controls.md)
+for implementation and verification status; later roadmap recovery is not implied.

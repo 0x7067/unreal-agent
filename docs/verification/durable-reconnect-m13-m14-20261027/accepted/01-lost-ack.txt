@@ -1,0 +1,50 @@
+ ╔ Conversation ═════════════════════════════════════════════════════════════════════════════════════════════════════╗╔ Tools ════════════════════ Shift+Tab › ╗
+ ║ ⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀                                                                                                   ║║                                        ║
+ ║ ⠀⠀⠀⠀⣀⣴⣟⣋⣀⣀⡀⠀⠀⠀⠀                                                                                                   ║║  No tool calls yet			║
+ ║ ⠀⠴⢞⡿⠋⠉⠁⠀⠈⠉⠙⠳⣄⠀⠀                                                                                                   ║║                                        ║
+ ║ ⠀⢠⡟⠁⠀⢀⠀⢀⣀⠀⠀⠀⠘⣷⠀  Unreal Agent · attached · fake · host 3667346 · worker #1 · committed tool history only          ║║                                        ║
+ ║ ⠀⣿⠀⠀⠀⠿⠇⠘⠟⠀⠀⠀⠀⢸⡇                                                                                                   ║║                                        ║
+ ║ ⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⣠⡄⠀⢸⡇  Workspace  host workspace (file picker unavailable)                                              ║║                                        ║
+ ║ ⠘⣧⠀⠀⠳⣦⣀⣀⣤⡴⠟⠀⢠⡟⠀  Run Files  host-owned session                                                                    ║║                                        ║
+ ║ ⠀⠙⢧⡀⠀⠀⠉⠉⠁⠀⢀⣴⠏⠀⠀  Session    m13-accepted                                                                          ║║                                        ║
+ ║ ⠀⠀⠀⠙⠳⠶⣤⣤⠶⠾⠋⠁⠀⠀⠀                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  M13 exact stable payload accepted                                                                                ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  Delivery uncertain · retry same input ID and payload                                                             ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  Delivery uncertain                                                                                               ║║                                        ║
+ ║  submission durability uncertain for input-id "b6531eb2-db19-4ac6-a655-f5eb5a3cfbac"; reconnect and retry the     ║║                                        ║
+ ║  same input ID and payload: io: read/write on closed pipe                                                         ║║                                        ║
+ ║  Press F5 to reconnect, then /retry this input ID. The original payload and identity are retained; do not send a  ║║                                        ║
+ ║  new message to retry.                                                                                            ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝╚════════════════════════════════════════╝
+  Disconnected · host state unknown · F5 /reconnect
+ ╔ Message ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ Send a message · Ctrl+C detaches                                                                                                                            ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  Enter send · Tab tools · F3 hide reasoning · Ctrl+C exit · Shift+Enter/Ctrl+J newline · PgUp/PgDn scroll

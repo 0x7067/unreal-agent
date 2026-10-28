@@ -185,6 +185,10 @@ func TestRemoteArtifactsPathFailures(t *testing.T) {
 				if e := os.Mkdir(filepath.Join(dir, "remote-outputs"), 0o755); e != nil {
 					t.Fatal(e)
 				}
+				// Establish the unsafe mode even under a restrictive process umask.
+				if e := os.Chmod(filepath.Join(dir, "remote-outputs"), 0o755); e != nil {
+					t.Fatal(e)
+				}
 			case "file-as-directory":
 				if e := os.WriteFile(filepath.Join(dir, "remote-outputs"), []byte("sentinel"), 0o600); e != nil {
 					t.Fatal(e)

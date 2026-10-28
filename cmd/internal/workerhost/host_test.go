@@ -366,6 +366,9 @@ func TestBusyAndBadCandidateLeaveWorkerUntouched(t *testing.T) {
 	send(t, h, "work", "busy")
 	waitInput(t, r, "work")
 	before, pid := generation(h)
+	if err := h.RetireForHostReplacement(t.Context()); !errors.Is(err, ErrBusy) {
+		t.Fatalf("active host retirement: %v", err)
+	}
 	if err := h.Reload(t.Context(), nil); !errors.Is(err, ErrBusy) {
 		t.Fatalf("busy reload: %v", err)
 	}

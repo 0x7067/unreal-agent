@@ -1,0 +1,11 @@
+Usage of unreal-agent-tui attach:
+  -client-state-directory string
+    	private client-local draft/retry/view directory; defaults to XDG state (not session history)
+  -runtime-directory string
+    	existing private runtime directory; defaults to XDG_RUNTIME_DIR
+  -session string
+    	required hosted session ID
+  -session-directory string
+    	existing session directory; defaults to XDG state
+  -theme string
+    	client-local palette name or JSON path (default "turbo-vision")

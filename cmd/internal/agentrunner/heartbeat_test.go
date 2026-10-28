@@ -48,7 +48,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 		defer stateMu.Unlock()
 		if !started {
 			started = true
-			return llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: waitingCall}}}, nil
+			return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: waitingCall}}}, nil
 		}
 		for _, item := range request.Input {
 			if item.Type != llm.ItemToolResult {
@@ -62,7 +62,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 				return llm.Response{}, fmt.Errorf("unexpected Bash result: %s", result.Output[0].Value)
 			}
 			finished = true
-			return llm.Response{}, nil
+			return llm.Response{Stop: llm.StopComplete}, nil
 		}
 		if heartbeatMessageCount(request) == 0 {
 			return llm.Response{}, errors.New("waiting turn has no heartbeat")
@@ -73,7 +73,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 			}
 			released = true
 		}
-		return llm.Response{}, nil
+		return llm.Response{Stop: llm.StopComplete}, nil
 	}}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -149,7 +149,7 @@ func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
 		if got := heartbeatMessageCount(request); got != heartbeats {
 			return llm.Response{}, fmt.Errorf("replayed heartbeat messages = %d, want %d", got, heartbeats)
 		}
-		return llm.Response{}, nil
+		return llm.Response{Stop: llm.StopComplete}, nil
 	}}
 	if code := RunMain(ctx, args, getenv, func() []string { return nil },
 		strings.NewReader(`{"prompt":"summarize","session_id":"heartbeat-session"}`),

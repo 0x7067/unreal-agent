@@ -21,6 +21,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
@@ -369,11 +370,11 @@ func TestRunMainExecutesBashToolToCompletion(t *testing.T) {
 				t.Fatal("persisted session items contain the process environment")
 			}
 			assertItemSequence(t, stdout.String(),
-				"input.control input.external input.control turn model_response tool_call_status tool_call_status turn model_response",
-				"input.control input.external turn input.control model_response tool_call_status tool_call_status turn model_response",
-				"input.control input.external turn model_response tool_call_status input.control tool_call_status turn model_response",
-				"input.control input.external turn model_response tool_call_status tool_call_status turn input.control model_response",
-				"input.control input.external turn model_response tool_call_status tool_call_status turn model_response input.control",
+				"input.control input.external input.control input.model_request.started turn model_response tool_call_status tool_call_status input.model_request.started turn model_response",
+				"input.control input.external input.model_request.started turn input.control model_response tool_call_status tool_call_status input.model_request.started turn model_response",
+				"input.control input.external input.model_request.started turn model_response tool_call_status input.control tool_call_status input.model_request.started turn model_response",
+				"input.control input.external input.model_request.started turn model_response tool_call_status tool_call_status input.model_request.started turn input.control model_response",
+				"input.control input.external input.model_request.started turn model_response tool_call_status tool_call_status input.model_request.started turn model_response input.control",
 			)
 		})
 	}
@@ -500,6 +501,8 @@ func assertItemSequence(t *testing.T, output string, want ...string) {
 	t.Helper()
 	decoder := jsontext.NewDecoder(strings.NewReader(output))
 	var kinds []string
+	var charged *inbox.ModelRequestRecord
+	seenRequests, seenTurns := map[string]bool{}, map[string]bool{}
 	for {
 		var item sessionstore.Item
 		if err := json.UnmarshalDecode(decoder, &item); err != nil {
@@ -510,9 +513,44 @@ func assertItemSequence(t *testing.T, output string, want ...string) {
 		}
 		kind := string(item.Kind)
 		if item.Kind == sessionstore.ItemInput {
-			kind += "." + string(item.Data.(inbox.Input).Kind)
+			input := item.Data.(inbox.Input)
+			kind += "." + string(input.Kind)
+			if input.Kind == inbox.InputControl {
+				control, err := input.DecodeControlMessage()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if control.Mode == inbox.ModelRequest {
+					record, ok := control.Parameters.(inbox.ModelRequestRecord)
+					if !ok {
+						t.Fatalf("untyped model request: %#v", control.Parameters)
+					}
+					if err := record.Validate(); err != nil {
+						t.Fatal(err)
+					}
+					if record.Action != "started" || record.TurnType != "regular" || record.Attempt != 1 || record.Limit != 2 {
+						t.Fatalf("unexpected request charge: %+v", record)
+					}
+					if charged != nil || seenRequests[record.RequestID] || seenTurns[record.TurnID] {
+						t.Fatalf("duplicate or unconsumed request charge: %+v", record)
+					}
+					seenRequests[record.RequestID], seenTurns[record.TurnID] = true, true
+					charged = &record
+					kind = "input.model_request.started"
+				}
+			}
+		}
+		if item.Kind == sessionstore.ItemTurn {
+			turn := item.Data.(session.Turn)
+			if charged == nil || charged.TurnID != string(turn.ID) || charged.TurnType != string(turn.Type) {
+				t.Fatalf("turn %+v has no matching preceding charge: %+v", turn, charged)
+			}
+			charged = nil
 		}
 		kinds = append(kinds, kind)
+	}
+	if charged != nil {
+		t.Fatalf("request charge has no turn: %+v", charged)
 	}
 	if got := strings.Join(kinds, " "); !slices.Contains(want, got) {
 		t.Fatalf("item sequence = %q, want one of %q", got, want)
@@ -599,7 +637,7 @@ func TestRunMainWithoutLogDirectoryWritesOnlyStdout(t *testing.T) {
 			workspace := t.TempDir()
 			t.Chdir(workspace)
 			client := &fakeClient{respond: func(context.Context, llm.Request) (llm.Response, error) {
-				return llm.Response{Output: []llm.Item{{
+				return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 					Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "done"},
 				}}}, nil
 			}}
@@ -631,10 +669,10 @@ func TestRunMainUsesDefaultSessionDirectory(t *testing.T) {
 	started := false
 	client := &fakeClient{respond: func(context.Context, llm.Request) (llm.Response, error) {
 		if started {
-			return llm.Response{}, nil
+			return llm.Response{Stop: llm.StopComplete}, nil
 		}
 		started = true
-		return llm.Response{Output: []llm.Item{{
+		return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: llm.ToolCall{CallID: "call-1", Name: "Bash", Arguments: `{"command":"printf hello"}`},
 		}}}, nil

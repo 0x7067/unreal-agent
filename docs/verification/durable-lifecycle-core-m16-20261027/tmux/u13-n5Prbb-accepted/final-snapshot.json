@@ -1,0 +1,390 @@
+[
+  {
+    "Type": "hello",
+    "ID": "attach",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "HostPID": 491440,
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false,
+    "Capabilities": [
+      "fresh_snapshot",
+      "history_watch",
+      "submit_external",
+      "cursor_snapshot"
+    ]
+  },
+  {
+    "Type": "snapshot",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "Status": {
+      "Generation": 1,
+      "Build": "unreal-agent-runner-resident-v1 [97dbf1ae16ba]",
+      "Stopped": false
+    },
+    "Model": {
+      "ID": "fake",
+      "CompactionThreshold": 64000,
+      "MaxOutputTokens": null,
+      "ReasoningEffort": ""
+    },
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 1,
+      "RecordedAt": "2026-10-27T23:41:24.726531839Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "9a0f72a7-747a-4e3e-9296-530da85fba9a",
+        "Kind": "control",
+        "Payload": {
+          "Mode": "settings",
+          "Reason": "",
+          "Parameters": {
+            "Model": "fake",
+            "CompactionThreshold": 64000
+          }
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 2,
+      "RecordedAt": "2026-10-27T23:41:25.024048824Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "912ca318-3d34-45eb-ba39-b5be43913806",
+        "Kind": "external",
+        "Payload": "M13 exact stable payload accepted"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 3,
+      "RecordedAt": "2026-10-27T23:41:25.026244415Z",
+      "Kind": "turn",
+      "Data": {
+        "ID": "08cae86e-0ae2-428d-b58f-19b45ad417ca",
+        "PreviousTurnID": "",
+        "Type": "regular"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 4,
+      "RecordedAt": "2026-10-27T23:41:25.089406668Z",
+      "Kind": "model_response",
+      "Data": {
+        "TurnID": "08cae86e-0ae2-428d-b58f-19b45ad417ca",
+        "Response": {
+          "ID": "1",
+          "Stop": "complete",
+          "Output": [
+            {
+              "ProviderID": "tool",
+              "Type": "tool_call",
+              "Data": {
+                "CallID": "local-tool",
+                "Name": "Bash",
+                "Arguments": "{\"command\": \"printf M14_TOOL_DETAIL\"}"
+              }
+            }
+          ],
+          "Usage": {
+            "InputTokens": 1,
+            "CachedInputTokens": 0,
+            "CacheWriteInputTokens": 0,
+            "OutputTokens": 1,
+            "ReasoningTokens": 0,
+            "ByModel": {
+              "": {
+                "InputTokens": 1,
+                "CachedInputTokens": 0,
+                "CacheWriteInputTokens": 0,
+                "OutputTokens": 1,
+                "ReasoningTokens": 0
+              }
+            },
+            "Raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "Failure": null
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 5,
+      "RecordedAt": "2026-10-27T23:41:25.08957622Z",
+      "Kind": "tool_call_status",
+      "Data": {
+        "TurnID": "08cae86e-0ae2-428d-b58f-19b45ad417ca",
+        "CallID": "local-tool",
+        "Status": {
+          "Error": "",
+          "WaitingFor": [
+            "431f0fe8-7db4-40fc-91c1-545bc72ede7f"
+          ]
+        },
+        "Operations": [
+          {
+            "MaxOutputLength": 40000,
+            "ID": "431f0fe8-7db4-40fc-91c1-545bc72ede7f",
+            "Type": "shell",
+            "Version": 3,
+            "Status": "ready",
+            "State": {
+              "Input": {
+                "Command": "printf M14_TOOL_DETAIL",
+                "Shell": "/bin/sh",
+                "Directory": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/workspace"
+              },
+              "BaseDirectory": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/state/operations/m13-accepted",
+              "Phase": "",
+              "ProcessGroupID": 0,
+              "PendingExitCode": null,
+              "OutSize": 0,
+              "ErrSize": 0,
+              "InlineOut": "",
+              "InlineErr": "",
+              "InlineOutTail": "",
+              "InlineErrTail": "",
+              "Result": null,
+              "TerminalError": "",
+              "ErrorTruncated": false,
+              "OutTruncated": true,
+              "ErrTruncated": true,
+              "OutPath": "",
+              "ErrPath": ""
+            }
+          }
+        ]
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 6,
+      "RecordedAt": "2026-10-27T23:41:25.091949925Z",
+      "Kind": "tool_call_status",
+      "Data": {
+        "TurnID": "08cae86e-0ae2-428d-b58f-19b45ad417ca",
+        "CallID": "local-tool",
+        "Status": {
+          "Error": "",
+          "WaitingFor": [
+            "431f0fe8-7db4-40fc-91c1-545bc72ede7f"
+          ]
+        },
+        "Operations": [
+          {
+            "MaxOutputLength": 40000,
+            "ID": "431f0fe8-7db4-40fc-91c1-545bc72ede7f",
+            "Type": "shell",
+            "Version": 3,
+            "Status": "completed",
+            "State": {
+              "Input": {
+                "Command": "printf M14_TOOL_DETAIL",
+                "Shell": "/bin/sh",
+                "Directory": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/workspace"
+              },
+              "BaseDirectory": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/state/operations/m13-accepted",
+              "Phase": "",
+              "ProcessGroupID": 0,
+              "PendingExitCode": null,
+              "OutSize": 15,
+              "ErrSize": 0,
+              "InlineOut": "",
+              "InlineErr": "",
+              "InlineOutTail": "",
+              "InlineErrTail": "",
+              "Result": {
+                "Out": "M14_TOOL_DETAIL",
+                "Err": "",
+                "OutSize": 15,
+                "ErrSize": 0,
+                "ExitCode": 0
+              },
+              "TerminalError": "",
+              "ErrorTruncated": false,
+              "OutTruncated": false,
+              "ErrTruncated": false,
+              "OutPath": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/state/operations/m13-accepted/431f0fe8-7db4-40fc-91c1-545bc72ede7f/out",
+              "ErrPath": "/tmp/u16c.n5Prbb/u13-n5Prbb-accepted/state/operations/m13-accepted/431f0fe8-7db4-40fc-91c1-545bc72ede7f/err"
+            }
+          }
+        ]
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 7,
+      "RecordedAt": "2026-10-27T23:41:25.091990285Z",
+      "Kind": "turn",
+      "Data": {
+        "ID": "40299f8b-58cf-4c0d-bedb-75b08bf8dfbc",
+        "PreviousTurnID": "08cae86e-0ae2-428d-b58f-19b45ad417ca",
+        "Type": "regular"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 8,
+      "RecordedAt": "2026-10-27T23:41:25.092807396Z",
+      "Kind": "model_response",
+      "Data": {
+        "TurnID": "40299f8b-58cf-4c0d-bedb-75b08bf8dfbc",
+        "Response": {
+          "ID": "2",
+          "Stop": "complete",
+          "Output": [
+            {
+              "ProviderID": "answer",
+              "Type": "message",
+              "Data": {
+                "Role": "assistant",
+                "Text": "ARCHIVE 000 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 001 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 002 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 003 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 004 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 005 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 006 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 007 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 008 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 009 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 010 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 011 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 012 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 013 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 014 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 015 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 016 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 017 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 018 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 019 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 020 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 021 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 022 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 023 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 024 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 025 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 026 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 027 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 028 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 029 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 030 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 031 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 032 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 033 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 034 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 035 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 036 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 037 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 038 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session \n\nARCHIVE 039 preserved canonical paragraph durable session durable session durable session durable session durable session durable session durable session durable session ",
+                "Phase": ""
+              }
+            }
+          ],
+          "Usage": {
+            "InputTokens": 1,
+            "CachedInputTokens": 0,
+            "CacheWriteInputTokens": 0,
+            "OutputTokens": 1,
+            "ReasoningTokens": 0,
+            "ByModel": {
+              "": {
+                "InputTokens": 1,
+                "CachedInputTokens": 0,
+                "CacheWriteInputTokens": 0,
+                "OutputTokens": 1,
+                "ReasoningTokens": 0
+              }
+            },
+            "Raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "Failure": null
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_end",
+    "Protocol": 1,
+    "SessionID": "m13-accepted",
+    "Incarnation": "0f1bd36957b5a43df2635f647f2dec1ea4718bed5a155779b4de0c872e33d199",
+    "Connection": "7d205edb8065802d075135d217eb1eacd793d75a6d5da09ecdabdc9bf4ffdfb8",
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  }
+]

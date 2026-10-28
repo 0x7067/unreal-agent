@@ -115,3 +115,25 @@ a row to the spot-check table.
 
 Follow the `maintain-formal-verification-skill` guidance in the same branch as
 the change that invalidated a recipe here.
+
+## M2.3 working-tree validation (2026-10-28; no commit)
+
+Input/control validation now includes strict version-1 `ModelRequest` records;
+actor admission/dedup/FIFO/freeze semantics are unchanged. Exact skill command
+passed before and after edits (184/46/14 states plus frozen admission), with
+focused typed-control codec/unknown-version/member/bound tests passing under
+race. This supplements, rather than rewrites, the historical committed record.
+Working-tree blobs: `inbox.go` `5cc506f136759bd539d0b590223798ac826311eb`; `local.go` `c1a632a45cb8bea9f962aac243947077ca1ad627`; new `model_request.go` `c9a1052fb6227eb00bcc7f95cd96b01c513ba15c`.
+Evidence: `/tmp/unreal-agent-m23-focused.log`, `/tmp/unreal-agent-m23-inbox-after.log`.
+
+## M2.4 working-tree validation (2026-10-28; no commit)
+
+Strict version-1 `CompactionRequest` controls add pinned failure accounting and
+manual-origin identity. The admission actor is unchanged. Exact skill command
+passed before/after final edits (184/46/14 states and frozen admission), alongside
+focused strict outer/nested codec and coordinator causality tests. Evidence:
+`/tmp/unreal-agent-m24-inbox-before.log`, `/tmp/unreal-agent-m24-inbox-after.log`,
+`/tmp/unreal-agent-m24-final-focus.log`. Final working-tree blobs:
+- `inbox.go`: `9576810c4ba2ed3a84cc85eb38402d686b4ab6b4`
+- `local.go`: `c1a632a45cb8bea9f962aac243947077ca1ad627`
+- `compaction_request.go`: `a3767417af965a5b3a868fd34579732928b846f3`

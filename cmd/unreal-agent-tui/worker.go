@@ -19,7 +19,12 @@ type workerReloader interface {
 }
 
 type reloadFinished struct{ err error }
-type workerEvent struct{ message tea.Msg }
+type workerEvent struct {
+	local   bool // synthetic local completion must not start a second socket reader
+	message tea.Msg
+	epoch   uint64
+}
+type workerEventSource interface{ next() tea.Msg }
 
 // Callbacks can run synchronously during Start, before Bubble Tea is running.
 // This mailbox never calls Program.Send and preserves replay/status order. Only

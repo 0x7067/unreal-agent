@@ -72,9 +72,10 @@ func TestRuntimeAdmissionKeepsCoordinatorResponsive(t *testing.T) {
 		synctest.Wait()
 		synctest.Sleep(2 * slurpIdleTimeout)
 		synctest.Wait()
-		if len(run.store.appendedInputs) != 1 || run.store.appendedInputs[0].ID != message.ID {
+		if len(run.store.appendedInputs) != 2 || run.store.appendedInputs[0].ID != message.ID {
 			t.Fatalf("accepted input was not persisted: %#v", run.store.appendedInputs)
 		}
+		assertFixtureRequestStart(t, run.store.appendedInputs[1], run.store.appendedTurns[0].ID, 1, 1)
 		if len(run.calls) != 1 {
 			t.Fatalf("model requests = %d, want 1 before factory release", len(run.calls))
 		}

@@ -120,7 +120,9 @@ type Request struct {
 type StopReason string
 
 const (
-	StopComplete        StopReason = "complete"
+	StopComplete StopReason = "complete"
+	// StopInterrupted fences discarded output after an explicit foreground abort.
+	StopInterrupted     StopReason = "interrupted"
 	StopMaxOutputTokens StopReason = "max_output_tokens"
 	StopRefused         StopReason = "refused"
 )

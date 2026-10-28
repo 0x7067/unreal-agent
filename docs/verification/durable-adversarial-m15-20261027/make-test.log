@@ -1,0 +1,50 @@
+go test -race ./...
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachclient	1.021s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachproto	1.107s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/providers	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/resident	30.779s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/residentcli	4.147s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/subagent	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerhost	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerproto	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerruntime	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-runner	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/contextbuilder	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/coordinator	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/executionbudget	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/inbox	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/ingress	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/anthropic	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/fireworks	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/ollama	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openai	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openaicodex	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/internal/retryhint	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/messagesapi	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/responsesapi	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/operation	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/primitives	(cached)
+?   	github.com/unreallabsai/unreal-agent/harness/session	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/harness/sessionstore	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/settings	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/taskgraph	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/bash	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/subagent	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/taskgraph	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/viewimage	(cached)
+ok  	github.com/unreallabsai/unreal-agent/internal/anthropicapi	(cached)
+?   	github.com/unreallabsai/unreal-agent/internal/apijson	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/internal/jsonoptions	(cached)
+ok  	github.com/unreallabsai/unreal-agent/internal/openaiapi	(cached)
+go -C cmd/unreal-agent-tui test -race ./...
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui	32.564s
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/filesearch	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning	(cached)
+?   	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext	(cached)

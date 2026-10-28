@@ -8,6 +8,16 @@ An async-first agent harness from Unreal Labs.
   - [cmd/unreal-agent-tui](cmd/unreal-agent-tui) - cozy TUI.
 - [benchmarks/](benchmarks/) — benchmark runners.
 
+Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)
+(target and incremental roadmap; not a statement of current guarantees).
+The [M1.5 adversarial-client verification](docs/verification/durable-adversarial-m15-20261027.md)
+records stalled-client isolation, measured publication bounds, and authentication
+test limits. The [M1.6 lifecycle verification](docs/verification/durable-lifecycle-m16-20261028.md)
+records distinct detach, scoped foreground abort, proven-drain shutdown and their
+conservative ownership limits. The [M2.1 recovery entry](docs/verification/durable-recovery-entry-m21-20261028.md)
+enables only exact initial-ready pure/read-only cells under exclusive ownership;
+broader interrupted model, Bash, subagent and graph recovery is not yet enabled.
+
 The runner and TUI expose `TaskGraph` to the coordinating agent for work with
 useful overlap: a named dependency graph schedules ready commands or enabled
 subagents within declared file ownership. Completed results require explicit
@@ -24,6 +34,18 @@ never load `.env`; subagents inherit the parent environment without reloading it
 See [environment trust and model compaction settings](cmd/unreal-agent-runner/README.md#environment-and-workspace-trust).
 Unlisted provider/model settings now use a 64,000-token compaction threshold,
 not zero; configure smaller-context models explicitly.
+
+## Headless sessions and reconnectable TUI (M1.1–M1.6)
+
+`unreal-agent-runner host` explicitly starts a foreground session host;
+`unreal-agent-runner attach` submits/watches through an authenticated local Unix
+socket. Disconnecting the client does not stop its worker. This first slice has
+one session and one active client, with fresh snapshots only.
+`unreal-agent-tui attach` connects without starting or owning its worker; standalone
+TUI startup is preserved. See [TUI attach and limits](docs/plans/durable-tui-attach.md).
+See [commands, protocol and limits](docs/plans/durable-headless-host.md).
+F5 / `/reconnect`, explicit same-ID `/retry`, and private draft/view restoration
+are described in [durable reconnect](docs/plans/durable-tui-reconnect.md).
 
 ## Glossary
 
@@ -132,3 +154,9 @@ active (including a candidate awaiting acceptance). It never kills active work
 just to reload. New inputs are durably queued across the handoff; accepted,
 session-persisted and model-delivered are distinct states. UI-code updates still
 require a frontend restart. See [reload lifecycle and limits](docs/plans/hot-reload.md).
+
+[Phase-specific image recovery (M2.2): policy, process tests and installed verification](docs/verification/durable-image-recovery-m22-20261028.md). Historical slice checkpoint; later classified capabilities are linked below.
+
+[Bounded durable regular-model request recovery (M2.3), incomplete-tool fencing and installed verification](docs/verification/durable-model-request-m23-20261028.md). Compaction and later capabilities have their own classified evidence.
+
+Classified recovery and replacement checkpoints: [M2.7 classified command graph recovery](docs/verification/durable-graph-m27-20261028.md). [Opt-in contract and limits](docs/plans/durable-graph-recovery.md). [Frontend upgrade proof](docs/verification/durable-frontend-upgrade-m31-20261028.md). [Idle runtime replacement](docs/verification/durable-runtime-upgrade-m32-20261028.md). [Natural-drain upgrade](docs/verification/durable-runtime-drain-m33-20261028.md). [Candidate failure and compatibility](docs/verification/durable-candidate-failure-m34-20261028.md). [Controlled host replacement](docs/verification/durable-host-replacement-m35-20261028.md). [Trusted extensions, independent jobs, durable timers and verified-TLS remote work](docs/plans/durable-workloads.md). [Final M4 validation, real worker/client/private-tmux evidence and installed pair](docs/verification/durable-workloads-m4-20261028.md). [Roadmap](goal.md): **27/27 defined slices accepted**. Unknown ownership/versions remain refused; this is not arbitrary plugin replay, a sandbox, power-loss certification or exactly-once third-party delivery.

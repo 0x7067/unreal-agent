@@ -228,6 +228,15 @@ func TestCompactionCrashContinuation(t *testing.T) {
 				run.current.dependencies.Sessions = reopened
 				run.current.dependencies.ContextBuilder.SetModel(llm.Model{CompactionThreshold: 25_000})
 				run.start(t)
+				if stage == "turn" {
+					if err := <-run.done; !errors.Is(err, operation.ErrUnsupported) {
+						t.Fatalf("legacy unfinished summary error = %v", err)
+					}
+					if len(run.calls) != 0 {
+						t.Fatal("legacy summary retried without durable policy")
+					}
+					return
+				}
 				ordinary := 0
 				if stage == "turn" {
 					assertCompactionTurn(t, run, 1, session.TurnCompaction)
@@ -296,7 +305,7 @@ func TestAutomaticCompactionWithoutCutoffUsesOrdinaryRequest(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		recorded, _ := recordedCompactionHistory(t)
 		appendCompactionTestItem(t, recorded, sessionstore.Item{Kind: sessionstore.ItemTurn, Data: session.Turn{ID: "small", PreviousTurnID: "B", Type: session.TurnRegular}})
-		appendCompactionTestItem(t, recorded, sessionstore.Item{Kind: sessionstore.ItemModelResponse, Data: sessionstore.ModelResponse{TurnID: "small", Response: llm.Response{Usage: llm.Usage{InputTokens: 10_000}}}})
+		appendCompactionTestItem(t, recorded, sessionstore.Item{Kind: sessionstore.ItemModelResponse, Data: sessionstore.ModelResponse{TurnID: "small", Response: llm.Response{Stop: llm.StopComplete, Usage: llm.Usage{InputTokens: 10_000}}}})
 		run := newStopTestRun(t, 0)
 		run.current.dependencies.Sessions = recorded.dependencies.Sessions
 		run.current.dependencies.ContextBuilder.SetModel(llm.Model{CompactionThreshold: 10_000})

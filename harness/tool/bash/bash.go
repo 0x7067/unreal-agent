@@ -135,6 +135,11 @@ func (translator *translator) TranslateResult(
 	default:
 		return nil, fmt.Errorf("bash tool call %q operation %q has invalid status %q", callID, current.ID, current.Status)
 	}
+	// A committed ProcessExited checkpoint survives an output-read failure.
+	// Report that known exit without inventing output or whole-session drain.
+	if state.Result == nil && state.PendingExitCode != nil && state.TerminalError != "" {
+		state.TerminalError = fmt.Sprintf("command exit code %d was recorded; output recovery failed: %s", *state.PendingExitCode, state.TerminalError)
+	}
 	return Result{
 		CallID: callID, Output: state.Result,
 		OutPath: state.OutPath, ErrPath: state.ErrPath, Error: state.TerminalError,

@@ -133,7 +133,7 @@ func TestBuilderBuildsRequestFromAddedValues(t *testing.T) {
 	current := NewBuilder()
 	current.SetModel(model)
 	current.AddTool(weather)
-	current.AddModelResponse(llm.Response{Output: []llm.Item{
+	current.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 		{Type: llm.ItemProvider, Data: reasoning},
 		{Type: llm.ItemToolCall, Data: call},
 	}})

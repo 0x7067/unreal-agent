@@ -36,7 +36,7 @@ func TestCoordinatorRejectsRestoreWhenRecordedCallRequiresUnavailableTool(t *tes
 				storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 				storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 					TurnID: "turn-1",
-					Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+					Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 						CallID: "call-1", Name: tool.BashName, Arguments: `{}`,
 					}}}},
 				}),
@@ -65,7 +65,7 @@ func TestCoordinatorSchedulesAvailableCallAlongsideUnavailableCall(t *testing.T)
 	valid := llm.ToolCall{CallID: "valid", Name: tool.BashName, Arguments: `{}`}
 	statuses, err := current.handleModelResponse(t.Context(), sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 			{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "unknown", Name: "unknown-tool"}},
 			{Type: llm.ItemToolCall, Data: valid},
 		}},
@@ -102,7 +102,7 @@ func TestCoordinatorRestoresUnavailableToolCall(t *testing.T) {
 				storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 				storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 					TurnID:   "turn-1",
-					Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
+					Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
 				}),
 			}
 			if recorded {

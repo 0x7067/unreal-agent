@@ -17,6 +17,8 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/attachclient"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/attachproto"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerhost"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
@@ -74,46 +76,59 @@ type message struct {
 }
 
 type model struct {
-	registry                            tool.Registry
-	ctx                                 context.Context
-	inputs                              inbox.Writer
-	submissionQueue                     *submissionQueue
-	pendingSubmissions                  map[inbox.ID]struct{}
-	composer                            textarea.Model
-	files                               filePicker
-	conversation                        viewport.Model
-	details                             viewport.Model
-	detailsOpen                         bool
-	width, height                       int
-	runError                            string
-	workspace, directory, configuration string
-	lines                               []message
-	theme                               theme
-	tools                               []toolCard
-	selected                            int
-	toolsOffset                         int // first visible card in the Tools pane
-	toolsFocused                        bool
-	toolsCollapsed                      bool
-	selection                           textSelection
-	lastClick                           tea.Mouse
-	lastClickAt                         time.Time
-	dragComposer                        bool
-	hideReasoning                       bool
-	workSpinner                         spinner.Model
-	workStarted                         time.Time
-	responding, sending, ended          bool
-	turn                                session.TurnID
-	workerEvents                        *workerEvents
-	workerGeneration                    uint64
-	workerBuild, workerStatus           string
-	installedBuild, reloadState         string
-	reloadError, sessionID              string
-	reloading, workerStopped            bool
-	workerStatusError                   bool
-	lastItemSequence                    sessionstore.Sequence
-	activity                            workerhost.Activity
-	activityError                       string
-	structuralCalls                     map[string]llm.ToolCall
+	registry                                          tool.Registry
+	ctx                                               context.Context
+	inputs                                            inbox.Writer
+	submissionQueue                                   *submissionQueue
+	pendingSubmissions                                map[inbox.ID]struct{}
+	composer                                          textarea.Model
+	files                                             filePicker
+	conversation                                      viewport.Model
+	details                                           viewport.Model
+	detailsOpen                                       bool
+	width, height                                     int
+	runError                                          string
+	workspace, directory, configuration               string
+	lines                                             []message
+	theme                                             theme
+	tools                                             []toolCard
+	selected                                          int
+	toolsOffset                                       int // first visible card in the Tools pane
+	toolsFocused                                      bool
+	toolsCollapsed                                    bool
+	selection                                         textSelection
+	lastClick                                         tea.Mouse
+	lastClickAt                                       time.Time
+	dragComposer                                      bool
+	hideReasoning                                     bool
+	workSpinner                                       spinner.Model
+	workStarted                                       time.Time
+	responding, sending, ended                        bool
+	turn                                              session.TurnID
+	workerEvents                                      workerEventSource
+	workerGeneration                                  uint64
+	workerBuild, workerStatus                         string
+	installedBuild, reloadState                       string
+	reloadError, sessionID                            string
+	reloading, workerStopped                          bool
+	workerStatusError                                 bool
+	lastItemSequence                                  sessionstore.Sequence
+	activity                                          workerhost.Activity
+	activityError                                     string
+	structuralCalls                                   map[string]llm.ToolCall
+	attached, attachConnected, attachPendingAvailable bool
+	attachEpoch                                       uint64
+	attachReconnecting                                bool
+	attachDial                                        func(context.Context, *attachproto.Cursor) (*attachclient.Client, error)
+	attachOutbox                                      map[inbox.ID]inbox.Input
+	attachPending                                     map[inbox.ID]inbox.Input
+	attachOrder                                       []inbox.ID
+	attachCursor                                      attachproto.Cursor
+	attachNamespace                                   string
+	attachSave                                        func(attachLocalState) error
+	attachSavedHash                                   [32]byte
+	attachSaveError                                   string
+	attachRestore                                     *attachLocalState
 }
 
 func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, workspace, directory string, opts options) model {
@@ -146,7 +161,15 @@ func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, 
 
 func (m model) Init() tea.Cmd {
 	if m.workerEvents != nil {
-		return tea.Batch(m.composer.Focus(), m.workerEvents.next, m.activityTimer())
+		var tick tea.Cmd
+		if m.responding {
+			tick = m.workSpinner.Tick
+		}
+		var save tea.Cmd
+		if m.attached && m.attachSave != nil {
+			save = attachSaveTimer(m.attachEpoch)
+		}
+		return tea.Batch(m.composer.Focus(), m.workerEvents.next, m.activityTimer(), tick, save)
 	}
 	return m.composer.Focus()
 }
@@ -171,14 +194,29 @@ func (m *model) mouseViewport(msg tea.Mouse) *viewport.Model {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if event, ok := msg.(workerEvent); ok {
+		if m.attached && event.epoch != m.attachEpoch {
+			return m, nil
+		}
 		if event.message == nil {
 			return m, nil
 		}
 		updated, cmd := m.Update(event.message)
+		if event.local {
+			return updated, cmd
+		}
 		return updated, tea.Batch(cmd, m.workerEvents.next)
 	}
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case attachSaveTick:
+		if msg.epoch != m.attachEpoch || m.attachSave == nil {
+			return m, nil
+		}
+		if err := m.checkpointAttachView(); err != nil && err.Error() != m.attachSaveError {
+			m.attachSaveError = err.Error()
+			m.append("Local view state", err.Error()+"; no automatic retry will occur.")
+		}
+		return m, attachSaveTimer(m.attachEpoch)
 	case fileIndexReady:
 		if !m.files.open || msg.id != m.files.scanID {
 			return m, nil
@@ -192,7 +230,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.files.searching, m.files.matches = false, msg.matches
 	case spinner.TickMsg:
-		if m.ended || !m.responding {
+		if m.ended || !m.responding || m.attached && !m.attachConnected {
 			return m, nil
 		}
 		m.workSpinner, cmd = m.workSpinner.Update(msg)
@@ -204,6 +242,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dragComposer = false
 			m.width, m.height = msg.Width, msg.Height
 			m.resize()
+			if m.attachRestore != nil {
+				saved := *m.attachRestore
+				m.attachRestore = nil
+				m.restoreAttachView(saved)
+				follow = false
+			}
 			if follow {
 				m.conversation.GotoBottom()
 			}
@@ -217,6 +261,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workStarted = time.Now()
 			cmd = m.workSpinner.Tick
 		}
+	case attachedEvent:
+		switch msg.event.Type {
+		case "item", "pending", "status", "pending_unavailable":
+			m.attachCursor = attachproto.Cursor{Incarnation: msg.event.Incarnation, Revision: msg.event.Revision, Head: msg.event.Head}
+		}
+		if msg.event.Item != nil {
+			return m.Update(*msg.event.Item)
+		}
+		m.applyAttachedEvent(msg.event)
+	case attachReconnected:
+		return m.finishAttachReconnect(msg)
+	case attachDisconnected:
+		if msg.err != nil {
+			detail := singleLine(msg.err.Error())
+			if len(detail) > 512 {
+				detail = detail[:512]
+			}
+			m.append("Attach disconnected", detail+"; host work/outcome unknown; reconnect for current state.")
+		}
+		m.attachConnected = false
+		m.workerStatus = "Disconnected · host state unknown · F5 /reconnect"
+		m.workerStatusError = true
 	case submitted:
 		m.finishSubmission(msg)
 	case workerhost.Status:
@@ -227,6 +293,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyActivity(msg)
 		if msg.periodic {
 			cmd = m.activityTimer()
+		}
+	case attachedRuntimeCancelFinished:
+		if msg.err != nil {
+			m.append("Upgrade cancellation", msg.err.Error())
+		} else {
+			m.append("Upgrade cancellation", "Cancellation admitted; wait for terminal request status. No session work was canceled.")
 		}
 	case buildsFinished:
 		m.finishBuildInspection(msg)
@@ -272,6 +344,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.endSelection(msg.Mouse())
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.attached && msg.String() == "f5" {
+			return m, m.startAttachReconnect()
+		}
 		if key.Matches(msg, copyKey) {
 			if !m.hasSelection() {
 				return m, nil
@@ -370,10 +445,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, quitKey):
+			// Detach only this transport before Tea joins its read command.
+			// In particular, a reconnected read owner must not wait on the
+			// original (already closed) client's deferred cleanup.
+			if m.attached {
+				if c, ok := m.inputs.(*attachclient.Client); ok {
+					_ = c.Close()
+				}
+			}
 			m.closeFilePicker()
 			return m, tea.Quit
 		case key.Matches(msg, sendKey):
 			text := m.composer.Value()
+			if m.attached && strings.HasPrefix(strings.TrimSpace(text), "/") {
+				cmd = m.startSubmission(text)
+				break
+			}
 			if strings.TrimSpace(text) == "/reload" {
 				if !m.reloading {
 					m.composer.Reset()
@@ -428,8 +515,15 @@ func (m *model) apply(item sessionstore.Item) {
 		}
 		m.lastItemSequence = item.Sequence
 	}
+	if m.attached {
+		m.observeAttachedLifecycle(item)
+	}
 	switch data := item.Data.(type) {
 	case inbox.Input:
+		if m.attached {
+			delete(m.attachOutbox, data.ID)
+			delete(m.attachPending, data.ID)
+		}
 		m.applyAgentControlInput(data)
 		m.applyInput(data)
 		if data.Kind == inbox.InputControl {
@@ -439,6 +533,22 @@ func (m *model) apply(item sessionstore.Item) {
 					m.append("Compaction", "Manual compaction requested.")
 				case inbox.CompactionDisabled:
 					m.append("Compaction", request.Reason)
+				case inbox.CompactionRequest:
+					r := request.Parameters.(inbox.CompactionRequestRecord).Request
+					if r.Action != "started" {
+						m.append("Compaction request "+r.Action, request.Reason)
+						if r.Action == "exhausted" || r.Action == "stopped" {
+							m.responding = false
+						}
+					}
+				case inbox.ModelRequest:
+					r := request.Parameters.(inbox.ModelRequestRecord)
+					if r.Action != "started" {
+						m.append("Model request "+r.Action, request.Reason)
+						if r.Action == "exhausted" || r.Action == "stopped" {
+							m.responding = false
+						}
+					}
 				}
 			}
 		}
@@ -464,7 +574,7 @@ func (m *model) apply(item sessionstore.Item) {
 					m.append(label, value.Display.Text)
 				}
 			case llm.ToolCall:
-				if data.Response.Failure != nil {
+				if data.Response.Failure != nil || data.Response.Stop != llm.StopComplete {
 					continue
 				}
 				card := m.card(callKey{data.TurnID, value.CallID})
@@ -478,6 +588,8 @@ func (m *model) apply(item sessionstore.Item) {
 			m.append("Agent", "Model refused the request.")
 		} else if data.Response.Stop == llm.StopMaxOutputTokens {
 			m.append("Response truncated", "Model reached its output limit.")
+		} else if data.Response.Stop != llm.StopComplete {
+			m.append("Response incomplete", "Recorded output is not a completed response; partial tools were not executed.")
 		}
 	case sessionstore.ToolCallStatus:
 		card := m.card(callKey{data.TurnID, data.CallID})
@@ -527,7 +639,7 @@ func (m *model) renderConversation() {
 	if m.sessionID != "" {
 		paths += "\n" + m.labelValue(textWidth, "Session", m.sessionID)
 	}
-	if m.workerBuild != "" {
+	if m.workerBuild != "" && !m.attached {
 		paths += "\n" + m.labelValue(textWidth, "Worker", workerLabel(m.workerGeneration, m.workerBuild))
 		paths += "\n" + m.labelValue(textWidth, "Frontend", frontendLabel())
 		installed := m.installedBuild
@@ -575,7 +687,16 @@ func (m *model) renderConversation() {
 				style = style.Foreground(lipgloss.Color(m.theme.Muted))
 			}
 			content := entry.text
-			if status := entry.submission.status(); status != "" {
+			status := entry.submission.status()
+			if m.attached && entry.inputID != "" {
+				switch entry.submission {
+				case submissionQueued:
+					status = "Accepted durably · awaiting session persistence"
+				case submissionPersisted:
+					status = "Persisted in session"
+				}
+			}
+			if status != "" {
 				content += "\n\n" + textStyle(m.theme.UserForeground).Italic(true).Render(status)
 			}
 			markdown, err := renderer, renderErr
@@ -743,6 +864,9 @@ func (m model) View() tea.View {
 	}
 	if m.reloading {
 		status, color = "Reloading worker · checking candidate and idle boundary", m.theme.StatusAccent
+		if m.attached && m.reloadState == "queued" {
+			status = "Upgrade queued · waiting for natural idle drain; current work continues"
+		}
 	} else if m.reloadError != "" {
 		status, color = "Reload failed · "+m.reloadError, m.theme.StatusError
 	}
@@ -752,6 +876,9 @@ func (m model) View() tea.View {
 		if m.runError != "" {
 			status = textStyle(m.theme.StatusError).Render("Run failed · " + m.runError)
 		}
+	}
+	if m.attached && !m.attachConnected {
+		status = textStyle(m.theme.StatusError).Render("Disconnected · host state unknown · F5 /reconnect")
 	}
 	chatWidth := width
 	if m.width >= 90 && !m.toolsCollapsed {
@@ -817,24 +944,28 @@ func (m model) View() tea.View {
 
 func (m model) helpView(width int) string {
 	enter, tab := sendKey, focusKey
+	quit := quitKey
+	if _, attached := m.workerEvents.(*attachEvents); attached {
+		quit.SetHelp("Ctrl+C", "detach")
+	}
 	reasoning := reasoningKey
 	if m.hideReasoning {
 		reasoning.SetHelp("F3", "show reasoning")
 	}
-	bindings := []key.Binding{enter, tab, reasoning, quitKey, newlineKey, scrollKey}
+	bindings := []key.Binding{enter, tab, reasoning, quit, newlineKey, scrollKey}
 	if m.files.open {
 		selectFile := key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "files"))
 		accept := key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("Enter/Tab", "insert"))
 		cancel := key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel"))
-		bindings = []key.Binding{selectFile, accept, cancel, quitKey}
+		bindings = []key.Binding{selectFile, accept, cancel, quit}
 	}
 	if m.toolsFocused {
 		enter.SetHelp("Enter", "view")
 		tab.SetHelp("Tab", "input")
-		bindings = []key.Binding{selectKey, enter, tab, quitKey}
+		bindings = []key.Binding{selectKey, enter, tab, quit}
 	}
 	if m.detailsOpen {
-		bindings = []key.Binding{scrollKey, backKey, tab, quitKey}
+		bindings = []key.Binding{scrollKey, backKey, tab, quit}
 	}
 	hints := help.New()
 	hints.SetWidth(width)

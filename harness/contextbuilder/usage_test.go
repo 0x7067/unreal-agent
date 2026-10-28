@@ -142,6 +142,7 @@ func TestNeedsCompactionResetsWithReconstruction(t *testing.T) {
 func TestBuilderRecordsTokenCheckpoints(t *testing.T) {
 	current := NewBuilder().(*builder)
 	first := llm.Response{
+		Stop: llm.StopComplete,
 		Output: []llm.Item{
 			{ProviderID: "reasoning", Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`), Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: "thinking"}}},
 			{ProviderID: "message", Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "Working."}},

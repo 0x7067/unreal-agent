@@ -330,7 +330,13 @@ func TestResumeReplaysSettingsWithoutBootstrapOverride(t *testing.T) {
 		if item.Kind == sessionstore.ItemInput {
 			input := item.Data.(inbox.Input)
 			if input.Kind == inbox.InputControl {
-				settingsCount++
+				control, err := input.DecodeControlMessage()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if control.Mode == inbox.UpdateSettings {
+					settingsCount++
+				}
 			}
 		}
 	}

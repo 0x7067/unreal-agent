@@ -177,7 +177,7 @@ func addCompactionTestTurn(t *testing.T, current *builder, turn int, total int64
 		t.Fatal(err)
 	}
 	current.Commit()
-	response := llm.Response{Output: []llm.Item{
+	response := llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 		{Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"type":"reasoning"}`), Display: &llm.ProviderDisplay{Kind: llm.ProviderDisplayReasoning, Text: label + " reasoning"}}},
 		{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: label + " output"}},
 	}}

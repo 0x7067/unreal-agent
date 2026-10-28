@@ -108,10 +108,46 @@ func (input Input) DecodeControlMessage() (ControlMessage, error) {
 		return ControlMessage{}, fmt.Errorf("decode control message: %w", err)
 	}
 	request := ControlMessage{Mode: envelope.Mode, Reason: envelope.Reason}
-	if request.Mode != UpdateSettings && request.Mode != SetCompactionPolicy && request.Mode != InvokeTool && request.Mode != ToolInvocationFinished && len(envelope.Parameters) != 0 {
+	if request.Mode != CompactionRequest && request.Mode != ModelRequest && request.Mode != UpdateSettings && request.Mode != SetCompactionPolicy && request.Mode != InvokeTool && request.Mode != ToolInvocationFinished && request.Mode != AbortForeground && request.Mode != ForegroundAbortFinished && request.Mode != ShutdownSession && request.Mode != SessionShutdownFinished && request.Mode != ExecutionDrained && len(envelope.Parameters) != 0 {
 		return ControlMessage{}, fmt.Errorf("control mode %q does not accept parameters", request.Mode)
 	}
 	switch request.Mode {
+	case CompactionRequest:
+		if len(request.Reason) > 2048 {
+			return ControlMessage{}, fmt.Errorf("compaction request reason exceeds 2048 bytes")
+		}
+		value, err := decodeCompactionRequest(envelope.Parameters)
+		if err != nil {
+			return ControlMessage{}, err
+		}
+		request.Parameters = value
+	case ModelRequest:
+		if len(request.Reason) > 2048 {
+			return ControlMessage{}, fmt.Errorf("model request reason exceeds 2048 bytes")
+		}
+		value, err := decodeModelRequest(envelope.Parameters)
+		if err != nil {
+			return ControlMessage{}, err
+		}
+		request.Parameters = value
+	case ShutdownSession, SessionShutdownFinished, ExecutionDrained:
+		value, err := decodeOwnedLifecycle(request.Mode, envelope.Parameters)
+		if err != nil {
+			return ControlMessage{}, err
+		}
+		request.Parameters = value
+	case AbortForeground:
+		value, err := decodeForegroundAbort(envelope.Parameters)
+		if err != nil {
+			return ControlMessage{}, err
+		}
+		request.Parameters = value
+	case ForegroundAbortFinished:
+		value, err := decodeForegroundAbortResult(envelope.Parameters)
+		if err != nil {
+			return ControlMessage{}, err
+		}
+		request.Parameters = value
 	case InvokeTool:
 		var invocation ToolInvocation
 		if err := json.Unmarshal(envelope.Parameters, &invocation, json.RejectUnknownMembers(true)); err != nil {

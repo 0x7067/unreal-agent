@@ -62,9 +62,11 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 			for index, action := range actions {
 				response := fuzzLogResponse(t, text, usage, index, action)
 				// This execution plan requires every generated call to settle. A
-				// Failure is diagnostic-only and must not execute partial calls;
-				// dedicated model-failure tests cover that terminal path.
+				// Failure and non-complete stops are diagnostic-only and must
+				// not execute partial calls; dedicated failure tests cover those
+				// terminal paths. Keep this tool-settlement plan executable.
 				response.Failure = nil
+				response.Stop = llm.StopComplete
 				for callIndex := 0; callIndex < 1+int(action%2); callIndex++ {
 					call := llm.ToolCall{CallID: fmt.Sprintf("call-%d-%d", index, callIndex), Name: tool.SkillUseName, Arguments: `{"name":"journal"}`}
 					switch action % 4 {
@@ -209,6 +211,7 @@ func FuzzRunLogMatchesExecution(f *testing.F) {
 
 func assertExecutionLog(t *testing.T, items []sessionstore.Item, returned []llm.Response, requests int, text, skillContent string, validCalls map[string]bool, runs int, settled bool) {
 	t.Helper()
+	requestControls := validateM23RequestControls(t, items)
 	var responses []llm.Response
 	var turns []session.Turn
 	var previous session.TurnID
@@ -228,6 +231,9 @@ func assertExecutionLog(t *testing.T, items []sessionstore.Item, returned []llm.
 				t.Fatalf("empty or duplicate input ID: %q", value.ID)
 			}
 			inputIDs[value.ID] = true
+			if requestControls[value.ID] {
+				continue
+			}
 			switch value.Kind {
 			case inbox.InputExternal:
 				inputs++

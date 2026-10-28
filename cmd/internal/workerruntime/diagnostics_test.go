@@ -86,7 +86,14 @@ func TestActivityQueryResponsiveWithoutModelOrBlockedChildIO(t *testing.T) {
 		t.Fatalf("wrong reply %+v", e)
 	}
 	w.send(t, workerproto.Request{Type: "stop"})
-	w.finish(t)
+	select {
+	case err := <-w.done:
+		if err == nil || !strings.Contains(err.Error(), "without fresh cleanup proof") {
+			t.Fatalf("untrusted child exit must remain uncertain: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker failed to join owned process/output")
+	}
 }
 
 func TestEffectiveChildBudgetEnvironmentHasNoDuplicateKeys(t *testing.T) {

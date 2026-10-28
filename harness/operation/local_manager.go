@@ -14,17 +14,22 @@ import (
 )
 
 type LocalOperationManager struct {
-	activityMu      sync.RWMutex
-	activity        []OperationActivity
-	activityOmitted int
-	ctx             context.Context
-	options         LocalOperationManagerOptions
-	remoteJobs      *remoteJobHandlers
-	adds            chan localAddRequest
-	cancellations   chan localCancelRequest
-	primitiveEvents chan primitives.PrimitiveEvent
-	updates         chan Operation
-	pendingUpdates  []Operation
+	stopped                 chan struct{}
+	stopErr                 *CleanupUncertainError
+	unprovenRemoteIDs       map[ID]struct{}
+	unsupportedOperationIDs map[ID]struct{}
+	localCleanupReceipts    []ID
+	activityMu              sync.RWMutex
+	activity                []OperationActivity
+	activityOmitted         int
+	ctx                     context.Context
+	options                 LocalOperationManagerOptions
+	remoteJobs              *remoteJobHandlers
+	adds                    chan localAddRequest
+	cancellations           chan localCancelRequest
+	primitiveEvents         chan primitives.PrimitiveEvent
+	updates                 chan Operation
+	pendingUpdates          []Operation
 }
 
 type localAddRequest struct {
@@ -99,15 +104,22 @@ func NewLocalOperationManagerWithOptions(ctx context.Context, options LocalOpera
 		options.ResourceAccount = executionbudget.AccountFromContext(ctx)
 	}
 	manager := &LocalOperationManager{
-		options:         options,
-		ctx:             ctx,
-		remoteJobs:      newRemoteJobHandlers(ctx, remoteJobHandlers),
-		adds:            make(chan localAddRequest),
-		cancellations:   make(chan localCancelRequest),
-		primitiveEvents: make(chan primitives.PrimitiveEvent),
-		updates:         make(chan Operation),
+		stopped:                 make(chan struct{}),
+		unprovenRemoteIDs:       make(map[ID]struct{}),
+		unsupportedOperationIDs: make(map[ID]struct{}),
+		options:                 options,
+		ctx:                     ctx,
+		remoteJobs:              newRemoteJobHandlers(ctx, remoteJobHandlers),
+		adds:                    make(chan localAddRequest),
+		cancellations:           make(chan localCancelRequest),
+		primitiveEvents:         make(chan primitives.PrimitiveEvent),
+		updates:                 make(chan Operation),
 	}
-	go manager.run()
+	go func() {
+		manager.run()
+		// run includes the forwarding-worker wait and primitive-event drain.
+		close(manager.stopped)
+	}()
 	return manager
 }
 
@@ -208,6 +220,10 @@ func (manager *LocalOperationManager) run() {
 					manager.failLocalOperation(operations, current, err)
 					continue
 				}
+				// Even a handler admission error cannot generically prove that no
+				// external work was started. Registered but unused handlers do not
+				// enter this set.
+				manager.unprovenRemoteIDs[current.operation.ID] = struct{}{}
 				handlerIndex, err := manager.remoteJobs.add(current.operation)
 				if err != nil {
 					manager.failLocalOperation(operations, current, err)
@@ -285,7 +301,7 @@ func (manager *LocalOperationManager) run() {
 			if current.terminal {
 				if localOperationFinished(update.operation.Status) {
 					current.remoteUnknown = false
-					manager.finishOwned(operations, current)
+					manager.finishOwnedWithLocalReceipt(operations, current)
 				}
 				continue
 			}
@@ -295,7 +311,7 @@ func (manager *LocalOperationManager) run() {
 			manager.appendLocalUpdate(update.operation)
 			if localOperationFinished(update.operation.Status) {
 				current.terminal = true
-				manager.finishOwned(operations, current)
+				manager.finishOwnedWithLocalReceipt(operations, current)
 			}
 
 		case event := <-manager.primitiveEvents:
@@ -319,7 +335,7 @@ func (manager *LocalOperationManager) run() {
 			}
 			manager.observe(current)
 			if current.terminal {
-				manager.finishOwned(operations, current)
+				manager.finishOwnedWithLocalReceipt(operations, current)
 				continue
 			}
 			if completed && current.ctx.Err() != nil {
@@ -344,11 +360,12 @@ func (manager *LocalOperationManager) run() {
 				current.activity.DrainingAt = manager.now()
 				manager.observe(current)
 			}
+			manager.captureStopUncertainty(operations)
 			manager.drainLocalPrimitives(activePrimitives)
 			for _, current := range operations {
 				if current.remoteJobHandlerIndex < 0 {
 					current.activePrimitives = 0
-					manager.finishOwned(operations, current)
+					manager.finishOwnedWithLocalReceipt(operations, current)
 				}
 			}
 			return
@@ -373,7 +390,7 @@ func (manager *LocalOperationManager) acceptLocalStep(
 			} else {
 				manager.appendLocalUpdate(*step.Operation)
 			}
-			manager.finishOwned(operations, current)
+			manager.finishOwnedWithLocalReceipt(operations, current)
 			return 0
 		}
 		manager.appendLocalUpdate(*step.Operation)
@@ -406,6 +423,12 @@ func (manager *LocalOperationManager) failLocalOperation(
 	err error,
 ) {
 	failed := failLocalOperation(current.operation, err)
+	if failed.Status == StatusUnsupported {
+		if manager.unsupportedOperationIDs == nil {
+			manager.unsupportedOperationIDs = make(map[ID]struct{})
+		}
+		manager.unsupportedOperationIDs[current.operation.ID] = struct{}{}
+	}
 	if current.remoteUnknown {
 		current.activity.Phase = ActivityDraining
 		if current.activity.DrainingAt.IsZero() {
@@ -422,7 +445,7 @@ func (manager *LocalOperationManager) failLocalOperation(
 	current.operation = failed
 	current.terminal = true
 	current.cancel()
-	manager.finishOwned(operations, current)
+	manager.finishOwnedWithLocalReceipt(operations, current)
 }
 
 func (manager *LocalOperationManager) failRemoteJobOperation(

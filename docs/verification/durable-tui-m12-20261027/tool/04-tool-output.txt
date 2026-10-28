@@ -1,0 +1,50 @@
+ ╔ Tool details ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ Esc back · Tab input ╗
+ ║Bash · Completed                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║Call       m12-shell                                                                                                                                         ║
+ ║Arguments  printf 'M12 PARTIAL OUTPUT\n'; touch /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-start; while ! test -f /tmp/u12proof.PwOwKp/u12-PwOwKp- ║
+ ║           tool/workspace/shell-release; do sleep 0.02; done; printf 'M12 FINAL OUTPUT\n'                                                                    ║
+ ║                                                                                                                                                             ║
+ ║Result                                                                                                                                                       ║
+ ║ Exit code: 0                                                                                                                                                ║
+ ║                                                                                                                                                             ║
+ ║ Stdout:                                                                                                                                                     ║
+ ║ M12 PARTIAL OUTPUT                                                                                                                                          ║
+ ║ M12 FINAL OUTPUT                                                                                                                                            ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║ Full stdout: /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool/527fcc21-680e-4860-9c1f-176d7e75c440/out                                        ║
+ ║ Full stderr: /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool/527fcc21-680e-4860-9c1f-176d7e75c440/err                                        ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  Attached · Ctrl+C detaches
+ ╔ Message ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ Send a message · Ctrl+C detaches                                                                                                                            ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  PgUp/PgDn scroll · Esc tools · Tab input · Ctrl+C exit

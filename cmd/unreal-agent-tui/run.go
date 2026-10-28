@@ -164,6 +164,12 @@ func parseOptionsWithLoader(args []string, getenv func(string) string, output io
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer) (err error) {
+	// Attach is dispatched before provider defaults, dotenv, preferences, login,
+	// skills or worker startup. It may only connect to an explicitly owned host.
+	if len(args) > 0 && args[0] == "attach" {
+		return runAttached(ctx, args[1:], getenv, output)
+	}
+
 	var environment io.Closer
 	defer func() {
 		if environment != nil {

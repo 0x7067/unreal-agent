@@ -1,0 +1,34 @@
+{
+  "host": {
+    "Type": "host_ready",
+    "Endpoint": "/tmp/u15p.aQJrqZ/ba/b0ad07e1d116a6ccce4f34f1e9ef0def32d4e9818b8611f186e3dd26ac7245c8.sock",
+    "Incarnation": "464c0e23cba3f90b452e38c94e99e98da08b593abe0c2aaf3251c9cccc78b96d",
+    "HostPID": 3969828,
+    "SessionID": "m13-accepted"
+  },
+  "frontend_pids": [
+    3969872,
+    3970245
+  ],
+  "submits": [
+    {
+      "ID": "df1dc7f7-d98e-4a91-8177-0d31702c5006",
+      "Kind": "external",
+      "Payload": "M13 exact stable payload accepted"
+    }
+  ],
+  "provider_calls": 2,
+  "canonical_external_inputs": 1,
+  "gap": [
+    {
+      "captured_head": 3,
+      "answer_committed_before_snapshot_delivery": true,
+      "base": {
+        "Incarnation": "464c0e23cba3f90b452e38c94e99e98da08b593abe0c2aaf3251c9cccc78b96d",
+        "Revision": 2,
+        "Head": 1
+      }
+    }
+  ],
+  "errors": []
+}

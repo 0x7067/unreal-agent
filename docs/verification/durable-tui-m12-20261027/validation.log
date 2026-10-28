@@ -1,0 +1,143 @@
+M1.2 final validation, 2026-10-27
+HEAD: 9c0abbe4a9aa003851ef0b3448b58af0a049c4a9
+Source manifest SHA-256: a5196e53f1fb83eb20c043cf53ce2d7224471603c3b0d412b926835b8b735568
+Proof driver SHA-256: 71757faf9a3e88d7ea577fa279dc2ae722e53dee0b59aa857fd55cdc61c1bb7f
+
+=== make-test.log ===
+go test -race ./...
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachclient	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachproto	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/providers	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/resident	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/residentcli	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/subagent	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerhost	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerproto	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/workerruntime	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-runner	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/contextbuilder	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/coordinator	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/executionbudget	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/inbox	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/ingress	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/anthropic	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/fireworks	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/ollama	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openai	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openaicodex	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/internal/retryhint	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/messagesapi	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/llm/responsesapi	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/operation	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/primitives	(cached)
+?   	github.com/unreallabsai/unreal-agent/harness/session	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/harness/sessionstore	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/settings	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/taskgraph	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/bash	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/subagent	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/taskgraph	(cached)
+ok  	github.com/unreallabsai/unreal-agent/harness/tool/viewimage	(cached)
+ok  	github.com/unreallabsai/unreal-agent/internal/anthropicapi	(cached)
+?   	github.com/unreallabsai/unreal-agent/internal/apijson	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/internal/jsonoptions	(cached)
+ok  	github.com/unreallabsai/unreal-agent/internal/openaiapi	(cached)
+go -C cmd/unreal-agent-tui test -race ./...
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui	19.095s
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/filesearch	(cached)
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning	(cached)
+?   	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol	[no test files]
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext	(cached)
+
+=== make-check.log ===
+go vet ./...
+go -C cmd/unreal-agent-tui vet ./...
+
+=== make-build.log ===
+go build -trimpath -o bin/unreal-agent-runner ./cmd/unreal-agent-runner
+go -C cmd/unreal-agent-tui build -trimpath -o ../../bin/unreal-agent-tui .
+
+=== client-tests.log ===
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachclient	1.022s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/attachproto	1.224s
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/residentcli	10.373s
+
+=== tui-tests-final.log ===
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.08s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation a2b017e74231aea3d8f5bda5915f3f66482fa3d53e3092cd9f9de72efb2e79d6 generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation 6e6cc478eade579458dd57bca34597db6de371da96db9ce65eef3194e37c693d generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.45s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.72s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.73s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.09s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation 48c54bd5497e716d50f6799f736f84c2aeffa943711f4a8fc86dc4b61902af38 generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation 4d5ea5e49589a6ca384b3c802f979226546703e86293495d85af585e37bbb3b2 generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.43s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.71s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.72s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+=== RUN   TestAttachOptionsNeverBootstrapConfiguration
+--- PASS: TestAttachOptionsNeverBootstrapConfiguration (0.00s)
+=== RUN   TestAttachedUIControlsAndUncertainty
+--- PASS: TestAttachedUIControlsAndUncertainty (0.08s)
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false
+    attach_test.go:286: same incarnation 021d66be4b9e439f00a79013df19182246cd60e951ee3bed6d4fd089c22c1486 generation=1; calls=1; fresh prefix H=4; answer once
+=== RUN   TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true
+    attach_test.go:286: same incarnation 49aea7fe55a5d05929cfe878ab24e066f5e30ae2bdab6c47e5ae27939be1e568 generation=1; calls=2; fresh prefix H=8; answer once
+--- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput (5.44s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=false (2.71s)
+    --- PASS: TestAttachedUIHeadlessTurnAndLateToolOutput/tool=true (2.72s)
+=== RUN   TestAttachedSnapshotUnavailablePendingIsVisible
+--- PASS: TestAttachedSnapshotUnavailablePendingIsVisible (0.02s)
+PASS
+ok  	github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui	17.914s
+
+=== installed.sha256 ===
+279dc7b8468f4207e039fceb49872c79d9c6fdc10327f467289c50b344d72a48  bin/unreal-agent-runner
+9092ca02599c970d699cb970ef175d9f8ea42ee10831419135010f047929372a  bin/unreal-agent-tui
+279dc7b8468f4207e039fceb49872c79d9c6fdc10327f467289c50b344d72a48  /home/denguinho/.local/bin/unreal-agent-runner
+9092ca02599c970d699cb970ef175d9f8ea42ee10831419135010f047929372a  /home/denguinho/.local/bin/unreal-agent-tui
+
+=== drain.log ===
+
+Unit: unreal-agent-m12-validation-20261027T211743Z.service
+MainPID=0
+Result=success
+ExecMainStatus=0
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+MainPID=0
+
+Unit: unreal-agent-m12-final-20261027T212305Z.service
+MainPID=0
+Result=success
+ExecMainStatus=0
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+MainPID=0
+Exact observed cgroup absent: /user.slice/user-1000.slice/user@1000.service/app.slice/unreal-agent-m12-validation-20261027T211743Z.service
+Exact observed cgroup absent: /user.slice/user-1000.slice/user@1000.service/app.slice/unreal-agent-m12-final-20261027T212305Z.service

@@ -153,6 +153,10 @@ func TestPathConfinementAndPrivatePermissions(t *testing.T) {
 	if err := os.Mkdir(unsafe, 0755); err != nil {
 		t.Fatal(err)
 	}
+	// Creation modes are filtered by umask; this fixture must be non-private.
+	if err := os.Chmod(unsafe, 0755); err != nil {
+		t.Fatal(err)
+	}
 	if j, err := Open(unsafe, "session"); err == nil {
 		_ = j.Close()
 		t.Fatal("accepted non-private storage directory")

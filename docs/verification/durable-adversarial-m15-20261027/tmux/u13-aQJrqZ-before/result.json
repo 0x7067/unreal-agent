@@ -1,0 +1,29 @@
+{
+  "host": {
+    "Type": "host_ready",
+    "Endpoint": "/tmp/u15p.aQJrqZ/bb/4c860a7ef909bfd5b112c7467f0707fbde7eda10a422bcff9cdfad4790885fab.sock",
+    "Incarnation": "37104655f2132d40e74b1e4cfb61b6bbacea1e7ae0971879f2779682becd4b2c",
+    "HostPID": 3969119,
+    "SessionID": "m13-before"
+  },
+  "frontend_pids": [
+    3969152,
+    3969551
+  ],
+  "submits": [
+    {
+      "ID": "686734d7-a6b6-45ee-96fe-9da91185dd8a",
+      "Kind": "external",
+      "Payload": "M13 exact stable payload before"
+    },
+    {
+      "ID": "686734d7-a6b6-45ee-96fe-9da91185dd8a",
+      "Kind": "external",
+      "Payload": "M13 exact stable payload before"
+    }
+  ],
+  "provider_calls": 2,
+  "canonical_external_inputs": 1,
+  "gap": [],
+  "errors": []
+}

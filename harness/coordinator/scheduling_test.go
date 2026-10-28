@@ -81,7 +81,7 @@ func TestCoordinatorSchedulingResultFailurePreventsDispatch(t *testing.T) {
 		translator.specs = []operation.Spec{spec}
 		run.current.dependencies.Tools = tool.NewRegistry(tool.StaticTranslators{Bash: translator}, tool.BashName)
 		adapter := &fakeAdapter{respond: func(context.Context, llm.Request) (llm.Response, error) {
-			return llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+			return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 				CallID: "call-1", Name: tool.BashName, Arguments: `{}`,
 			}}}}, nil
 		}}
@@ -192,7 +192,7 @@ func TestCoordinatorRunDefersCompletionsUntilModelFinishes(t *testing.T) {
 							t.Fatalf("model requests = %d, want 1", len(calls))
 						}
 					}
-					response := llm.Response{ID: "progress-response", Output: []llm.Item{{
+					response := llm.Response{Stop: llm.StopComplete, ID: "progress-response", Output: []llm.Item{{
 						Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "progress"},
 					}}}
 					if steer {
@@ -218,7 +218,7 @@ func TestCoordinatorRunDefersCompletionsUntilModelFinishes(t *testing.T) {
 							t.Fatalf("steering missing from request: %#v", next.request)
 						}
 					}
-					next.response <- llm.Response{ID: "final-response"}
+					next.response <- llm.Response{Stop: llm.StopComplete, ID: "final-response"}
 					synctest.Wait()
 					if len(calls) != 2 || len(store.appendedTurns) != 2 {
 						t.Fatalf("model requests = %d, turns = %d, want 2 each", len(calls), len(store.appendedTurns))
@@ -315,7 +315,7 @@ func independentToolCalls(t *testing.T, count int) (*fakeStore, tool.Registry) {
 		storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 		storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{}),
 	}
-	response := sessionstore.ModelResponse{TurnID: "turn-1"}
+	response := sessionstore.ModelResponse{TurnID: "turn-1", Response: llm.Response{Stop: llm.StopComplete}}
 	for index := range count {
 		value := operation.Operation{
 			ID: operation.ID(fmt.Sprintf("operation-%d", index)), Type: operation.TypeShell,

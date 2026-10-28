@@ -69,7 +69,7 @@ func TestSubmissionQueueEnterOrderIndependentOfCommandScheduling(t *testing.T) {
 	// Typing and worker tool updates remain responsive while disk admission is gated.
 	m = submissionUpdate(m, tea.PasteMsg{Content: "new draft"})
 	m = submissionUpdate(m, sessionstore.Item{Kind: sessionstore.ItemModelResponse, Data: sessionstore.ModelResponse{
-		TurnID: "turn", Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+		TurnID: "turn", Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 			CallID: "live", Name: tool.BashName, Arguments: `{"command":"must not execute in frontend"}`,
 		}}}},
 	}})

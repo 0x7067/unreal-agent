@@ -21,7 +21,7 @@ func TestBuilderPlacesResponseBeforeUnsubmittedInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 			current.Commit()
-			current.AddModelResponse(llm.Response{Output: []llm.Item{
+			current.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 				{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "A", Name: "test", Arguments: `{}`}},
 				{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "B", Name: "test", Arguments: `{}`}},
 			}})
@@ -60,7 +60,7 @@ func TestBuilderPlacesResponseBeforeUnsubmittedInputs(t *testing.T) {
 			if emptyResponse {
 				output = nil
 			}
-			current.AddModelResponse(llm.Response{Output: output})
+			current.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: output})
 			after, err := current.Build()
 			if err != nil {
 				t.Fatal(err)

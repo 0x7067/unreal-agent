@@ -1,0 +1,185 @@
+[
+  {
+    "Type": "hello",
+    "ID": "attach",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "HostPID": 3182934,
+    "Revision": 6,
+    "Head": 4,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false,
+    "Capabilities": [
+      "fresh_snapshot",
+      "history_watch",
+      "submit_external"
+    ]
+  },
+  {
+    "Type": "snapshot",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "PendingAvailable": true,
+    "Status": {
+      "Generation": 1,
+      "Build": "unreal-agent-runner-resident-v1 [279dc7b8468f]",
+      "Stopped": false
+    },
+    "Model": {
+      "ID": "fake",
+      "CompactionThreshold": 64000,
+      "MaxOutputTokens": null,
+      "ReasoningEffort": ""
+    },
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "Item": {
+      "Sequence": 1,
+      "RecordedAt": "2026-10-27T21:23:07.115421035Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "2e64a017-21fc-4632-b04a-24eefd3dc431",
+        "Kind": "control",
+        "Payload": {
+          "Mode": "settings",
+          "Reason": "",
+          "Parameters": {
+            "Model": "fake",
+            "CompactionThreshold": 64000
+          }
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "Item": {
+      "Sequence": 2,
+      "RecordedAt": "2026-10-27T21:23:07.118253924Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "m12-stable-model",
+        "Kind": "external",
+        "Payload": "M12 headless input"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "Item": {
+      "Sequence": 3,
+      "RecordedAt": "2026-10-27T21:23:07.12046508Z",
+      "Kind": "turn",
+      "Data": {
+        "ID": "3d925a36-9720-469c-b49f-1d26a09314e1",
+        "PreviousTurnID": "",
+        "Type": "regular"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "Item": {
+      "Sequence": 4,
+      "RecordedAt": "2026-10-27T21:23:07.315700634Z",
+      "Kind": "model_response",
+      "Data": {
+        "TurnID": "3d925a36-9720-469c-b49f-1d26a09314e1",
+        "Response": {
+          "ID": "1",
+          "Stop": "complete",
+          "Output": [
+            {
+              "ProviderID": "answer",
+              "Type": "message",
+              "Data": {
+                "Role": "assistant",
+                "Text": "M12 FINAL ANSWER model",
+                "Phase": ""
+              }
+            }
+          ],
+          "Usage": {
+            "InputTokens": 1,
+            "CachedInputTokens": 0,
+            "CacheWriteInputTokens": 0,
+            "OutputTokens": 1,
+            "ReasoningTokens": 0,
+            "ByModel": {
+              "": {
+                "InputTokens": 1,
+                "CachedInputTokens": 0,
+                "CacheWriteInputTokens": 0,
+                "OutputTokens": 1,
+                "ReasoningTokens": 0
+              }
+            },
+            "Raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "Failure": null
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_end",
+    "Protocol": 1,
+    "SessionID": "m12-model",
+    "Incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+    "Connection": "b9f4130ac0c3c12d0fd19633d0d48383acc017eaffa3289542a043510d3ed135",
+    "Revision": 6,
+    "Head": 4,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  }
+]

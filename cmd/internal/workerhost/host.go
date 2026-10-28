@@ -18,6 +18,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/lifecycleguard"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/ingress"
@@ -33,12 +34,19 @@ var (
 )
 
 type Config struct {
-	Command   []string
-	Candidate []string
-	Bootstrap workerproto.Bootstrap
-	OnItem    func(sessionstore.Item)
-	OnStatus  func(Status)
-	Stderr    io.Writer
+	// ControlScopePrefix is stable for one host incarnation, never a replacement.
+	ControlScopePrefix string
+	Command            []string
+	Candidate          []string
+	Bootstrap          workerproto.Bootstrap
+	OnItem             func(sessionstore.Item)
+	// OnAdmission observes confirmed ingress acceptance (including recovered
+	// pending inputs before worker launch). It runs before Submit returns, not
+	// necessarily before an already-running dispatcher persists the input.
+	// Callbacks must not block on client I/O or call back into the host.
+	OnAdmission func(inbox.Input)
+	OnStatus    func(Status)
+	Stderr      io.Writer
 	// ShutdownGrace bounds worker cleanup before forced termination (default 20s). Callers of
 	// Close should allow additional time to join the process and release leases.
 	ShutdownGrace time.Duration
@@ -64,6 +72,10 @@ type admissionJournal interface {
 }
 
 type Host struct {
+	parentCanceled bool
+	sealed         bool
+	shutdown       *sessionShutdown
+	stopParent     func() bool
 	config         Config
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -93,24 +105,26 @@ type Host struct {
 }
 
 type process struct {
-	host         *Host
-	command      *exec.Cmd
-	input        io.WriteCloser
-	cancel       context.CancelFunc
-	generation   uint64
-	build        string
-	hello        chan error
-	ready        chan error
-	done         chan struct{}
-	mu           sync.Mutex
-	err          error
-	waiting      map[string]chan workerproto.Event
-	sequence     sessionstore.Sequence
-	sent         map[inbox.ID]bool // only under host.delivery
-	retired      atomic.Bool
-	expectedStop atomic.Bool
-	waited       chan error
-	scanDone     chan struct{}
+	host          *Host
+	command       *exec.Cmd
+	input         io.WriteCloser
+	cancel        context.CancelFunc
+	generation    uint64
+	controlScope  string
+	cleanupProven atomic.Bool
+	build         string
+	hello         chan error
+	ready         chan error
+	done          chan struct{}
+	mu            sync.Mutex
+	err           error
+	waiting       map[string]chan workerproto.Event
+	sequence      sessionstore.Sequence
+	sent          map[inbox.ID]bool // only under host.delivery
+	retired       atomic.Bool
+	expectedStop  atomic.Bool
+	waited        chan error
+	scanDone      chan struct{}
 }
 
 func Start(ctx context.Context, config Config) (*Host, error) {
@@ -147,6 +161,12 @@ func start(ctx context.Context, config Config, wrapJournal func(admissionJournal
 	if config.Stderr == nil {
 		config.Stderr = io.Discard
 	}
+	if config.ControlScopePrefix == "" {
+		config.ControlScopePrefix = uuid.New().String()
+	}
+	if len(config.ControlScopePrefix) > 128 || strings.TrimSpace(config.ControlScopePrefix) == "" {
+		return nil, errors.New("invalid control scope prefix")
+	}
 	config.Command = append([]string(nil), config.Command...)
 	config.Candidate = append([]string(nil), config.Candidate...)
 	if len(config.Candidate) == 0 {
@@ -168,12 +188,33 @@ func start(ctx context.Context, config Config, wrapJournal func(admissionJournal
 		_ = parentLease.Close()
 		return nil, fmt.Errorf("open durable ingress: %w", err)
 	}
+	if err := lifecycleguard.ValidatePending(durable.Pending()); err != nil {
+		_ = durable.Close()
+		_ = parentLease.Close()
+		return nil, err
+	}
 	var journal admissionJournal = durable
 	if wrapJournal != nil {
 		journal = wrapJournal(journal)
 	}
-	lifetime, cancel := context.WithCancel(ctx)
+	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	h := &Host{config: config, ctx: lifetime, cancel: cancel, journal: journal, parentLease: parentLease, done: make(chan error, 1), kick: make(chan struct{}, 1), dispatcherDone: make(chan struct{}), delivery: make(chan struct{}, 1), admissionDone: make(chan struct{}), query: make(chan struct{}, 1)}
+	h.stopParent = context.AfterFunc(ctx, func() {
+		h.mu.Lock()
+		h.parentCanceled = true
+		// A parent cancellation may request legacy teardown, but cannot
+		// interrupt an independently owned, durably fenced shutdown.
+		if !h.sealed {
+			h.cancel()
+		}
+		h.mu.Unlock()
+	})
+	if config.OnAdmission != nil {
+		for _, input := range journal.Pending() {
+			input.Payload = input.Payload.Clone()
+			config.OnAdmission(input)
+		}
+	}
 	// Start must be bounded even if a candidate never identifies itself.
 	startCtx, stop := context.WithTimeout(ctx, 30*time.Second)
 	defer stop()
@@ -191,6 +232,9 @@ func start(ctx context.Context, config Config, wrapJournal func(admissionJournal
 			p.cancel()
 			_ = p.input.Close()
 			<-p.done
+		}
+		if h.stopParent != nil {
+			h.stopParent()
 		}
 		cancel()
 		_ = journal.Close()
@@ -245,7 +289,7 @@ func (h *Host) Submit(ctx context.Context, input inbox.Input) error {
 		return err
 	}
 	h.mu.Lock()
-	if h.closing || h.closed {
+	if h.closing || h.closed || h.sealed {
 		h.mu.Unlock()
 		return ErrClosed
 	}
@@ -256,6 +300,10 @@ func (h *Host) Submit(ctx context.Context, input inbox.Input) error {
 	defer h.admissions.Done()
 	if err := h.journal.Submit(ctx, input); err != nil {
 		return err
+	}
+	if h.config.OnAdmission != nil {
+		input.Payload = input.Payload.Clone()
+		h.config.OnAdmission(input)
 	}
 	h.wake()
 	return nil
@@ -341,7 +389,7 @@ func (h *Host) launch(ctx context.Context, stage staged) (*process, error) {
 	}
 	generation := h.generation
 	h.mu.Unlock()
-	p := &process{host: h, command: command, input: input, cancel: cancel, generation: generation, build: stage.identity.Build + " [" + stage.digest[:12] + "]", hello: make(chan error, 1), ready: make(chan error, 1), done: make(chan struct{}), waiting: make(map[string]chan workerproto.Event), sent: make(map[inbox.ID]bool), waited: make(chan error, 1), scanDone: make(chan struct{})}
+	p := &process{host: h, command: command, input: input, cancel: cancel, generation: generation, controlScope: fmt.Sprintf("%s/%d", h.config.ControlScopePrefix, generation), build: stage.identity.Build + " [" + stage.digest[:12] + "]", hello: make(chan error, 1), ready: make(chan error, 1), done: make(chan struct{}), waiting: make(map[string]chan workerproto.Event), sent: make(map[inbox.ID]bool), waited: make(chan error, 1), scanDone: make(chan struct{})}
 	if err = command.Start(); err != nil {
 		_ = childOutput.Close()
 		cancel()
@@ -376,6 +424,7 @@ func (h *Host) launch(ctx context.Context, stage staged) (*process, error) {
 		return p, err
 	}
 	bootstrap := h.config.Bootstrap
+	bootstrap.ControlScope = p.controlScope
 	// A candidate launches descendants from its staged executable, never from an
 	// old frontend's path, and it must include embedded runner dispatch.
 	bootstrap.SubagentCommand = []string{stage.command[0], "agent-runner"}
@@ -443,6 +492,16 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 			}
 			p.sequence = item.Sequence
 			if input, ok := item.Data.(inbox.Input); ok {
+				if input.Kind == inbox.InputControl {
+					control, err := input.DecodeControlMessage()
+					if err != nil {
+						failure = err
+						break
+					}
+					if sawReady && control.Mode == inbox.ExecutionDrained && control.Parameters.(inbox.ExecutionDrainReceipt).Scope == p.controlScope {
+						p.cleanupProven.Store(true)
+					}
+				}
 				if err := p.host.journal.Acknowledge(context.Background(), input); err != nil {
 					failure = fmt.Errorf("acknowledge durable ingress: %w", err)
 					break
@@ -542,7 +601,10 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 	// Every joined retirement must be visible even if its Reload caller has
 	// already canceled. A clean retirement is recoverable, not a host run end.
 	reportStopped := owner && !closing
-	finishHost := reportStopped && (!p.retired.Load() || failure != nil)
+	p.host.mu.Lock()
+	controlledShutdown := p.host.shutdown != nil && p.host.shutdown.process == p
+	p.host.mu.Unlock()
+	finishHost := reportStopped && !controlledShutdown && (!p.retired.Load() || failure != nil)
 	if reportStopped {
 		p.host.status(Status{Generation: p.generation, Build: p.build, Message: "Worker stopped; durable inputs retained", Err: failure, Stopped: true})
 	}
@@ -562,12 +624,23 @@ func (p *process) consume(output io.ReadCloser, expected workerproto.Identity) {
 // Cancellation after a quiesce request is admitted is ambiguous: no replacement
 // is launched until the old process has exited, even if the caller times out.
 func (h *Host) Reload(ctx context.Context, candidate []string) error {
+	return h.handoff(ctx, candidate, false)
+}
+
+// RetireForHostReplacement naturally quiesces and actually joins the worker,
+// seals future admission, and retains ingress ownership until explicit Close.
+// It never starts another process. A timeout is not a drained receipt.
+func (h *Host) RetireForHostReplacement(ctx context.Context) error {
+	return h.handoff(ctx, nil, true)
+}
+
+func (h *Host) handoff(ctx context.Context, candidate []string, retireHost bool) error {
 	if !h.reload.CompareAndSwap(false, true) {
 		return fmt.Errorf("%w: another reload is in progress", ErrBusy)
 	}
 	defer h.reload.Store(false)
 	h.mu.Lock()
-	closing, failure := h.closing, h.failure
+	closing, failure := h.closing || h.sealed, h.failure
 	finished := make(chan struct{})
 	h.reloadDone = finished
 	h.mu.Unlock()
@@ -578,19 +651,23 @@ func (h *Host) Reload(ctx context.Context, candidate []string) error {
 	if failure != nil {
 		return failure
 	}
-	if len(candidate) == 0 {
-		candidate = h.config.Candidate
-	}
-	stage, err := h.stage(ctx, candidate)
-	if err != nil {
-		return fmt.Errorf("candidate rejected; current worker unchanged: %w", err)
-	}
+	var stage staged
+	var err error
 	used := false
-	defer func() {
-		if !used {
-			h.discardStage(stage.command[0])
+	if !retireHost {
+		if len(candidate) == 0 {
+			candidate = h.config.Candidate
 		}
-	}()
+		stage, err = h.stage(ctx, candidate)
+		if err != nil {
+			return fmt.Errorf("candidate rejected; current worker unchanged: %w", err)
+		}
+		defer func() {
+			if !used {
+				h.discardStage(stage.command[0])
+			}
+		}()
+	}
 
 	if err := h.lockDelivery(ctx); err != nil {
 		return err
@@ -602,7 +679,7 @@ func (h *Host) Reload(ctx context.Context, candidate []string) error {
 	h.mu.Lock()
 	p := h.current
 	safeStopped := h.stopped
-	closing = h.closing
+	closing = h.closing || h.sealed
 	failure = h.failure
 	h.mu.Unlock()
 	if closing {
@@ -656,6 +733,22 @@ func (h *Host) Reload(ctx context.Context, candidate []string) error {
 	if !safeStopped {
 		return ErrStopped
 	}
+	if retireHost {
+		// Same mutex as Submit's WaitGroup.Add. No new admission can race Wait.
+		h.mu.Lock()
+		h.sealed = true
+		h.failure = ErrStopped
+		h.mu.Unlock()
+		h.admissionOnce.Do(func() { go func() { h.admissions.Wait(); close(h.admissionDone) }() })
+		select {
+		case <-h.admissionDone:
+		case <-ctx.Done():
+			return fmt.Errorf("host retirement admission join unconfirmed: %w", context.Cause(ctx))
+		}
+		h.status(Status{Message: "Worker drained and joined; ingress retained until explicit host stop", Stopped: true})
+		h.finish(ErrStopped)
+		return nil
+	}
 	h.status(Status{Message: "Old worker exited; starting replacement", Stopped: true})
 	p, err = h.launch(ctx, stage)
 	used = p != nil
@@ -676,6 +769,11 @@ func (h *Host) Reload(ctx context.Context, candidate []string) error {
 // A deadline never reports that the worker or lease has finished.
 func (h *Host) Close(ctx context.Context) error {
 	h.mu.Lock()
+	if h.shutdown != nil {
+		h.mu.Unlock()
+		return h.AwaitShutdown(ctx)
+	}
+
 	if h.closed {
 		h.mu.Unlock()
 		return nil
@@ -738,6 +836,9 @@ func (h *Host) Close(ctx context.Context) error {
 	defer h.mu.Unlock()
 	if h.closed {
 		return nil
+	}
+	if h.stopParent != nil {
+		h.stopParent()
 	}
 	err := errors.Join(h.journal.Close(), h.parentLease.Close())
 	h.closed = true

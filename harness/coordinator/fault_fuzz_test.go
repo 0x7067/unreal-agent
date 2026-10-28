@@ -215,6 +215,8 @@ func assertCoordinatorFaultTrace(t *testing.T, events []coordinatorFaultEvent, r
 	var previous session.TurnID
 	turns, requests, responses := 0, 0, 0
 	failed := false
+	failureSite := ""
+	charges := make(map[session.TurnID]inbox.ModelRequestRecord)
 	calls := make(map[string]session.TurnID)
 	committed := make(map[operation.ID]operation.Operation)
 	started := make(map[operation.ID]bool)
@@ -223,14 +225,43 @@ func assertCoordinatorFaultTrace(t *testing.T, events []coordinatorFaultEvent, r
 	responded := make(map[session.TurnID]bool)
 	for _, event := range events {
 		if failed && (event.kind == "commit" || event.kind == "save" || event.kind == "request" || event.kind == "add") {
-			t.Fatalf("coordinator continued %q after dependency failure", event.kind)
+			allowed := false
+			if event.kind == "commit" && (failureSite == "transport" || failureSite == "http" || failureSite == "body") {
+				item := event.value.(sessionstore.Item)
+				if input, ok := item.Data.(inbox.Input); ok && item.Kind == sessionstore.ItemInput {
+					control, err := input.DecodeControlMessage()
+					if err == nil && control.Mode == inbox.ModelRequest {
+						r := control.Parameters.(inbox.ModelRequestRecord)
+						expected, ok := charges[session.TurnID(r.TurnID)]
+						expected.Action = "interrupted"
+						allowed = ok && r == expected && control.Reason != ""
+					}
+				}
+			}
+			if !allowed {
+				t.Fatalf("coordinator continued %q after dependency failure", event.kind)
+			}
 		}
 		switch event.kind {
 		case "failure":
 			failed = true
+			failureSite = event.value.(string)
 		case "commit":
 			item := event.value.(sessionstore.Item)
 			switch value := item.Data.(type) {
+			case inbox.Input:
+				if value.Kind == inbox.InputControl {
+					control, err := value.DecodeControlMessage()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if control.Mode == inbox.ModelRequest {
+						r := control.Parameters.(inbox.ModelRequestRecord)
+						if r.Action == "started" {
+							charges[session.TurnID(r.TurnID)] = r
+						}
+					}
+				}
 			case session.Turn:
 				if value.ID == "" || value.PreviousTurnID != previous {
 					t.Fatalf("broken turn chain: %#v", value)

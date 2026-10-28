@@ -23,14 +23,16 @@ type Dependencies struct {
 	ToolHeartbeatInterval  time.Duration
 	// ActivitySummary is a bounded, redacted, snapshot-only callback; it must not perform I/O.
 	ActivitySummary func() string
-	SessionID       session.ID
-	Inbox           *inbox.Inbox
-	Restored        sessionstore.ResumeState
-	Sessions        sessionstore.Store
-	ContextBuilder  contextbuilder.Builder
-	LLM             llm.Adapter
-	Tools           tool.Registry
-	Operations      operation.Manager
+	// ControlScope binds public lifecycle intents to this runtime generation.
+	ControlScope   string
+	SessionID      session.ID
+	Inbox          *inbox.Inbox
+	Restored       sessionstore.ResumeState
+	Sessions       sessionstore.Store
+	ContextBuilder contextbuilder.Builder
+	LLM            llm.Adapter
+	Tools          tool.Registry
+	Operations     operation.Manager
 }
 
 var (

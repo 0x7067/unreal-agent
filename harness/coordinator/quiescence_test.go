@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"testing/synctest"
 
@@ -307,9 +308,30 @@ func TestTryQuiesceRacingSubmitEitherDrainsOrBlocksProducer(t *testing.T) {
 		synctest.Sleep(2 * slurpIdleTimeout)
 		synctest.Wait()
 		run.respond(t, 0, textResponse("Done"))
-		if len(run.store.appendedInputs) != 1 {
-			t.Fatal("accepted racing input lost or duplicated")
+
+		// Canonical inputs include one internal charged-request control now.
+		// Validate that control causally rather than counting/filtering it away.
+		var external []inbox.Input
+		charges := 0
+		for _, input := range run.store.appendedInputs {
+			if input.Kind == inbox.InputExternal {
+				external = append(external, input)
+				continue
+			}
+			control, err := input.DecodeControlMessage()
+			if err != nil || control.Mode != inbox.ModelRequest {
+				t.Fatalf("unexpected internal input: %+v %v", control, err)
+			}
+			r := control.Parameters.(inbox.ModelRequestRecord)
+			if r.Action != "started" || r.Attempt != 1 || r.Limit != 2 || r.Inputs != 1 || r.ExternalInputs != 1 || r.TurnType != "regular" || r.TurnID != string(run.current.state.currentTurnID) {
+				t.Fatalf("invalid racing request charge: %+v", r)
+			}
+			charges++
 		}
+		if !reflect.DeepEqual(external, []inbox.Input{externalEvent(t, 0, "race", "hello")}) || charges != 1 {
+			t.Fatalf("racing input lost/duplicated or charge missing: external=%+v charges=%d", external, charges)
+		}
+
 		assertQuiesced(t, run)
 	})
 }
@@ -371,9 +393,10 @@ func TestTryQuiesceProcessesSlurpedInputsBeforeStartupRequest(t *testing.T) {
 		if err := <-result; !errors.Is(err, ErrBusy) {
 			t.Fatalf("startup request over queued input = %v", err)
 		}
-		if len(run.calls) != 1 || run.calls[0].ctx.Err() != nil || len(run.store.appendedInputs) != 1 {
+		if len(run.calls) != 1 || run.calls[0].ctx.Err() != nil || len(run.store.appendedInputs) != 2 {
 			t.Fatal("startup request lost or canceled slurped work")
 		}
+		assertFixtureRequestStart(t, run.store.appendedInputs[1], run.store.appendedTurns[0].ID, 1, 1)
 		run.respond(t, 0, textResponse("Done"))
 		assertQuiesced(t, run)
 	})

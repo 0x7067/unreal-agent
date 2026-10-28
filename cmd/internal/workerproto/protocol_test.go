@@ -54,12 +54,14 @@ func TestFrameBoundsAndBlankFrameVisibility(t *testing.T) {
 	}
 }
 
-func TestVersionTwoRejectsOldPrivateWorkersNotOldSessions(t *testing.T) {
-	if Version != 2 || SessionVersion != 2 {
+func TestVersionSevenRejectsOldPrivateWorkersNotOldSessions(t *testing.T) {
+	if Version != 7 || SessionVersion != 2 {
 		t.Fatalf("unexpected versions %d/%d", Version, SessionVersion)
 	}
-	if err := (Identity{Protocol: 1, SessionVersion: SessionVersion, Build: "old"}).Validate(); err == nil || !strings.Contains(err.Error(), "incompatible worker") {
-		t.Fatalf("old worker not explicitly rejected: %v", err)
+	for _, old := range []int{1, 2, 3, 4, 5, 6} {
+		if err := (Identity{Protocol: old, SessionVersion: SessionVersion, Build: "old"}).Validate(); err == nil || !strings.Contains(err.Error(), "incompatible worker") {
+			t.Fatalf("old worker %d not explicitly rejected: %v", old, err)
+		}
 	}
 	if err := (Identity{Protocol: Version, SessionVersion: 2, Build: "new"}).Validate(); err != nil {
 		t.Fatal(err)

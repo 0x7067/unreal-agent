@@ -1,0 +1,21 @@
+{
+  "MaxOutputLength": 40000,
+  "ID": "pinned-A-operation",
+  "Type": "remote_job",
+  "Version": 2,
+  "Status": "ready",
+  "State": {
+    "Plan": {
+      "Type": "trusted_echo",
+      "Version": 1,
+      "Data": {
+        "Name": "Echo",
+        "Generation": 1,
+        "SchemaVersion": 99,
+        "ImplementationVersion": 1,
+        "Implementation": "A",
+        "Input": "seed"
+      }
+    }
+  }
+}

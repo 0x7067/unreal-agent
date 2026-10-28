@@ -95,7 +95,7 @@ func TestCoordinatorForkStopsWhenChildIsIdle(t *testing.T) {
 						t.Fatal("fork lost its parent context")
 					}
 					if childTool {
-						child.respond(t, 0, llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+						child.respond(t, 0, llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 							CallID: "child-call", Name: tool.BashName, Arguments: `{}`,
 						}}}})
 						child.assertRunning(t)

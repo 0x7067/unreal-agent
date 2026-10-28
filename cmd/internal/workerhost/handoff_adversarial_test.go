@@ -38,7 +38,7 @@ const advWorkerScript = `#!/bin/sh
 # last argument of the configured command). It owns no session store: its log is
 # its durable history, so replay/dedup/ack behave like the real worker.
 mode=$1
-hello='{"Type":"hello","Identity":{"Protocol":2,"SessionVersion":2,"Build":"adversarial-fake"}}'
+hello='{"Type":"hello","Identity":{"Protocol":__PROTOCOL__,"SessionVersion":__SESSION__,"Build":"adversarial-fake"}}'
 log=$FAKE_WORKER_LOG
 received=$FAKE_WORKER_RECEIVED
 seq=0
@@ -177,7 +177,7 @@ func advHost(t *testing.T, configure func(*Config)) (*Host, *recorder, Config) {
 		t.Fatal(err)
 	}
 	script := filepath.Join(directory, "fake-worker.sh")
-	if err = os.WriteFile(script, []byte(advWorkerScript), 0o700); err != nil {
+	if err = os.WriteFile(script, []byte(strings.NewReplacer("__PROTOCOL__", fmt.Sprint(workerproto.Version), "__SESSION__", fmt.Sprint(workerproto.SessionVersion)).Replace(advWorkerScript)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("FAKE_WORKER_LOG", filepath.Join(directory, "worker.log"))

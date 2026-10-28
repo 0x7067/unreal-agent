@@ -1,0 +1,5 @@
+github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui
+github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/filesearch
+github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/reasoning
+github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/runcontrol
+github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext

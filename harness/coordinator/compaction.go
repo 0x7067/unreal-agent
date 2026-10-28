@@ -24,6 +24,26 @@ func (current *coordinator) compactionFailureLimit() int {
 }
 
 func (current *coordinator) recordControl(ctx context.Context, request inbox.ControlMessage) error {
+	if request.Mode == inbox.CompactionRequest {
+		r, ok := request.Parameters.(inbox.CompactionRequestRecord)
+		if !ok {
+			return fmt.Errorf("invalid compaction request data %T", request.Parameters)
+		}
+		candidate := &coordinator{state: current.state, requests: current.requests.clone()}
+		if err := candidate.observeCompactionRequest(r); err != nil {
+			return err
+		}
+	}
+	if request.Mode == inbox.ModelRequest {
+		r, ok := request.Parameters.(inbox.ModelRequestRecord)
+		if !ok {
+			return fmt.Errorf("model request record has invalid type %T", request.Parameters)
+		}
+		candidate := &coordinator{state: current.state, requests: current.requests.clone()}
+		if err := candidate.observeRequestRecord(r); err != nil {
+			return err
+		}
+	}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("encode compaction control: %w", err)

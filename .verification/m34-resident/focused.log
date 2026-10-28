@@ -1,0 +1,5 @@
+--- FAIL: TestRuntimeCandidateFailureAfterRetirementRecoversDurableInput (0.00s)
+    runtime_failure_test.go:148: startup: Unix endpoint path exceeds 103 bytes
+FAIL
+FAIL	github.com/unreallabsai/unreal-agent/cmd/internal/resident	0.002s
+FAIL

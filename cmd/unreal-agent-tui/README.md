@@ -163,7 +163,8 @@ work, or input not yet proven session-persisted block replacement rather than
 canceling work. Probe failures leave the old worker running. If replacement fails
 after old-worker retirement, the session stays stopped; there is no automatic
 binary downgrade. New text still receives conservative session-persistence
-status. Explicit Ctrl+C shutdown, unlike reload, may cancel active work and waits
+status. In this locally supervised mode (not `attach`), Ctrl+C shutdown,
+unlike reload, may cancel active work and waits
 for bounded worker cleanup (shells that ignore SIGTERM take 5s; a stuck worker is
 killed after 20s). When the stop takes more than a second, stderr says so; a
 second Ctrl+C kills the worker's process group at once instead of waiting, which
@@ -180,3 +181,41 @@ Only a safely terminal session can resume; interrupted nonterminal model/tool
 work is refused rather than silently rerun. Use the same trusted workspace,
 provider, and state directory. Worker replacements launch descendants from the
 replacement binary, not the original frontend's executable.
+
+## Attach to a durable headless session
+
+The independent-host attach path is different from the locally supervised mode
+above. Start an explicitly chosen host with `unreal-agent-runner host`, then:
+
+```sh
+unreal-agent-tui attach -runtime-directory "$PRIVATE_RUNTIME" \
+  -session-directory "$SESSION_DIRECTORY" -session "$SESSION_ID"
+```
+
+Runtime/state paths are explicit private absolute paths. Attach does not start a
+worker, initialize a provider, or load workspace credentials. **Ctrl+C detaches
+only this frontend**; model calls, Bash and host-owned branches keep running.
+F5 or `/reconnect` obtains a fresh view without resubmitting inputs. `/retry ID`
+retries only an original external input, not a control or arbitrary command.
+
+Negotiated lifecycle commands:
+
+- **`/abort`** saves a UUID, exact host-generation scope and original canonical
+  turn target before sending. Supported foreground model/Bash work is canceled
+  and independently drained without retiring the session or canceling retained
+  explicit-background branches. Unsupported ownership/compaction is refused.
+- **`/shutdown`** deliberately seals ingress and drains all supported owned
+  execution. Admission is **not** cleanup. The host retains writer authority
+  through fresh worker/child proof, actual process/output joins and final
+  canonical completion; a caller timeout does not authorize takeover.
+- **`/retry-control ID`** uses the saved original control, never the newest turn
+  or scope. Stale controls are not rebound. After endpoint loss it performs
+  read-only canonical reconciliation; EOF or a missing socket alone is unknown.
+
+Older hosts without the capability receive no lifecycle RPC. Control identities
+are stored separately from the external outbox in private local-state version 2
+(backward reads of version 1 remain supported). Local view state is not execution
+state. Restarting attach after a deliberate shutdown can report matching
+canonical outcomes without starting a host or provider. See the
+[lifecycle implementation/proof work log](../../docs/plans/durable-lifecycle-controls.md)
+for current verification status and conservative limits.

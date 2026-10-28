@@ -1,0 +1,22 @@
+{
+  "mode": "tool",
+  "host_pid": 3183245,
+  "incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+  "generation": 1,
+  "provider_calls": 2,
+  "answer_count": 1,
+  "head": 8,
+  "frontend_pids": [
+    3183297,
+    3183511,
+    3183656
+  ],
+  "captures": [
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/01-attached-running.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/01b-pending-tool-details.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/02-reattached-tool-running.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/03-live-answer.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/04-tool-output.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/evidence/05-fresh-answer.txt"
+  ]
+}

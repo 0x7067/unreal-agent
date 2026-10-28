@@ -1,0 +1,50 @@
+ ╔ Tool details ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ Esc back · Tab input ╗
+ ║Bash · Awaiting result                                                                                                                                       ║
+ ║                                                                                                                                                             ║
+ ║Call       m12-shell                                                                                                                                         ║
+ ║Arguments  printf 'M12 PARTIAL OUTPUT\n'; touch /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-start; while ! test -f /tmp/u12proof.PwOwKp/u12-PwOwKp- ║
+ ║           tool/workspace/shell-release; do sleep 0.02; done; printf 'M12 FINAL OUTPUT\n'                                                                    ║
+ ║                                                                                                                                                             ║
+ ║Result                                                                                                                                                       ║
+ ║ Command is still running.                                                                                                                                   ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ║                                                                                                                                                             ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  shell → queued; process start unconfirmed · printf · arguments hidden                                                                                       ●
+ ╔ Message ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ Send a message · Ctrl+C detaches                                                                                                                            ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  PgUp/PgDn scroll · Esc tools · Tab input · Ctrl+C exit

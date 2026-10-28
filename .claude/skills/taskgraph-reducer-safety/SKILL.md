@@ -134,3 +134,23 @@ Keep the whole test under ~30 s.
 
 Follow the `maintain-formal-verification-skill` guidance in the same branch as
 the change that invalidated a recipe here.
+
+### Durable command checkpoints (M2.7, 2026-10-28)
+
+At dirty-tree HEAD `9c0abbe4a9aa003851ef0b3448b58af0a049c4a9` the reducer
+blob is still `2315afc35788160fc81bf84657f2600bd61c9e86`; no reducer edits
+or intentional-break resets were performed. The exact exhaustive check passed
+before (34.427s, `/tmp/unreal-agent-m27-safety-before.log`) and after the new
+runtime events (19.872s, `/tmp/unreal-agent-m27-safety.3fKjU5/test.log`).
+
+`checkpointCommitted` (`dispatch_commit.go`) is an additional actor event fed
+through the existing mailbox. It releases only the live actor's pending dispatch
+reservation after a matching command-layer successful-store acknowledgment.
+Cancellation before that acknowledgment can call the already-modeled `Canceled`;
+launch admission failure uses already-modeled `Complete` with error. The pure
+reducer/event properties above remain unchanged. The model does **not** establish
+store durability, acknowledgment matching, process exit, or restart classification.
+Those are separately checked in `dispatch_commit_test.go`, `recovery_test.go`,
+`workerruntime/m27_contract_test.go` and the real parent-process graph fixture.
+PID-only settlement is disabled for this opt-in policy. Do not infer new reducer
+states, replay permission, or I/O coverage from this model-check result.

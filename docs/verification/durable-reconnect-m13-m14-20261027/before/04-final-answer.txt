@@ -1,0 +1,50 @@
+ ╔ Conversation ═════════════════════════════════════════════════════════════════════════════════════════════════════╗╔ Tools ════════════════════ Shift+Tab › ╗
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║  ● Bash printf · arguments hidden      ║
+ ║  ARCHIVE 026 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 027 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 028 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 029 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 030 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 031 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 032 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 033 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 034 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 035 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 036 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 037 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 038 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  ARCHIVE 039 preserved canonical paragraph durable session durable session durable session durable session        ║║                                        ║
+ ║  durable session durable session durable session durable session                                                  ║║                                        ║
+ ╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝╚════════════════════════════════════════╝
+  Attached · Ctrl+C detaches
+ ╔ Message ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ Send a message · Ctrl+C detaches                                                                                                                            ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  Enter send · Tab tools · F3 hide reasoning · Ctrl+C exit · Shift+Enter/Ctrl+J newline · PgUp/PgDn scroll

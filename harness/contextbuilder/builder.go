@@ -109,14 +109,14 @@ func (current *builder) SetSystemPrompt(prompt string) {
 
 func (current *builder) AddModelResponse(response llm.Response) {
 	output := response.Output
-	if response.Failure != nil {
-		// MessagesAPI represents refusals with both StopRefused and Failure.
-		// Their assistant text is conversation history, not a terminal model
-		// failure. Keep only messages: failed responses must not introduce
-		// partial calls (or other opaque provider state) into future requests.
-		if response.Stop != llm.StopRefused {
-			return
-		}
+	// Failures are not conversation history, except for refusal text.
+	if response.Failure != nil && response.Stop != llm.StopRefused {
+		return
+	}
+	if response.Stop != llm.StopComplete {
+		// Only completed responses may carry executable calls or opaque
+		// provider continuation state into a future request. Incomplete and
+		// refused responses retain only valid assistant messages.
 		output = nil
 		for _, item := range response.Output {
 			if message, ok := item.Data.(llm.Message); item.Type == llm.ItemMessage && ok && message.Role == llm.RoleAssistant {

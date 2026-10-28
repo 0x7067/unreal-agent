@@ -214,16 +214,17 @@ func TestCompactionPersistenceFailureStopsAndRetriesOnResume(t *testing.T) {
 		resumed.start(t)
 		assertCompactionTurn(t, resumed, 1, session.TurnCompaction)
 		if !reflect.DeepEqual(resumed.calls[0].request, request) {
-			t.Fatal("resumed compaction request differs from the failed attempt")
+			t.Fatal("resumed summary differs from original intent")
 		}
 		if resumed.current.pendingInputs() != 1 {
-			t.Fatal("pending input was lost during recovery")
+			t.Fatal("summary retry lost ordinary pending input")
 		}
 		resumed.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
 		resumed.respond(t, 0, response)
 		assertCompactionTurn(t, resumed, 2, session.TurnRegular)
 		resumed.respond(t, 1, textResponse("Done"))
 		resumed.assertStopped(t)
+
 	})
 }
 

@@ -35,7 +35,7 @@ func TestRunResumesAfterOutputFailure(t *testing.T) {
 			requests := make(chan context.Context, 4)
 			client := &fakeClient{respond: func(ctx context.Context, _ llm.Request) (llm.Response, error) {
 				requests <- ctx
-				return llm.Response{Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "Hello."}}}}, nil
+				return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "Hello."}}}}, nil
 			}}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -145,7 +145,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 					return llm.Response{}, errors.New("initial request did not use the caller's system prompt")
 				}
 				if withTool && interrupted.calls == 1 {
-					return llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+					return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 						CallID: "call-1", Name: "Bash", Arguments: `{"command":"printf hello"}`,
 					}}}}, nil
 				}
@@ -176,7 +176,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 				if withTool && !hasResult(request) {
 					return llm.Response{}, errors.New("missing restored result")
 				}
-				return llm.Response{Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "Done."}}}}, nil
+				return llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "Done."}}}}, nil
 			}
 			code, stdout, stderr := run(resumed)
 			if code != 0 || resumed.calls != 1 {
@@ -224,7 +224,7 @@ func TestRunMainResumesInterruptedDeliveryWithDuplicateInput(t *testing.T) {
 				if request.Model.ID != model || request.Model.ReasoningEffort != effort {
 					return llm.Response{}, fmt.Errorf("following request settings = %#v", request.Model)
 				}
-				return llm.Response{}, nil
+				return llm.Response{Stop: llm.StopComplete}, nil
 			}
 			code, _, stderr = run(resumed)
 			if code != 0 || resumed.calls != 1 {
@@ -255,7 +255,7 @@ func TestRunResumesSessionWithoutRecordedSettings(t *testing.T) {
 			if request.Model.ID != "selected-model" || request.Model.ReasoningEffort != llm.ReasoningEffortMedium {
 				return llm.Response{}, fmt.Errorf("legacy session request settings = %#v", request.Model)
 			}
-			return llm.Response{}, nil
+			return llm.Response{Stop: llm.StopComplete}, nil
 		}
 		var output bytes.Buffer
 		err = Run(t.Context(), []string{"-workspace", workspace, "-session-directory", sessions},

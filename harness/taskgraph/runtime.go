@@ -19,6 +19,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/unreallabsai/unreal-agent/harness/session"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
 )
 
@@ -30,6 +31,9 @@ type Config struct {
 	BaseDirectory string
 	Inbox         inbox.Writer
 	AllowBash     bool
+	// Durable mode is command-only, parent-bound and store-ack fenced.
+	DurableParentID session.ID
+	DurableScope    string
 	// Budget and ResourceAccount are live execution policy, not reducer state or
 	// checkpoint data. The account remains owned until actual manager drain.
 	Budget           executionbudget.Policy
@@ -43,6 +47,7 @@ type Runtime struct {
 	config       Config
 	requests     *runtimeRequests
 	done         chan struct{}
+	waitErr      error
 	scans        sync.WaitGroup
 	scanResults  chan scanResult
 	run, control *runtimeHandler
@@ -54,9 +59,14 @@ type runtimeHandler struct {
 	queue   []operation.Operation
 }
 
-func (h *runtimeHandler) RemoteJobPlanType() operation.RemoteJobPlanType       { return h.typ }
-func (h *runtimeHandler) RemoteJobPlanVersion() operation.RemoteJobPlanVersion { return PlanVersion }
-func (h *runtimeHandler) RemoteJobUpdates() <-chan operation.Operation         { return h.updates }
+func (h *runtimeHandler) RemoteJobPlanType() operation.RemoteJobPlanType { return h.typ }
+func (h *runtimeHandler) RemoteJobPlanVersion() operation.RemoteJobPlanVersion {
+	if h.runtime.config.DurableParentID != "" {
+		return DurablePlanVersion
+	}
+	return PlanVersion
+}
+func (h *runtimeHandler) RemoteJobUpdates() <-chan operation.Operation { return h.updates }
 func (h *runtimeHandler) AddRemoteJob(op operation.Operation) error {
 	return h.runtime.request(func(s *runtimeState) { s.add(h, op) })
 }
@@ -72,6 +82,11 @@ func (r *Runtime) Handlers() []operation.RemoteJobHandler {
 func New(ctx context.Context, c Config) (*Runtime, error) {
 	if ctx == nil {
 		return nil, errors.New("runtime context required")
+	}
+	if c.DurableParentID != "" || c.DurableScope != "" {
+		if !durableIdentity(string(c.DurableParentID)) || !durableIdentity(c.DurableScope) || c.NewAgentHandlers != nil {
+			return nil, errors.New("durable graph requires exact parent/scope and command-only handlers")
+		}
 	}
 	if err := c.Budget.Validate(); err != nil {
 		return nil, err
@@ -122,12 +137,12 @@ func New(ctx context.Context, c Config) (*Runtime, error) {
 func (r *Runtime) Wait(ctx context.Context) error {
 	select {
 	case <-r.done:
-		return nil
+		return r.waitErr
 	default:
 	}
 	select {
 	case <-r.done:
-		return nil
+		return r.waitErr
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -162,15 +177,16 @@ type checkpoint struct {
 }
 type graphExecution struct {
 	checkpoint
-	owner          operation.Operation
-	manager        operation.Manager
-	stop           context.CancelFunc
-	cancelControls []operation.Operation
-	terminal       bool
-	epoch          uint64
-	pendingAccept  *acceptRequest
-	acceptQueue    []*acceptRequest
-	finalFresh     bool
+	owner           operation.Operation
+	manager         operation.Manager
+	stop            context.CancelFunc
+	cancelControls  []operation.Operation
+	terminal        bool
+	epoch           uint64
+	pendingAccept   *acceptRequest
+	acceptQueue     []*acceptRequest
+	finalFresh      bool
+	pendingDispatch map[operation.ID]uint64
 }
 type runtimeState struct {
 	runtime  *Runtime
@@ -205,6 +221,13 @@ func (r *Runtime) loop() {
 			// remote forwarding goroutines have finished. Drain, don't wait
 			// on a forwarder alone or depend on an external update consumer.
 			for range g.manager.Updates() {
+			}
+			if r.config.DurableParentID != "" {
+				if verifier, ok := g.manager.(interface{ AwaitStopped(context.Context) error }); ok {
+					r.waitErr = errors.Join(r.waitErr, verifier.AwaitStopped(context.Background()))
+				} else {
+					r.waitErr = errors.Join(r.waitErr, errors.New("nested durable manager cleanup unavailable"))
+				}
 			}
 		}
 		for _, waiter := range s.waiters {
@@ -270,7 +293,11 @@ func (s *runtimeState) emit(h *runtimeHandler, op operation.Operation, status op
 		return
 	}
 	if cp != nil {
-		state.Handle, e = json.Marshal(cp)
+		if s.runtime.config.DurableParentID != "" {
+			state.Handle, e = json.Marshal(DurableCheckpoint{Version: 2, ParentID: s.runtime.config.DurableParentID, Scope: s.runtime.config.DurableScope, State: *cp, Execution: s.durableExecution()})
+		} else {
+			state.Handle, e = json.Marshal(cp)
+		}
 		if e != nil {
 			return
 		}
@@ -307,13 +334,22 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 	if err != nil {
 		return
 	}
-	if state.Plan.Type != h.typ || state.Plan.Version != PlanVersion {
+	if state.Plan.Type != h.typ || state.Plan.Version != h.RemoteJobPlanVersion() {
 		s.emit(h, op, operation.StatusFailed, nil, "", errors.New("unsupported graph plan version or type"))
 		return
 	}
 	if h.typ == ControlPlanType {
 		var p ControlPlan
-		err = json.Unmarshal(state.Plan.Data, &p)
+		if s.runtime.config.DurableParentID != "" {
+			var d DurableControlPlan
+			d, err = DecodeDurableControl(op)
+			if err == nil && (d.ParentID != s.runtime.config.DurableParentID || d.Scope != s.runtime.config.DurableScope) {
+				err = errors.New("stale durable graph parent/control scope")
+			}
+			p = d.Control
+		} else {
+			err = json.Unmarshal(state.Plan.Data, &p)
+		}
 		if err == nil {
 			err = s.control(op, p)
 		}
@@ -323,7 +359,18 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		return
 	}
 	var p RunPlan
-	if err = json.Unmarshal(state.Plan.Data, &p); err != nil {
+	var restored *DurableCheckpoint
+	if s.runtime.config.DurableParentID != "" {
+		var d DurableRunPlan
+		d, restored, err = DecodeDurableRun(op)
+		p = d.Run
+		if err == nil {
+			err = ValidateDurableRecovery(op, s.runtime.config.DurableParentID)
+		}
+	} else {
+		err = json.Unmarshal(state.Plan.Data, &p)
+	}
+	if err != nil {
 		s.emit(h, op, operation.StatusFailed, nil, "", err)
 		return
 	}
@@ -337,7 +384,15 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 	}
 	cp := checkpoint{Version: 1, Attempts: map[string]*attempt{}}
 	if len(state.Handle) > 0 {
-		err = json.Unmarshal(state.Handle, &cp)
+		if restored != nil {
+			if restored.Execution != s.durableExecution() {
+				s.emit(h, op, operation.StatusFailed, nil, "", errors.New("durable graph execution configuration changed"))
+				return
+			}
+			cp = restored.State
+		} else {
+			err = json.Unmarshal(state.Handle, &cp)
+		}
 		if err == nil && cp.Version != 1 {
 			err = errors.New("unsupported graph checkpoint version")
 		}
@@ -380,7 +435,7 @@ func (s *runtimeState) add(h *runtimeHandler, op operation.Operation) {
 		s.emit(h, op, operation.StatusFailed, nil, "", err)
 		return
 	}
-	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManagerWithOptions(nestedCtx, operation.LocalOperationManagerOptions{OutputDirectory: s.runtime.config.BaseDirectory, Budget: s.runtime.config.Budget, ResourceAccount: s.runtime.config.ResourceAccount}, handlers...), stop: stop}
+	g := &graphExecution{checkpoint: cp, owner: op, manager: operation.NewLocalOperationManagerWithOptions(nestedCtx, operation.LocalOperationManagerOptions{OutputDirectory: s.runtime.config.BaseDirectory, Budget: s.runtime.config.Budget, ResourceAccount: s.runtime.config.ResourceAccount}, handlers...), stop: stop, pendingDispatch: map[operation.ID]uint64{}}
 	s.graphs[p.Name] = g
 	s.active = g
 	for _, n := range g.Graph.Nodes {
@@ -636,10 +691,13 @@ func readOnlyFingerprintContext(ctx context.Context, workspace string, t Task) (
 	sum := sha256.Sum256(append([]byte(fingerprint), encoded...))
 	return fmt.Sprintf("%x", sum), nil
 }
-func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation, error) {
-	key := fmt.Sprintf("%s/%s/%d", g.owner.ID, n.Task.ID, n.Generation)
+func graphChildID(owner operation.ID, task string, generation uint64) operation.ID {
+	key := fmt.Sprintf("%s/%s/%d", owner, task, generation)
 	digest := sha256.Sum256([]byte(key))
-	id := fmt.Sprintf("tg-%x", digest[:16])
+	return operation.ID(fmt.Sprintf("tg-%x", digest[:16]))
+}
+func (s *runtimeState) newChild(g *graphExecution, n *Node) (operation.Operation, error) {
+	id := string(graphChildID(g.owner.ID, n.Task.ID, n.Generation))
 	var spec operation.Spec
 	var err error
 	if strings.TrimSpace(n.Task.Command) != "" {
@@ -896,6 +954,9 @@ func (s *runtimeState) cancelOperation(h *runtimeHandler, id operation.ID, reaso
 	}
 }
 func (s *runtimeState) probe(g *graphExecution) bool {
+	if s.runtime.config.DurableParentID != "" {
+		return false
+	} // No PID-only settlement in the approved durable path.
 	changed := false
 	for i := range g.Graph.Nodes {
 		n := &g.Graph.Nodes[i]
@@ -927,4 +988,8 @@ func (s *runtimeState) probe(g *graphExecution) bool {
 		s.notify(g, n)
 	}
 	return changed
+}
+
+func (s *runtimeState) durableExecution() DurableExecution {
+	return DurableExecution{Workspace: s.runtime.config.Workspace, Shell: s.runtime.config.Shell, BaseDirectory: s.runtime.config.BaseDirectory}
 }

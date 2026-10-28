@@ -4,40 +4,73 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/durablechild"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/durablejob"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
+	"github.com/unreallabsai/unreal-agent/harness/extension"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/unreallabsai/unreal-agent/harness/reminder"
 	"github.com/unreallabsai/unreal-agent/harness/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	toolgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 	tooltaskgraph "github.com/unreallabsai/unreal-agent/harness/tool/taskgraph"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
+	"time"
 )
 
 // Graphs can request fresh supervisors concurrently. Join runtimes first, so no
 // factory can still append a supervisor when the final supervisor snapshot is made.
 type ownedExecution struct {
-	hub         *subagent.Hub
-	account     *executionbudget.Account
-	mu          sync.Mutex
-	runtimes    []*taskgraph.Runtime
-	supervisors []*subagent.Supervisor
-	logs        []*os.File
+	extensions      *configuredExtensions
+	echoes          []*extension.Handler
+	timersEnabled   bool
+	timers          *reminder.Handler
+	timerDone       chan struct{}
+	stderr          io.Writer
+	trustedJobs     *trustedJobs
+	jobs            []*durablejob.Handler
+	hub             *subagent.Hub
+	account         *executionbudget.Account
+	mu              sync.Mutex
+	runtimes        []*taskgraph.Runtime
+	supervisors     []*subagent.Supervisor
+	logs            []*os.File
+	durableChildren []*durablechild.Handler
+	durableRetained []operation.Operation
 }
 
 func (o *ownedExecution) wait() error {
 	var result error
+	for _, h := range o.echoes {
+		result = errors.Join(result, h.Close())
+	}
+	if o.timers != nil {
+		result = errors.Join(result, o.timers.Close())
+	}
+	if o.extensions != nil && o.extensions.done != nil {
+		<-o.extensions.done
+	}
+	if o.timerDone != nil {
+		<-o.timerDone
+	}
+
+	for _, h := range o.jobs {
+		result = errors.Join(result, h.Close())
+	}
 	for _, runtime := range o.runtimes {
 		result = errors.Join(result, runtime.Wait(context.Background()))
 	}
@@ -46,6 +79,9 @@ func (o *ownedExecution) wait() error {
 	o.mu.Unlock()
 	for _, supervisor := range supervisors {
 		result = errors.Join(result, supervisor.Wait(context.Background()))
+	}
+	for _, child := range o.durableChildren {
+		result = errors.Join(result, child.Wait(context.Background()), child.OwnershipProof())
 	}
 	if o.hub != nil {
 		result = errors.Join(result, o.hub.Wait(context.Background()))
@@ -86,7 +122,7 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			return nil, nil, fmt.Errorf("open subagent log: %w", err)
 		}
 		owners.logs = append(owners.logs, log)
-		config := subagent.Config{Hub: owners.hub, Command: command, Env: selectedEnvironment(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts), "UNREAL_HARNESS_OPERATION_WARN_AFTER="+b.Budget.WarnAfter.String(), "UNREAL_HARNESS_OPERATION_TIMEOUT="+b.Budget.Timeout.String(), "UNREAL_HARNESS_MAX_OPERATIONS="+strconv.Itoa(b.MaxOperations)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
+		config := subagent.Config{RequireCleanupProof: b.ControlScope != "", Hub: owners.hub, Command: command, Env: selectedEnvironment(os.Environ(), durablejob.ConfigEnvironment+"=", durablejob.TokenEnvironment+"=", "UNREAL_HARNESS_LLM_PROVIDER="+b.Provider, "UNREAL_HARNESS_LLM_BASE_URL="+b.BaseURL, "UNREAL_HARNESS_LLM_MAX_ATTEMPTS="+strconv.Itoa(b.MaxAttempts), "UNREAL_HARNESS_OPERATION_WARN_AFTER="+b.Budget.WarnAfter.String(), "UNREAL_HARNESS_OPERATION_TIMEOUT="+b.Budget.Timeout.String(), "UNREAL_HARNESS_MAX_OPERATIONS="+strconv.Itoa(b.MaxOperations)), SessionDirectory: b.Directory, Workspace: b.Workspace, Model: model.ID, ThinkingLevel: string(model.ReasoningEffort), Inbox: inputs, Stderr: log, DisallowedTools: []string{tool.AgentName, tool.TaskGraphName}}
 		factory = func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
 			supervisor, err := subagent.New(ctx, config)
 			if err != nil {
@@ -105,9 +141,95 @@ func setupOperations(ctx context.Context, b workerproto.Bootstrap, model llm.Mod
 			return nil, nil, err
 		}
 	}
-	registry := tool.NewRegistry(translators, enabled...)
+	if b.DurableSubagents {
+		cfg, err := durableOwnerConfig(b)
+		if err != nil {
+			return nil, nil, err
+		}
+		handler, err := durablechild.NewHandler(ctx, durablechild.HandlerConfig{Owner: cfg, ParentID: b.SessionID, Hub: owners.hub})
+		if err != nil {
+			return nil, nil, err
+		}
+		owners.durableChildren = append(owners.durableChildren, handler)
+		for _, op := range owners.durableRetained {
+			if durablechild.InertControl(op) {
+				continue
+			}
+			if op.Status == operation.StatusCompleted || op.Status == operation.StatusFailed || op.Status == operation.StatusCanceled {
+				if err := handler.AdoptRetained(op); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+		handlers = append(handlers, handler)
+		if !b.Subagents {
+			enabled = append(enabled, tool.AgentName, tool.AgentControlName)
+		}
+		translators.Agent = toolsubagent.NewDurableAgent(b.SessionID)
+		translators.AgentControl = toolsubagent.NewAgentControl()
+	}
+	if b.DurableGraphs {
+		translators.TaskGraph = toolgraph.NewDurable(b.SessionID, graphOwnerScope(b))
+	}
+	var registry tool.Registry = tool.NewRegistry(translators, enabled...)
+	if owners.trustedJobs != nil {
+		cfg := owners.trustedJobs.config.Authority(b.SessionID)
+		client, err := owners.trustedJobs.config.Client(owners.trustedJobs.token)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfg.Client = client
+		handler, err := durablejob.New(ctx, cfg)
+		if err != nil {
+			client.Close()
+			return nil, nil, err
+		}
+		owners.jobs = append(owners.jobs, handler)
+		handlers = append(handlers, handler)
+		registry = &trustedJobRegistry{Registry: registry, translator: &trustedJobTranslator{config: owners.trustedJobs.config, controller: durablejob.Controller(b.SessionID)}}
+	}
+	if owners.extensions != nil || owners.timersEnabled {
+		composed := &workloadRegistry{Registry: registry, echo: owners.extensions}
+		if owners.extensions != nil {
+			handler, err := extension.NewHandler(extension.Config{Registry: owners.extensions.registry})
+			if err != nil {
+				return nil, nil, err
+			}
+			owners.echoes = append(owners.echoes, handler)
+			handlers = append(handlers, handler)
+			owners.extensions.watch(ctx, owners.stderr)
+		}
+		if owners.timersEnabled {
+			owners.timers = reminder.NewHandler(reminder.Config{Now: func() time.Time { return time.Now().UTC() }})
+			handlers = append(handlers, owners.timers)
+			composed.timer = &timerTranslator{parent: string(b.SessionID)}
+			owners.timerDone = make(chan struct{})
+			go func() {
+				defer close(owners.timerDone)
+				tick := time.NewTicker(100 * time.Millisecond)
+				defer tick.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-tick.C:
+						if err := owners.timers.Poll(); err != nil {
+							_, _ = fmt.Fprintln(owners.stderr, "timer reconciliation:", err)
+						}
+					}
+				}
+			}()
+		}
+		registry = composed
+	}
 	_, allowBash := registry.Resolve(tool.BashName)
-	runtime, err := taskgraph.New(ctx, taskgraph.Config{Workspace: b.Workspace, Shell: b.Shell, BaseDirectory: directory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: factory})
+	graphConfig := taskgraph.Config{Workspace: b.Workspace, Shell: b.Shell, BaseDirectory: directory, Inbox: inputs, AllowBash: allowBash, NewAgentHandlers: factory}
+	if b.DurableGraphs {
+		graphConfig.DurableParentID = b.SessionID
+		graphConfig.DurableScope = graphOwnerScope(b)
+		graphConfig.NewAgentHandlers = nil
+	}
+	runtime, err := taskgraph.New(ctx, graphConfig)
 	if err != nil {
 		return nil, nil, err
 	}

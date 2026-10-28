@@ -256,7 +256,7 @@ func TestCoordinatorStartsNewToolWhileDeliveringPreviousCompletion(t *testing.T)
 		first := run.calls[0].request
 		run.update(t, 0, operation.StatusCompleted)
 		dispatches := len(run.operations.adds)
-		response := llm.Response{Output: []llm.Item{
+		response := llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 			{ProviderID: "reasoning", Type: llm.ItemProvider, Data: llm.ProviderItem{Type: "reasoning", Raw: jsontext.Value(`{"id":"reasoning","type":"reasoning","summary":[],"encrypted_content":"opaque"}`)}},
 			{ProviderID: "item-C", Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "C", Name: tool.BashName, Arguments: `{}`}},
 		}}

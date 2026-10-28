@@ -40,6 +40,8 @@ type hubTarget struct {
 	session    string
 	generation int
 	handle     string
+	external   func(context.Context, ControlPlan) (any, error)
+	activity   AgentActivity
 }
 
 // Hub is a session-local capability registry. Handles are random, never names or
@@ -47,6 +49,7 @@ type hubTarget struct {
 // Snapshots contain only bounded redacted observations; they perform no I/O.
 type Hub struct {
 	ctx         context.Context
+	scopeID     string
 	mu          sync.Mutex
 	supervisors []*Supervisor
 	targets     map[string]hubTarget
@@ -57,7 +60,7 @@ type Hub struct {
 }
 
 func NewHub(ctx context.Context) *Hub {
-	h := &Hub{ctx: ctx, targets: make(map[string]hubTarget), done: make(chan struct{})}
+	h := &Hub{ctx: ctx, scopeID: uuid.New().String(), targets: make(map[string]hubTarget), done: make(chan struct{})}
 	h.control = &hubHandler{hub: h, requests: make(chan operation.Operation, 128), updates: make(chan operation.Operation), out: make(chan operation.Operation, 1024), seen: make(map[operation.ID]bool), results: make(chan hubResult, 256), cancelled: make(map[operation.ID]bool), dispatched: make(map[operation.ID]*Supervisor)}
 	h.workers.Add(3)
 	go func() { defer h.workers.Done(); h.control.loop() }()
@@ -86,9 +89,76 @@ func (h *Hub) bind(s *Supervisor, session string, generation int) (string, error
 		return "", errors.New("subagent hub handle capacity exhausted")
 	}
 	handle := uuid.New().String()
-	h.targets[handle] = hubTarget{s, session, generation, handle}
+	h.targets[handle] = hubTarget{supervisor: s, session: session, generation: generation, handle: handle}
 	return handle, nil
 }
+
+// BindExternal issues a fresh Hub-local capability for an independently owned
+// child. Binding does not start a child or transfer its lifetime to this Hub.
+// The callback implements status/message/stop and runs on the control worker;
+// it must honor ctx. Wait joins callbacks, not the independent child's drain.
+func (h *Hub) BindExternal(activity AgentActivity, control func(context.Context, ControlPlan) (any, error)) (string, uint64, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.ctx.Err(); err != nil {
+		return "", 0, err
+	}
+	if control == nil {
+		return "", 0, errors.New("external control callback required")
+	}
+	if len(h.targets) >= MaxFleetAgents {
+		h.omitted++
+		return "", 0, errors.New("subagent hub handle capacity exhausted")
+	}
+	handle := uuid.New().String()
+	activity = h.externalActivity(handle, activity)
+	h.targets[handle] = hubTarget{handle: handle, generation: 1, external: control, activity: activity}
+	return handle, 1, nil
+}
+
+// UpdateExternal replaces observations only; it cannot change binding authority.
+func (h *Hub) UpdateExternal(handle string, activity AgentActivity) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.ctx.Err(); err != nil {
+		return err
+	}
+	t, ok := h.targets[handle]
+	if !ok || t.external == nil {
+		return errors.New("unknown external agent handle")
+	}
+	t.activity = h.externalActivity(handle, activity)
+	h.targets[handle] = t
+	return nil
+}
+
+// External observations retain bounded identity/phase metadata and lifecycle
+// evidence only. Arbitrary operation trees, resource paths and input payloads
+// are deliberately not retained. Execution generation is separate from binding.
+func (h *Hub) externalActivity(handle string, a AgentActivity) AgentActivity {
+	c := a.ChildActivity
+	c.Operations, c.Inputs, c.OwnedResources = nil, nil, nil
+	c.RelevantOperation, c.OverflowOperation = nil, nil
+	c.ObservedNonterminalOperations = 0
+	c.Name = activityIdentity(c.Name, &c.IdentityTruncated)
+	c.SessionID = activityIdentity(c.SessionID, &c.IdentityTruncated)
+	c.OwnerOperationID = activityIdentity(c.OwnerOperationID, &c.IdentityTruncated)
+	c.ParentTask = activityIdentity(c.ParentTask, &c.IdentityTruncated)
+	c.LastInputID, c.InputBarrier, c.DiagnosticCode, c.ProgressEvidence = "", "", "", ""
+	a.ChildActivity = c
+	a.Handle, a.ChildActivity.Handle, a.ScopeID = handle, handle, h.scopeID
+	a.ParentHandle = activityIdentity(a.ParentHandle, &a.IdentityTruncated)
+	a.Purpose = activityIdentity(a.Purpose, &a.IdentityTruncated)
+	a.Lifetime = activityIdentity(a.Lifetime, &a.IdentityTruncated)
+	a.GraphID = activityIdentity(a.GraphID, &a.IdentityTruncated)
+	a.TaskID = activityIdentity(a.TaskID, &a.IdentityTruncated)
+	a.Phase = activityIdentity(a.Phase, &a.IdentityTruncated)
+	a.ChildActivity.ParentHandle, a.ChildActivity.Purpose, a.ChildActivity.Lifetime = a.ParentHandle, a.Purpose, a.Lifetime
+	a.ChildActivity.GraphID, a.ChildActivity.TaskID, a.ChildActivity.TaskGeneration = a.GraphID, a.TaskID, a.TaskGeneration
+	a.BlockerPath = nil
+	return a
+}
+
 func (h *Hub) lookup(handle string) (hubTarget, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -100,8 +170,14 @@ func (h *Hub) Snapshot() FleetSnapshot {
 	h.mu.Lock()
 	supervisors := append([]*Supervisor(nil), h.supervisors...)
 	omitted := h.omitted
+	external := make([]AgentActivity, 0)
+	for _, target := range h.targets {
+		if target.external != nil {
+			external = append(external, target.activity)
+		}
+	}
 	h.mu.Unlock()
-	result := FleetSnapshot{Version: 1, CapturedAt: time.Now(), OmittedAgents: omitted, ShutdownRequested: h.ctx.Err() != nil}
+	result := FleetSnapshot{Version: 1, CapturedAt: time.Now(), OmittedAgents: omitted, ShutdownRequested: h.ctx.Err() != nil, Agents: external}
 	for _, s := range supervisors {
 		snap := s.ActivitySnapshot()
 		for _, c := range snap.Children {
@@ -304,6 +380,27 @@ func (c *hubHandler) execute(op operation.Operation) {
 	target, ok := c.hub.lookup(p.Handle)
 	if !ok || uint64(target.generation) != p.Generation {
 		c.finish(op, "", errors.New("unknown, stale-generation or cross-session agent handle"))
+		return
+	}
+	if target.external != nil {
+		// Check immediately before effects, not only at admission: the root may
+		// have died while the request waited behind another callback.
+		if err := c.hub.ctx.Err(); err != nil {
+			c.finish(op, "", err)
+			return
+		}
+		value, err := target.external(c.hub.ctx, p)
+		text := ""
+		if err == nil {
+			if raw, ok := value.(string); ok {
+				text = raw
+			} else {
+				var b []byte
+				b, err = json.Marshal(value)
+				text = string(b)
+			}
+		}
+		c.finish(op, text, err)
 		return
 	}
 	if p.Action == "status" {

@@ -123,6 +123,9 @@ func (m *model) closeFilePicker() {
 }
 
 func (m *model) syncFilePicker() tea.Cmd {
+	if m.attached {
+		return nil
+	}
 	mention, active := mentionAt(m.composer.Value(), m.composer.Line(), m.composer.Column())
 	f := &m.files
 	if !active || mention == f.dismissed || m.composer.HasSelection() || m.toolsFocused || m.detailsOpen || m.ended {

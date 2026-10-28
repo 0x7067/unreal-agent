@@ -1,0 +1,50 @@
+ ╔ Conversation ═════════════════════════════════════════════════════════════════════════════════════════════════════╗╔ Tools ════════════════════ Shift+Tab › ╗
+ ║ ⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀                                                                                                   ║║                                        ║
+ ║ ⠀⠀⠀⠀⣀⣴⣟⣋⣀⣀⡀⠀⠀⠀⠀                                                                                                   ║║  No tool calls yet			║
+ ║ ⠀⠴⢞⡿⠋⠉⠁⠀⠈⠉⠙⠳⣄⠀⠀                                                                                                   ║║                                        ║
+ ║ ⠀⢠⡟⠁⠀⢀⠀⢀⣀⠀⠀⠀⠘⣷⠀  Unreal Agent · attached · fake · host 3969119 · worker #1 · committed tool history only          ║║                                        ║
+ ║ ⠀⣿⠀⠀⠀⠿⠇⠘⠟⠀⠀⠀⠀⢸⡇                                                                                                   ║║                                        ║
+ ║ ⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⣠⡄⠀⢸⡇  Workspace  host workspace (file picker unavailable)                                              ║║                                        ║
+ ║ ⠘⣧⠀⠀⠳⣦⣀⣀⣤⡴⠟⠀⢠⡟⠀  Run Files  host-owned session                                                                    ║║                                        ║
+ ║ ⠀⠙⢧⡀⠀⠀⠉⠉⠁⠀⢀⣴⠏⠀⠀  Session    m13-before                                                                            ║║                                        ║
+ ║ ⠀⠀⠀⠙⠳⠶⣤⣤⠶⠾⠋⠁⠀⠀⠀                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  M13 exact stable payload before                                                                                  ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  Delivery uncertain · retry same input ID and payload                                                             ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  Delivery uncertain                                                                                               ║║                                        ║
+ ║  submission durability uncertain for input-id "686734d7-a6b6-45ee-96fe-9da91185dd8a"; reconnect and retry the     ║║                                        ║
+ ║  same input ID and payload: io: read/write on closed pipe                                                         ║║                                        ║
+ ║  Press F5 to reconnect, then /retry this input ID. The original payload and identity are retained; do not send a  ║║                                        ║
+ ║  new message to retry.                                                                                            ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║  Attach                                                                                                           ║║                                        ║
+ ║  cursor delta · Reconnected at revision 2 / history 1. Retry retained inputs explicitly with /retry [ID]; no      ║║                                        ║
+ ║  input was sent by reconnect.                                                                                     ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ║                                                                                                                   ║║                                        ║
+ ╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝╚════════════════════════════════════════╝
+  Attached · Ctrl+C detaches
+ ╔ Message ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+ ║ Send a message · Ctrl+C detaches                                                                                                                            ║
+ ╚═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+  Enter send · Tab tools · F3 hide reasoning · Ctrl+C exit · Shift+Enter/Ctrl+J newline · PgUp/PgDn scroll

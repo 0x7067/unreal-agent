@@ -28,7 +28,7 @@ func TestCoordinatorRestoresSession(t *testing.T) {
 	input := externalEvent(t, 1, "input-1", "hello")
 	turn := session.Turn{ID: "turn-1", Type: session.TurnRegular}
 	call := llm.ToolCall{CallID: "call-1", Name: tool.ViewImageName, Arguments: `{}`}
-	response := llm.Response{
+	response := llm.Response{Stop: llm.StopComplete,
 		ID: "response-1",
 		Output: []llm.Item{
 			{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "working"}},
@@ -241,7 +241,7 @@ func TestCoordinatorKeepsUnreplayableToolStatusInLocalState(t *testing.T) {
 			storedItem(1, sessionstore.ItemTurn, turn),
 			storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 				TurnID:   turn.ID,
-				Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
+				Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
 			}),
 			storedItem(3, sessionstore.ItemToolCallStatus, status),
 		},
@@ -299,7 +299,7 @@ func TestCoordinatorRestoresCompletedToolCallFromStatusSnapshots(t *testing.T) {
 			storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 			storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 				TurnID:   "turn-1",
-				Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
+				Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
 			}),
 			storedItem(3, sessionstore.ItemToolCallStatus, initialStatus),
 			storedItem(4, sessionstore.ItemToolCallStatus, completedStatus),
@@ -362,7 +362,7 @@ func TestCoordinatorOverlaysResumedOperationsAfterHistorySnapshots(t *testing.T)
 			storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 			storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 				TurnID:   "turn-1",
-				Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
+				Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
 			}),
 			storedItem(3, sessionstore.ItemToolCallStatus, status),
 		},
@@ -413,14 +413,14 @@ func TestCoordinatorTracksToolCalls(t *testing.T) {
 	for _, response := range []sessionstore.ModelResponse{
 		{
 			TurnID: "turn-1",
-			Response: llm.Response{Output: []llm.Item{
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 				{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "working"}},
 				{Type: llm.ItemToolCall, Data: first},
 			}},
 		},
 		{
 			TurnID: "turn-2",
-			Response: llm.Response{Output: []llm.Item{
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 				{Type: llm.ItemToolCall, Data: second},
 			}},
 		},
@@ -538,7 +538,7 @@ func TestCoordinatorAddsToolResultFromTrackedToolCall(t *testing.T) {
 	call := llm.ToolCall{CallID: "call-1", Name: tool.ViewImageName, Arguments: `{}`}
 	current.addToolCallsToLocalState(sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: call,
 		}}},
@@ -604,7 +604,7 @@ func TestCoordinatorReturnsToolResultTranslationError(t *testing.T) {
 	call := llm.ToolCall{CallID: "call-1", Name: tool.ViewImageName, Arguments: `{}`}
 	current.addToolCallsToLocalState(sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: call,
 		}}},
@@ -630,7 +630,7 @@ func TestCoordinatorSkipsToolResultWithoutAvailableTranslator(t *testing.T) {
 	call := llm.ToolCall{CallID: "call-1", Name: "unavailable-tool"}
 	current.addToolCallsToLocalState(sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: call,
 		}}},
@@ -659,7 +659,7 @@ func TestCoordinatorSkipsToolResultWithUntrackedOperation(t *testing.T) {
 	call := llm.ToolCall{CallID: "call-1", Name: tool.ViewImageName}
 	current.addToolCallsToLocalState(sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: call,
 		}}},
@@ -762,7 +762,7 @@ func TestCoordinatorRunCallsModelAfterPersistedExternalInput(t *testing.T) {
 		1,
 		sessionstore.ItemTurn,
 		session.Turn{ID: "previous-turn", Type: session.TurnRegular},
-	)}
+	), storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{TurnID: "previous-turn", Response: llm.Response{Stop: llm.StopComplete}})}
 	inputs := newTestInbox(t)
 	operations := newFakeOperationManager()
 	started := make(chan llm.Request, 1)
@@ -774,7 +774,23 @@ func TestCoordinatorRunCallsModelAfterPersistedExternalInput(t *testing.T) {
 		defer orderMutex.Unlock()
 		order = append(order, value)
 	}
-	store.onAppendInput = func(inbox.Input) { record("input") }
+	store.onAppendInput = func(value inbox.Input) {
+		if value.Kind == inbox.InputControl {
+			message, err := value.DecodeControlMessage()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			charge, ok := message.Parameters.(inbox.ModelRequestRecord)
+			if !ok || message.Mode != inbox.ModelRequest || charge.Validate() != nil || charge.Action != "started" {
+				t.Errorf("invalid charge: %+v", message)
+				return
+			}
+			record("started")
+		} else {
+			record("input")
+		}
+	}
 	store.onAppendTurn = func(session.Turn) { record("turn") }
 	adapter := &fakeAdapter{respond: func(
 		ctx context.Context,
@@ -818,7 +834,7 @@ func TestCoordinatorRunCallsModelAfterPersistedExternalInput(t *testing.T) {
 	if !reflect.DeepEqual(request, built.Request) {
 		t.Fatalf("model request = %#v, want %#v", request, built.Request)
 	}
-	if !reflect.DeepEqual(store.appendedInputs, []inbox.Input{event}) {
+	if len(store.appendedInputs) != 2 || !reflect.DeepEqual(store.appendedInputs[0], event) {
 		t.Fatalf("appended inputs = %#v, want %#v", store.appendedInputs, []inbox.Input{event})
 	}
 	if len(store.appendedTurns) != 1 || store.appendedTurns[0].ID == "" ||
@@ -828,7 +844,8 @@ func TestCoordinatorRunCallsModelAfterPersistedExternalInput(t *testing.T) {
 	orderMutex.Lock()
 	gotOrder := append([]string(nil), order...)
 	orderMutex.Unlock()
-	if !reflect.DeepEqual(gotOrder, []string{"input", "turn", "respond"}) {
+	assertFixtureRequestStart(t, store.appendedInputs[1], store.appendedTurns[0].ID, 1, 1)
+	if !reflect.DeepEqual(gotOrder, []string{"input", "started", "turn", "respond"}) {
 		t.Fatalf("effect order = %v", gotOrder)
 	}
 	if len(operations.adds) != 0 || len(operations.cancels) != 0 {
@@ -882,9 +899,10 @@ func TestCoordinatorRunSlurpsQueuedInputsBeforeCallingModel(t *testing.T) {
 	if !reflect.DeepEqual(request.Input, want) {
 		t.Fatalf("model input = %#v, want %#v", request.Input, want)
 	}
-	if !reflect.DeepEqual(store.appendedInputs, []inbox.Input{first, second}) {
+	if len(store.appendedInputs) != 3 || !reflect.DeepEqual(store.appendedInputs[:2], []inbox.Input{first, second}) {
 		t.Fatalf("appended inputs = %#v", store.appendedInputs)
 	}
+	assertFixtureRequestStart(t, store.appendedInputs[2], store.appendedTurns[0].ID, 2, 2)
 	if got := len(adapter.requestSnapshot()); got != 1 {
 		t.Fatalf("model requests = %d, want 1", got)
 	}
@@ -970,7 +988,7 @@ func TestCoordinatorRunPersistsModelResponseForOriginatingTurn(t *testing.T) {
 	store.onAppendModelResponse = func(response sessionstore.ModelResponse) {
 		responseStored <- response
 	}
-	response := llm.Response{ID: "response-1", Output: []llm.Item{{
+	response := llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 		Type: llm.ItemMessage,
 		Data: llm.Message{Role: llm.RoleAssistant, Text: "done"},
 	}}}
@@ -1032,7 +1050,7 @@ func TestCoordinatorRunPersistsToolCallBeforeDispatch(t *testing.T) {
 		dispatched <- value
 		return nil
 	}
-	response := llm.Response{ID: "response-1", Output: []llm.Item{{
+	response := llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 		Type: llm.ItemToolCall,
 		Data: llm.ToolCall{CallID: "call-1", Name: tool.BashName, Arguments: `{}`},
 	}}}
@@ -1074,7 +1092,7 @@ func TestCoordinatorRunPersistsToolCallBeforeDispatch(t *testing.T) {
 }
 
 func TestCoordinatorRunStartsCorrectiveTurnForValidationError(t *testing.T) {
-	firstResponse := llm.Response{ID: "response-1", Output: []llm.Item{{
+	firstResponse := llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 		Type: llm.ItemToolCall,
 		Data: llm.ToolCall{CallID: "call-1", Name: tool.BashName, Arguments: `{}`},
 	}}}
@@ -1134,7 +1152,7 @@ func TestCoordinatorRunStartsContinuationTurnForCompletedToolCall(t *testing.T) 
 		t.Fatal(err)
 	}
 	translator := &submittingTranslator{specs: []operation.Spec{spec}}
-	firstResponse := llm.Response{ID: "response-1", Output: []llm.Item{{
+	firstResponse := llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 		Type: llm.ItemToolCall,
 		Data: llm.ToolCall{CallID: "call-1", Name: tool.BashName, Arguments: `{}`},
 	}}}
@@ -1222,7 +1240,7 @@ func TestCoordinatorRunBatchesCompletedToolCallsIntoOneTurn(t *testing.T) {
 		storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 		storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 			TurnID: "turn-1",
-			Response: llm.Response{Output: []llm.Item{
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 				{Type: llm.ItemToolCall, Data: calls[0]},
 				{Type: llm.ItemToolCall, Data: calls[1]},
 			}},
@@ -1393,11 +1411,11 @@ func TestCoordinatorRunDropsSuccessfulResponseFromSupersededTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	translator := &submittingTranslator{specs: []operation.Spec{spec}}
-	firstResponse := llm.Response{ID: "response-1", Output: []llm.Item{{
+	firstResponse := llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 		Type: llm.ItemToolCall,
 		Data: llm.ToolCall{CallID: "stale-call", Name: tool.BashName, Arguments: `{}`},
 	}}}
-	secondResponse := llm.Response{ID: "response-2", Output: []llm.Item{{
+	secondResponse := llm.Response{Stop: llm.StopComplete, ID: "response-2", Output: []llm.Item{{
 		Type: llm.ItemMessage,
 		Data: llm.Message{Role: llm.RoleAssistant, Text: "current answer"},
 	}}}
@@ -1511,7 +1529,7 @@ func TestCoordinatorHandlesModelResponseBeforeSchedulingToolCalls(t *testing.T) 
 	}
 	response := sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{ID: "response-1", Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, ID: "response-1", Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: llm.ToolCall{CallID: "call-1", Name: tool.BashName, Arguments: `{}`},
 		}}},
@@ -1563,7 +1581,7 @@ func TestCoordinatorDoesNotScheduleToolCallsWhenModelResponseStoreFails(t *testi
 	)
 	response := sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: llm.ToolCall{CallID: "call-1", Name: tool.BashName, Arguments: `{}`},
 		}}},
@@ -1598,7 +1616,7 @@ func TestCoordinatorHandlesModelResponseWithoutToolCalls(t *testing.T) {
 	)
 	response := sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemMessage,
 			Data: llm.Message{Role: llm.RoleAssistant, Text: "done"},
 		}}},
@@ -1641,7 +1659,7 @@ func TestCoordinatorRunSchedulesToolCallsWithoutStatusBeforeDispatch(t *testing.
 			storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 			storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 				TurnID: "turn-1",
-				Response: llm.Response{Output: []llm.Item{
+				Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 					{Type: llm.ItemToolCall, Data: handled},
 					{Type: llm.ItemToolCall, Data: missing},
 				}},
@@ -1730,7 +1748,7 @@ func TestCoordinatorRunStartsCorrectiveTurnForRecoveredValidationError(t *testin
 		storedItem(1, sessionstore.ItemTurn, session.Turn{ID: "turn-1", Type: session.TurnRegular}),
 		storedItem(2, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 			TurnID:   "turn-1",
-			Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: call}}},
 		}),
 	}
 	started := make(chan llm.Request, 1)
@@ -1850,7 +1868,7 @@ func TestCoordinatorReconcilesToolCallsFromPersistedOperationUpdates(t *testing.
 		Kind: sessionstore.ItemModelResponse,
 		Data: sessionstore.ModelResponse{
 			TurnID: "turn-1",
-			Response: llm.Response{Output: []llm.Item{{
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 				Type: llm.ItemToolCall,
 				Data: call,
 			}}},
@@ -1947,7 +1965,7 @@ func TestCoordinatorRunReturnsReconciliationError(t *testing.T) {
 	store.items = []sessionstore.Item{
 		storedItem(1, sessionstore.ItemModelResponse, sessionstore.ModelResponse{
 			TurnID: "turn-1",
-			Response: llm.Response{Output: []llm.Item{{
+			Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 				Type: llm.ItemToolCall,
 				Data: call,
 			}}},
@@ -1957,7 +1975,8 @@ func TestCoordinatorRunReturnsReconciliationError(t *testing.T) {
 			TurnID: "another-turn",
 			CallID: "another-call",
 		}),
-		storedItem(4, sessionstore.ItemTurn, session.Turn{ID: "turn-2", Type: session.TurnRegular}),
+		storedItem(4, sessionstore.ItemInput, fixtureRequestStart(t, "turn-2", 0, 0)),
+		storedItem(5, sessionstore.ItemTurn, session.Turn{ID: "turn-2", Type: session.TurnRegular}),
 	}
 	completed := value
 	completed.Status = operation.StatusCompleted
@@ -1995,7 +2014,7 @@ func TestCoordinatorDoesNotCompleteToolCallBeforeOperationIsStored(t *testing.T)
 	call := llm.ToolCall{CallID: "call-1", Name: tool.ViewImageName, Arguments: `{}`}
 	current.addToolCallsToLocalState(sessionstore.ModelResponse{
 		TurnID: "turn-1",
-		Response: llm.Response{Output: []llm.Item{{
+		Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{
 			Type: llm.ItemToolCall,
 			Data: call,
 		}}},
@@ -2212,7 +2231,7 @@ func TestCoordinatorStoresEverySessionItemKind(t *testing.T) {
 	turn := session.Turn{ID: "turn-1", Type: session.TurnRegular}
 	response := sessionstore.ModelResponse{
 		TurnID:   turn.ID,
-		Response: llm.Response{ID: "response-1"},
+		Response: llm.Response{Stop: llm.StopComplete, ID: "response-1"},
 	}
 	value := operation.Operation{
 		ID: "operation-1", Type: operation.TypeShell, Version: 1, Status: operation.StatusReady,

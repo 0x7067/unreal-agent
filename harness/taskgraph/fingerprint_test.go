@@ -31,6 +31,10 @@ func fingerprintMust(t *testing.T, dir string, paths []string) string {
 func TestFingerprintContentAndMembership(t *testing.T) {
 	dir := t.TempDir()
 	fingerprintWrite(t, dir, "src/a", "one")
+	// Set a known starting mode so the later chmod is a real change under any umask.
+	if err := os.Chmod(filepath.Join(dir, "src/a"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	initial := fingerprintMust(t, dir, []string{"src"})
 	if initial != fingerprintMust(t, dir, []string{"src"}) {
 		t.Fatal("unstable fingerprint")

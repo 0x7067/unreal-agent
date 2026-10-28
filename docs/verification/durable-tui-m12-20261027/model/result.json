@@ -1,0 +1,17 @@
+{
+  "mode": "model",
+  "host_pid": 3182934,
+  "incarnation": "798738c7750db66ee73db4c85482890686df71e5ba6a3746cd3f7315f84b90f0",
+  "generation": 1,
+  "provider_calls": 1,
+  "answer_count": 1,
+  "head": 4,
+  "frontend_pids": [
+    3182976,
+    3183121
+  ],
+  "captures": [
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-model/evidence/01-attached-running.txt",
+    "/tmp/u12proof.PwOwKp/u12-PwOwKp-model/evidence/02-fresh-answer.txt"
+  ]
+}

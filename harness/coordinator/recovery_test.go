@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -196,13 +197,25 @@ func TestCoordinatorResumesUnansweredInput(t *testing.T) {
 					if stage == "compaction" || stage == "compaction response" {
 						turn.Type = session.TurnCompaction
 					}
-					run.store.items = append(run.store.items, storedItem(2, sessionstore.ItemTurn, turn))
+					if stage == "turn" {
+						run.store.items = append(run.store.items, storedItem(2, sessionstore.ItemInput, fixtureRequestStart(t, turn.ID, 1, 1)))
+					}
+					run.store.items = append(run.store.items, storedItem(sessionstore.Sequence(len(run.store.items)+1), sessionstore.ItemTurn, turn))
 				}
 				if stage == "response" || stage == "compaction response" {
 					run.store.items = append(run.store.items, storedItem(3, sessionstore.ItemModelResponse,
 						sessionstore.ModelResponse{TurnID: "first", Response: textResponse("Hello.")}))
 				}
 				run.start(t)
+				if stage == "compaction" {
+					if err := <-run.done; !errors.Is(err, operation.ErrUnsupported) {
+						t.Fatalf("legacy summary resumed without policy: %v", err)
+					}
+					if len(run.calls) != 0 {
+						t.Fatal("legacy summary dispatched")
+					}
+					return
+				}
 				run.input(t, stopInput(t, "stop", inbox.StopWhenIdle))
 				if stage == "response" {
 					if len(run.calls) != 0 {

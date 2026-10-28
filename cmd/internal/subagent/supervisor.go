@@ -29,8 +29,9 @@ import (
 
 // Flags select subagent mode in a runner process.
 const (
-	InboxStdinFlag = "-inbox-stdin"
-	SubagentFlag   = "-subagent"
+	InboxStdinFlag        = "-inbox-stdin"
+	SubagentFlag          = "-subagent"
+	CleanupProofScopeFlag = "-cleanup-proof-scope"
 )
 
 const (
@@ -39,6 +40,8 @@ const (
 
 type Config struct {
 	Hub *Hub
+	// RequireCleanupProof requires a fresh runner work-drain receipt for every launched child.
+	RequireCleanupProof bool
 	// prepare is a package-private deterministic I/O seam; production uses the
 	// existing artifact durability/order contract without a stronger commit ack.
 	prepare func(operation.Operation, operation.RemoteJobState, operation.Status) (operation.Step, error)
@@ -65,6 +68,7 @@ type Supervisor struct {
 	run                  *handler
 	message              *handler
 	done                 chan struct{}
+	cleanupErr           error
 	readers              sync.WaitGroup // Adds are owned by loop; joins begin only after it exits.
 	activity             *activityProjection
 	deliveries           chan deliveryJob
@@ -120,12 +124,12 @@ func New(ctx context.Context, config Config) (*Supervisor, error) {
 func (current *Supervisor) Wait(ctx context.Context) error {
 	select {
 	case <-current.done:
-		return nil
+		return current.cleanupErr
 	default:
 	}
 	select {
 	case <-current.done:
-		return nil
+		return current.cleanupErr
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -276,6 +280,13 @@ type child struct {
 	exitErr                 error
 	parentPending           int
 	cleanup                 bool
+	launched                bool
+	cleanupScope            string
+	cleanupProven           bool
+	// A strict explicit-background Run ticket can acknowledge a committed response
+	// while this child still owns work. Keep owner/owners for structural stop;
+	// neither the ticket nor its acknowledgment is a cleanup receipt.
+	backgroundAcknowledged bool
 }
 
 type pendingMessage struct {
@@ -458,7 +469,7 @@ func (s *state) requestStop(id operation.ID, reason string, cleanup bool) {
 		if current.stopping {
 			if !cleanup && current.cleanup {
 				current.cleanup = false
-				if value, ok := s.updateStatus(*current.owner, operation.StatusCanceling); ok {
+				if value, ok := s.updateStatusUnlessAcknowledged(current, operation.StatusCanceling); ok {
 					current.owner = &value
 				}
 			}
@@ -468,7 +479,7 @@ func (s *state) requestStop(id operation.ID, reason string, cleanup bool) {
 		current.stopping = true
 		s.supervisor.activity.change(current.sessionID, current.generation, cancellationTime)
 		if !cleanup {
-			if value, ok := s.updateStatus(*current.owner, operation.StatusCanceling); ok {
+			if value, ok := s.updateStatusUnlessAcknowledged(current, operation.StatusCanceling); ok {
 				current.owner = &value
 			}
 		}
@@ -515,6 +526,14 @@ func (s *state) requestStop(id operation.ID, reason string, cleanup bool) {
 }
 
 func (s *state) reserveAttempt(current *child, owner *operation.Operation) bool {
+	if s.supervisor.config.RequireCleanupProof && current.launched && !current.cleanupProven {
+		s.fail(*owner, "subagent cleanup proof missing; replacement refused")
+		return false
+	}
+	current.cleanupScope = uuid.New().String()
+	current.cleanupProven = false
+	current.backgroundAcknowledged = false
+	current.launched = false
 	current.generation++
 	generation := current.generation
 	current.processDone, current.outputDone = false, false
@@ -596,6 +615,9 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 	config := s.supervisor.config
 	ctx, stop := context.WithCancel(s.supervisor.ctx)
 	args := append(append([]string(nil), config.Command[1:]...), InboxStdinFlag, SubagentFlag)
+	if config.RequireCleanupProof {
+		args = append(args, CleanupProofScopeFlag, current.cleanupScope)
+	}
 	if config.SessionDirectory != "" {
 		args = append(args, "-session-directory", config.SessionDirectory)
 	}
@@ -624,6 +646,7 @@ func (s *state) start(current *child, owner *operation.Operation, messages []inb
 		if err == nil {
 			current.stdin, current.stop = stdin, stop
 			current.live = true
+			current.launched = true
 			s.activeProcesses++
 			current.writer = s.supervisor.newInputWriter(ctx, stdin, current.sessionID, generation)
 			inputOwner := current.writer
@@ -743,6 +766,14 @@ func (s *state) line(current *child, generation int, line []byte) {
 	current.lastSequence = item.Sequence
 	switch data := item.Data.(type) {
 	case inbox.Input:
+		if s.supervisor.config.RequireCleanupProof && current.launched && data.Kind == inbox.InputControl {
+			control, err := data.DecodeControlMessage()
+			if err == nil && control.Mode == inbox.ExecutionDrained {
+				if receipt, ok := control.Parameters.(inbox.ExecutionDrainReceipt); ok && receipt.Version == 1 && receipt.Scope == current.cleanupScope {
+					current.cleanupProven = true
+				}
+			}
+		}
 		for _, message := range current.unacked {
 			if message.input.ID == data.ID {
 				s.forgetMessage(message)
@@ -781,11 +812,61 @@ func (s *state) line(current *child, generation int, line []byte) {
 		}
 		if len(texts) != 0 {
 			current.reply = strings.Join(texts, "\n\n")
+			s.acknowledgeBackground(current, data.Response)
 			if current.metadata.Lifetime == "task" && current.owner != nil && finalReport(data.Response) {
 				s.requestStop(current.owner.ID, "task-scoped final report cleanup", true)
 			}
 		}
 	}
+}
+
+// acknowledgeBackground releases only the strict explicit-background Run ticket.
+// It accepts full committed assistant responses, including responses dispatching
+// more tools, but makes no final-report or effect/descendant-cleanup assertion.
+func (s *state) acknowledgeBackground(current *child, response llm.Response) {
+	if !s.supervisor.config.RequireCleanupProof || !current.launched || current.cleanupScope == "" ||
+		current.metadata.Lifetime != "background" || current.backgroundAcknowledged || current.stopping ||
+		current.owner == nil || current.failure != "" || response.Stop != llm.StopComplete || response.Failure != nil {
+		return
+	}
+	owner := *current.owner
+	if owner.Status != operation.StatusReady && owner.Status != operation.StatusAwaiting {
+		return
+	}
+	remote, err := operation.DecodeRemoteJobState(owner)
+	if err != nil || remote.Plan.Type != toolsubagent.RunPlanType || remote.Plan.Version != toolsubagent.PlanVersion {
+		return
+	}
+	var plan toolsubagent.RunPlan
+	if json.Unmarshal(remote.Plan.Data, &plan) != nil || plan.Lifetime != "background" {
+		return
+	}
+	var texts []string
+	for _, output := range response.Output {
+		if message, ok := output.Data.(llm.Message); output.Type == llm.ItemMessage && ok &&
+			message.Role == llm.RoleAssistant && strings.TrimSpace(message.Text) != "" {
+			texts = append(texts, message.Text)
+		}
+	}
+	if len(texts) == 0 {
+		return
+	}
+	remote.TerminalResult = "Background branch acknowledged; child remains owned/running (not cleanup or task completion).\n\n" + strings.Join(texts, "\n\n")
+	remote.TerminalError = ""
+	remote.ResultTruncated, remote.ErrorTruncated = false, false
+	// Do not use finish: its terminalEnqueued diagnostic implies owner drain.
+	// As with finish, preparation backpressure retains a bounded terminal retry.
+	if _, ok := s.updateThen(owner, remote, operation.StatusCompleted, nil); !ok {
+		s.pendingFinals = append(s.pendingFinals, terminalRetry{value: owner, remote: remote, status: operation.StatusCompleted})
+	}
+	current.backgroundAcknowledged = true
+}
+
+func (s *state) updateStatusUnlessAcknowledged(current *child, status operation.Status) (operation.Operation, bool) {
+	if current.backgroundAcknowledged {
+		return *current.owner, false
+	}
+	return s.updateStatus(*current.owner, status)
 }
 
 func (s *state) deliverToParent(current *child, response sessionstore.ModelResponse, callID, message string) {
@@ -801,6 +882,13 @@ func (s *state) deliverToParent(current *child, response sessionstore.ModelRespo
 func (s *state) exited(current *child, generation int, err error) {
 	if current.generation != generation {
 		return
+	}
+	if s.supervisor.config.RequireCleanupProof && current.launched && !current.cleanupProven {
+		proofErr := fmt.Errorf("subagent %q generation %d exited without fresh cleanup proof", current.name, generation)
+		s.supervisor.cleanupErr = errors.Join(s.supervisor.cleanupErr, proofErr)
+		err = errors.Join(err, proofErr)
+		current.failure = proofErr.Error()
+		current.cleanup = false
 	}
 	if current.live {
 		current.live = false
@@ -824,6 +912,14 @@ func (s *state) exited(current *child, generation int, err error) {
 		delete(s.owners, owner.ID)
 		current.owner = nil
 		switch {
+		case current.backgroundAcknowledged:
+			// The Run ticket was already published. Only now, after actual process,
+			// reader and fresh receipt checks, may diagnostics call its owner drained.
+			if current.cleanupProven {
+				s.supervisor.activity.terminalEnqueued(owner.ID)
+			}
+		case s.supervisor.config.RequireCleanupProof && current.launched && !current.cleanupProven:
+			terminalEnqueued = s.finish(*owner, operation.StatusFailed, current.reply, current.failure)
 		case current.failure == "parent inbox admission failed":
 			terminalEnqueued = s.finish(*owner, operation.StatusFailed, current.reply, current.failure)
 		case current.stopping && current.cleanup:

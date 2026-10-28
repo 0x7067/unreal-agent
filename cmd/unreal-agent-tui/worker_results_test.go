@@ -48,7 +48,7 @@ func TestWorkerToolResultsAndReplay(t *testing.T) {
 				}
 			}
 			writeItem(sessionstore.ItemModelResponse, sessionstore.ModelResponse{
-				TurnID: "turn", Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
+				TurnID: "turn", Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{
 					CallID: "call", Name: tc.name, Arguments: tc.arguments,
 				}}}},
 			})

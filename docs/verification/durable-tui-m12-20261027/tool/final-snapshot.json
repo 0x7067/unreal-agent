@@ -1,0 +1,389 @@
+[
+  {
+    "Type": "hello",
+    "ID": "attach",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "HostPID": 3183245,
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false,
+    "Capabilities": [
+      "fresh_snapshot",
+      "history_watch",
+      "submit_external"
+    ]
+  },
+  {
+    "Type": "snapshot",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "Status": {
+      "Generation": 1,
+      "Build": "unreal-agent-runner-resident-v1 [279dc7b8468f]",
+      "Stopped": false
+    },
+    "Model": {
+      "ID": "fake",
+      "CompactionThreshold": 64000,
+      "MaxOutputTokens": null,
+      "ReasoningEffort": ""
+    },
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 1,
+      "RecordedAt": "2026-10-27T21:23:07.660028831Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "97a0db80-81f7-462c-aa9a-24ea476c8852",
+        "Kind": "control",
+        "Payload": {
+          "Mode": "settings",
+          "Reason": "",
+          "Parameters": {
+            "Model": "fake",
+            "CompactionThreshold": 64000
+          }
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 2,
+      "RecordedAt": "2026-10-27T21:23:07.662726066Z",
+      "Kind": "input",
+      "Data": {
+        "ID": "m12-stable-tool",
+        "Kind": "external",
+        "Payload": "M12 headless input"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 3,
+      "RecordedAt": "2026-10-27T21:23:07.664906139Z",
+      "Kind": "turn",
+      "Data": {
+        "ID": "5c6db04b-49c4-41b4-aa3b-950005bb6270",
+        "PreviousTurnID": "",
+        "Type": "regular"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 4,
+      "RecordedAt": "2026-10-27T21:23:07.665963076Z",
+      "Kind": "model_response",
+      "Data": {
+        "TurnID": "5c6db04b-49c4-41b4-aa3b-950005bb6270",
+        "Response": {
+          "ID": "1",
+          "Stop": "complete",
+          "Output": [
+            {
+              "ProviderID": "tool",
+              "Type": "tool_call",
+              "Data": {
+                "CallID": "m12-shell",
+                "Name": "Bash",
+                "Arguments": "{\"command\": \"printf 'M12 PARTIAL OUTPUT\\\\n'; touch /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-start; while ! test -f /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-release; do sleep 0.02; done; printf 'M12 FINAL OUTPUT\\\\n'\"}"
+              }
+            }
+          ],
+          "Usage": {
+            "InputTokens": 1,
+            "CachedInputTokens": 0,
+            "CacheWriteInputTokens": 0,
+            "OutputTokens": 1,
+            "ReasoningTokens": 0,
+            "ByModel": {
+              "": {
+                "InputTokens": 1,
+                "CachedInputTokens": 0,
+                "CacheWriteInputTokens": 0,
+                "OutputTokens": 1,
+                "ReasoningTokens": 0
+              }
+            },
+            "Raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "Failure": null
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 5,
+      "RecordedAt": "2026-10-27T21:23:07.666116633Z",
+      "Kind": "tool_call_status",
+      "Data": {
+        "TurnID": "5c6db04b-49c4-41b4-aa3b-950005bb6270",
+        "CallID": "m12-shell",
+        "Status": {
+          "Error": "",
+          "WaitingFor": [
+            "527fcc21-680e-4860-9c1f-176d7e75c440"
+          ]
+        },
+        "Operations": [
+          {
+            "MaxOutputLength": 40000,
+            "ID": "527fcc21-680e-4860-9c1f-176d7e75c440",
+            "Type": "shell",
+            "Version": 3,
+            "Status": "ready",
+            "State": {
+              "Input": {
+                "Command": "printf 'M12 PARTIAL OUTPUT\\n'; touch /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-start; while ! test -f /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-release; do sleep 0.02; done; printf 'M12 FINAL OUTPUT\\n'",
+                "Shell": "/bin/sh",
+                "Directory": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace"
+              },
+              "BaseDirectory": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool",
+              "Phase": "",
+              "ProcessGroupID": 0,
+              "PendingExitCode": null,
+              "OutSize": 0,
+              "ErrSize": 0,
+              "InlineOut": "",
+              "InlineErr": "",
+              "InlineOutTail": "",
+              "InlineErrTail": "",
+              "Result": null,
+              "TerminalError": "",
+              "ErrorTruncated": false,
+              "OutTruncated": true,
+              "ErrTruncated": true,
+              "OutPath": "",
+              "ErrPath": ""
+            }
+          }
+        ]
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 6,
+      "RecordedAt": "2026-10-27T21:23:08.233242296Z",
+      "Kind": "tool_call_status",
+      "Data": {
+        "TurnID": "5c6db04b-49c4-41b4-aa3b-950005bb6270",
+        "CallID": "m12-shell",
+        "Status": {
+          "Error": "",
+          "WaitingFor": [
+            "527fcc21-680e-4860-9c1f-176d7e75c440"
+          ]
+        },
+        "Operations": [
+          {
+            "MaxOutputLength": 40000,
+            "ID": "527fcc21-680e-4860-9c1f-176d7e75c440",
+            "Type": "shell",
+            "Version": 3,
+            "Status": "completed",
+            "State": {
+              "Input": {
+                "Command": "printf 'M12 PARTIAL OUTPUT\\n'; touch /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-start; while ! test -f /tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace/shell-release; do sleep 0.02; done; printf 'M12 FINAL OUTPUT\\n'",
+                "Shell": "/bin/sh",
+                "Directory": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/workspace"
+              },
+              "BaseDirectory": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool",
+              "Phase": "",
+              "ProcessGroupID": 0,
+              "PendingExitCode": null,
+              "OutSize": 36,
+              "ErrSize": 0,
+              "InlineOut": "",
+              "InlineErr": "",
+              "InlineOutTail": "",
+              "InlineErrTail": "",
+              "Result": {
+                "Out": "M12 PARTIAL OUTPUT\nM12 FINAL OUTPUT\n",
+                "Err": "",
+                "OutSize": 36,
+                "ErrSize": 0,
+                "ExitCode": 0
+              },
+              "TerminalError": "",
+              "ErrorTruncated": false,
+              "OutTruncated": false,
+              "ErrTruncated": false,
+              "OutPath": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool/527fcc21-680e-4860-9c1f-176d7e75c440/out",
+              "ErrPath": "/tmp/u12proof.PwOwKp/u12-PwOwKp-tool/state/operations/m12-tool/527fcc21-680e-4860-9c1f-176d7e75c440/err"
+            }
+          }
+        ]
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 7,
+      "RecordedAt": "2026-10-27T21:23:08.233288909Z",
+      "Kind": "turn",
+      "Data": {
+        "ID": "8cc04891-05d1-40cc-af0e-992dfb14f054",
+        "PreviousTurnID": "5c6db04b-49c4-41b4-aa3b-950005bb6270",
+        "Type": "regular"
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_item",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "Item": {
+      "Sequence": 8,
+      "RecordedAt": "2026-10-27T21:23:08.234232525Z",
+      "Kind": "model_response",
+      "Data": {
+        "TurnID": "8cc04891-05d1-40cc-af0e-992dfb14f054",
+        "Response": {
+          "ID": "2",
+          "Stop": "complete",
+          "Output": [
+            {
+              "ProviderID": "answer",
+              "Type": "message",
+              "Data": {
+                "Role": "assistant",
+                "Text": "M12 FINAL ANSWER tool",
+                "Phase": ""
+              }
+            }
+          ],
+          "Usage": {
+            "InputTokens": 1,
+            "CachedInputTokens": 0,
+            "CacheWriteInputTokens": 0,
+            "OutputTokens": 1,
+            "ReasoningTokens": 0,
+            "ByModel": {
+              "": {
+                "InputTokens": 1,
+                "CachedInputTokens": 0,
+                "CacheWriteInputTokens": 0,
+                "OutputTokens": 1,
+                "ReasoningTokens": 0
+              }
+            },
+            "Raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "Failure": null
+        }
+      }
+    },
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  },
+  {
+    "Type": "snapshot_end",
+    "Protocol": 1,
+    "SessionID": "m12-tool",
+    "Incarnation": "d30d92111db653d9e24ef8f0b222bc329a0267fa36ead1e6efc9a90ea21423a6",
+    "Connection": "cf0bad97564b3bd012d1bc187212f805e395a004b104aae913780c2cb5b69ecf",
+    "Revision": 10,
+    "Head": 8,
+    "PendingAvailable": true,
+    "OperationsAvailable": false,
+    "ActivityAvailable": false
+  }
+]

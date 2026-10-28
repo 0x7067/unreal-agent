@@ -22,7 +22,7 @@ import (
 func TestLateReplayCannotResurrectTerminalTool(t *testing.T) {
 	m := toolsModel(t, defaultTheme, 54, 20, 0)
 	m.registry = newUIRegistry(true, true)
-	response := sessionstore.Item{Sequence: 1, Data: sessionstore.ModelResponse{TurnID: "turn", Response: llm.Response{Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "call", Name: tool.BashName, Arguments: `{"command":"quiet-command"}`}}}}}}
+	response := sessionstore.Item{Sequence: 1, Data: sessionstore.ModelResponse{TurnID: "turn", Response: llm.Response{Stop: llm.StopComplete, Output: []llm.Item{{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "call", Name: tool.BashName, Arguments: `{"command":"quiet-command"}`}}}}}}
 	m.apply(response)
 	op := workerResultOperation(t, tool.BashName, operation.StatusCompleted, t.TempDir(), "quiet-command")
 	completed := sessionstore.Item{Sequence: 3, Data: sessionstore.ToolCallStatus{TurnID: "turn", CallID: "call", Operations: []operation.Operation{op}}}

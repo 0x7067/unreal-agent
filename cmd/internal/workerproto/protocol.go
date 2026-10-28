@@ -18,9 +18,14 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 )
 
-// Version 2 adds live-only activity inspection; the persisted session format is
-// unchanged. A v1 worker must be explicitly rejected before any retirement.
-const Version = 2
+// Version 7 adds opt-in command-only graph/v2 checkpoint recovery with a
+// command-layer durable-store acknowledgment before nested shell dispatch.
+// Version 6 adds the opt-in independently owned subagent.run/v2 policy.
+// Version 5 additionally requires durable compaction failure accounting/manual
+// intent recovery alongside bounded regular requests and lifecycle/drain receipts.
+// Older workers must be rejected before retirement; legacy completed history
+// remains readable and new request controls have their own strict version.
+const Version = 7
 const SessionVersion = 2
 const MaxFrame = 32 << 20
 
@@ -40,19 +45,24 @@ func (i Identity) Validate() error {
 }
 
 type Bootstrap struct {
-	SessionID       session.ID
-	Directory       string
-	Workspace       string
-	Provider        string
-	BaseURL         string
-	Model           llm.Model
-	MaxAttempts     int
-	Shell           string
-	Subagents       bool
-	SubagentCommand []string
-	SystemPrompt    string
-	Budget          executionbudget.Policy
-	MaxOperations   int
+	ControlScope          string `json:",omitzero"`
+	SessionID             session.ID
+	Directory             string
+	Workspace             string
+	Provider              string
+	BaseURL               string
+	Model                 llm.Model
+	MaxAttempts           int
+	Shell                 string
+	Subagents             bool
+	DurableSubagents      bool
+	DurableGraphs         bool
+	ChildRuntimeDirectory string
+	DurableChildCommand   []string
+	SubagentCommand       []string
+	SystemPrompt          string
+	Budget                executionbudget.Policy
+	MaxOperations         int
 }
 
 type Request struct {

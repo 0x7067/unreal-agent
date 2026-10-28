@@ -256,6 +256,14 @@ func (s *runtimeState) scanned(result scanResult) {
 			// Persist the dispatch boundary before handing control to the manager.
 			// A crash from here onwards is conservatively an unknown launch.
 			a.CommandDispatched = true
+			if s.runtime.config.DurableParentID != "" {
+				// A queued update is not a store acknowledgment. Reserve the
+				// one dispatch slot durably; only NotifyCheckpointCommitted
+				// can admit this child. Restart of this reserved cell is unknown.
+				g.pendingDispatch[a.ChildOperation.ID] = a.Generation
+				s.save(g)
+				return
+			}
 			s.save(g)
 			if s.runtime.ctx.Err() != nil {
 				return

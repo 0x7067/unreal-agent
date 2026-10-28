@@ -19,7 +19,10 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/lifecycleguard"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/lifecycleproof"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/recoverygate"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/xdgpath"
 	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
@@ -156,6 +159,7 @@ func Run(
 	if config.ParseRequest == nil {
 		return errors.New("request parser must be set")
 	}
+	ownedInput := input
 	flags := flag.NewFlagSet(config.Name, flag.ContinueOnError)
 	flags.SetOutput(flagOutput)
 	var usageErr error
@@ -174,6 +178,14 @@ func Run(
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
 	inboxStdin := flags.Bool(strings.TrimPrefix(subagent.InboxStdinFlag, "-"), false, "read JSONL inbox inputs from stdin after the request; without -p or a positional request, the first stdin line is the request")
 	isSubagent := flags.Bool(strings.TrimPrefix(subagent.SubagentFlag, "-"), false, "run as a subagent that messages its parent instead of starting subagents")
+	var cleanupScope string
+	flags.Func(strings.TrimPrefix(subagent.CleanupProofScopeFlag, "-"), "private per-launch cleanup proof scope", func(value string) error {
+		if strings.TrimSpace(value) == "" || len(value) > 256 {
+			return errors.New("cleanup proof scope must be nonempty and at most 256 bytes")
+		}
+		cleanupScope = value
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -191,6 +203,14 @@ func Run(
 	}
 	if *toolHeartbeatInterval < 0 {
 		return errors.New("tool heartbeat interval must not be negative")
+	}
+	if cleanupScope != "" && *inboxStdin {
+		prepared, release, err := prepareInput(input)
+		if err != nil {
+			return fmt.Errorf("prepare cleanup-owned input: %w", err)
+		}
+		input, ownedInput = prepared, prepared
+		defer release()
 	}
 	inboxInput := bufio.NewReader(input)
 
@@ -258,6 +278,67 @@ func Run(
 	if err != nil {
 		return err
 	}
+
+	storeDirectory, err := resolveSessionDirectory(*sessionDirectory, getenv)
+	if err != nil {
+		return fmt.Errorf("resolve session directory: %w", err)
+	}
+	// Legacy runner paths may contain platform aliases such as Darwin's /var.
+	// Explicitly resolve existing aliases once, then use only the canonical
+	// path for both lease and store. AcquireLease independently checks that
+	// resolved path's ownership/private ancestry and rejects further symlinks;
+	// the original alias is not a trusted security boundary.
+	storeDirectory, err = canonicalLeaseDirectory(storeDirectory)
+	if err != nil {
+		return fmt.Errorf("canonicalize session directory: %w", err)
+	}
+	// Choose the ID once, before replay or creation, so fresh and resumed
+	// sessions use the same exclusive ownership boundary as worker sessions.
+	requestedID := uuid.New().String()
+	if parsed.SessionID != nil {
+		requestedID = strings.TrimSpace(*parsed.SessionID)
+	}
+	// Standalone/public runners own host authority as well as the session writer
+	// lease. Register its release first so session ownership and all cleanup end
+	// before authority may pass to a resident host or another runner.
+	authority, err := lifecycleguard.AcquireStandaloneOwner(storeDirectory, session.ID(requestedID))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := authority.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close session authority: %w", err))
+		}
+	}()
+	lease, err := localfile.AcquireLease(storeDirectory, session.ID(requestedID))
+	if err != nil {
+		return fmt.Errorf("own session %q: %w", requestedID, err)
+	}
+	// Registered before runtime cleanup: operations and configured tools must
+	// finish shutting down before another process may replay this session.
+	defer func() {
+		if err := lease.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close session lease: %w", err))
+		}
+	}()
+	store, err := localfile.New(storeDirectory)
+	if err != nil {
+		return fmt.Errorf("open session store: %w", err)
+	}
+	sessionID, restored, err := openSession(ctx, store, &requestedID)
+	if err != nil {
+		return err
+	}
+	lifecycle, err := sessionstore.ReadLifecycle(ctx, store, sessionID)
+	if err != nil {
+		return fmt.Errorf("read session lifecycle: %w", err)
+	}
+	if err := lifecycle.ValidateResume(); err != nil {
+		return fmt.Errorf("resume session lifecycle: %w", err)
+	}
+	if err := recoverygate.Validate(restored.Operations); err != nil {
+		return fmt.Errorf("refuse resume: operation has unresolved status: %w", err)
+	}
 	providerName := strings.TrimSpace(getenv(llmProviderEnvironment))
 	if providerName == "" {
 		providerName = defaultProvider
@@ -289,6 +370,8 @@ func Run(
 	if err != nil {
 		return fmt.Errorf("create %s client: %w", selected.Name, err)
 	}
+	modelOwner := &joinedModelClient{Client: client}
+	client = modelOwner
 	defer func() {
 		if err := client.Close(); err != nil {
 			runErr = errors.Join(runErr, fmt.Errorf("close %s client: %w", selected.Name, err))
@@ -310,44 +393,6 @@ func Run(
 		fmt.Fprintf(flagOutput, "warning: provider %q model %q is not listed; using compaction threshold %d tokens; configure %s\n", selected.Name, selectedModel.ID, settings.DefaultCompactionThreshold, settingsPath)
 	}
 
-	storeDirectory, err := resolveSessionDirectory(*sessionDirectory, getenv)
-	if err != nil {
-		return fmt.Errorf("resolve session directory: %w", err)
-	}
-	// Legacy runner paths may contain platform aliases such as Darwin's /var.
-	// Explicitly resolve existing aliases once, then use only the canonical
-	// path for both lease and store. AcquireLease independently checks that
-	// resolved path's ownership/private ancestry and rejects further symlinks;
-	// the original alias is not a trusted security boundary.
-	storeDirectory, err = canonicalLeaseDirectory(storeDirectory)
-	if err != nil {
-		return fmt.Errorf("canonicalize session directory: %w", err)
-	}
-	// Choose the ID once, before replay or creation, so fresh and resumed
-	// sessions use the same exclusive ownership boundary as worker sessions.
-	requestedID := uuid.New().String()
-	if parsed.SessionID != nil {
-		requestedID = strings.TrimSpace(*parsed.SessionID)
-	}
-	lease, err := localfile.AcquireLease(storeDirectory, session.ID(requestedID))
-	if err != nil {
-		return fmt.Errorf("own session %q: %w", requestedID, err)
-	}
-	// Registered before runtime cleanup: operations and configured tools must
-	// finish shutting down before another process may replay this session.
-	defer func() {
-		if err := lease.Close(); err != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("close session lease: %w", err))
-		}
-	}()
-	store, err := localfile.New(storeDirectory)
-	if err != nil {
-		return fmt.Errorf("open session store: %w", err)
-	}
-	sessionID, restored, err := openSession(ctx, store, &requestedID)
-	if err != nil {
-		return err
-	}
 	observedOutput := output
 	if directory := strings.TrimSpace(*logDirectory); directory != "" {
 		logFile, err := openDatetimeLog(directory, time.Now())
@@ -413,12 +458,17 @@ func Run(
 	if err != nil {
 		return err
 	}
-	defer func() {
-		cancel()
-		if configuredTools.Close != nil {
-			runErr = errors.Join(runErr, configuredTools.Close())
-		}
-	}()
+	var closeToolsOnce sync.Once
+	var closeToolsErr error
+	closeTools := func() error {
+		closeToolsOnce.Do(func() {
+			if configuredTools.Close != nil {
+				closeToolsErr = configuredTools.Close()
+			}
+		})
+		return closeToolsErr
+	}
+	defer func() { cancel(); runErr = errors.Join(runErr, closeTools()) }()
 	registry := configuredTools.Registry
 	if _, enabled := registry.Resolve(tool.SkillUseName); enabled {
 		for _, skill := range skills {
@@ -440,6 +490,9 @@ func Run(
 	remoteJobs := configuredTools.RemoteJobs
 	var newAgentHandlers func(context.Context) ([]operation.RemoteJobHandler, error)
 	var hub *subagent.Hub
+	var supervisorsMu sync.Mutex
+	var childSupervisors []*subagent.Supervisor
+	var graphRuntime *taskgraph.Runtime
 	if _, enabled := registry.Resolve(tool.AgentName); enabled && !*isSubagent && slices.Contains(parsed.ExtraAllowedTools, tool.AgentName) {
 		command := config.SubagentCommand
 		if command == nil {
@@ -466,13 +519,16 @@ func Run(
 			Hub:     hub,
 			Command: command, SessionDirectory: storeDirectory, Workspace: workspace,
 			Model: model, ThinkingLevel: parsed.ThinkingLevel, Inbox: inputs, Stderr: flagOutput,
-			DisallowedTools: denied,
+			DisallowedTools: denied, RequireCleanupProof: cleanupScope != "",
 		}
 		newAgentHandlers = func(ctx context.Context) ([]operation.RemoteJobHandler, error) {
 			supervisor, err := subagent.New(ctx, childConfig)
 			if err != nil {
 				return nil, err
 			}
+			supervisorsMu.Lock()
+			childSupervisors = append(childSupervisors, supervisor)
+			supervisorsMu.Unlock()
 			return supervisor.Handlers(), nil
 		}
 		handlers, err := newAgentHandlers(runContext)
@@ -487,6 +543,7 @@ func Run(
 		if err != nil {
 			return err
 		}
+		graphRuntime = runtime
 		remoteJobs = append(slices.Clip(remoteJobs), runtime.Handlers()...)
 	}
 	operations := operation.NewLocalOperationManagerWithOptions(runContext, operation.LocalOperationManagerOptions{OutputDirectory: operationDirectory, ResourceAccount: account, Budget: policy}, remoteJobs...)
@@ -539,8 +596,10 @@ func Run(
 	}); err != nil {
 		return fmt.Errorf("submit stop request: %w", err)
 	}
+	var inputDone chan struct{}
 	if *inboxStdin {
-		go submitInboxLines(runContext, inboxInput, inputs, flagOutput)
+		inputDone = make(chan struct{})
+		go func() { defer close(inputDone); submitInboxLines(runContext, inboxInput, inputs, flagOutput) }()
 	}
 
 	builder := contextbuilder.NewBuilder(registry.Skills()...)
@@ -564,6 +623,87 @@ func Run(
 	}
 	observerID := store.AddObserver(observer.Observe)
 	defer store.RemoveObserver(observerID)
+	// This defer precedes observer removal and lease release, but follows the
+	// coordinator return. Never infer effect cleanup from terminal updates.
+	defer func() {
+		if cleanupScope == "" {
+			return
+		}
+		cancel()
+		for range operations.Updates() {
+		}
+		// Retain the direct manager error: wrapping or joining it before
+		// reconciliation could hide independent failure evidence.
+		managerErr := operations.AwaitStopped(context.Background())
+		ownersErr := closeTools()
+		if graphRuntime != nil {
+			ownersErr = errors.Join(ownersErr, graphRuntime.Wait(context.Background()))
+		}
+		supervisorsMu.Lock()
+		supervisors := slices.Clone(childSupervisors)
+		supervisorsMu.Unlock()
+		for _, supervisor := range supervisors {
+			ownersErr = errors.Join(ownersErr, supervisor.Wait(context.Background()))
+		}
+		if hub != nil {
+			ownersErr = errors.Join(ownersErr, hub.Wait(context.Background()))
+		}
+		ownersErr = errors.Join(ownersErr, modelOwner.Close())
+		if inputDone != nil {
+			if file, ok := ownedInput.(*os.File); ok && file.SetReadDeadline(time.Now()) == nil {
+				// Interrupt only the private pollable read, then join before
+				// prepareInput restores shared descriptor flags and closes it.
+				<-inputDone
+				_ = file.SetReadDeadline(time.Time{})
+			} else if closer, ok := ownedInput.(io.Closer); ok {
+				_ = closer.Close()
+				<-inputDone
+			} else {
+				select {
+				case <-inputDone:
+				default:
+					ownersErr = errors.Join(ownersErr, errors.New("inbox reader cleanup unproven"))
+				}
+			}
+		}
+		// Cancellation closes the inbox actor; join it as well as the reader.
+		for range inputs.Output() {
+		}
+		// Read the original canonical specs, including structural controls still
+		// present only in Resume. Terminal status is never cleanup evidence.
+		history, historyErr := sessionstore.ReadLifecycle(context.Background(), store, sessionID)
+		resumed, resumeErr := store.Resume(context.Background(), sessionID)
+		ownersErr = errors.Join(ownersErr, historyErr, resumeErr)
+		if history.RemoteOperations == nil {
+			history.RemoteOperations = map[operation.ID]operation.Operation{}
+		}
+		for _, op := range resumed.Operations {
+			if op.Type == operation.TypeRemoteJob {
+				history.RemoteOperations[op.ID] = op
+			}
+		}
+		// These capabilities are established only by actual joins above. The
+		// graph join precedes the snapshot so dynamic supervisors cannot escape.
+		joined := map[operation.RemoteJobPlanType]operation.RemoteJobPlanVersion{}
+		if graphRuntime != nil {
+			joined[taskgraph.RunPlanType] = taskgraph.PlanVersion
+			joined[taskgraph.ControlPlanType] = taskgraph.PlanVersion
+		}
+		if hub != nil {
+			joined[toolsubagent.RunPlanType] = toolsubagent.PlanVersion
+			joined[toolsubagent.MessagePlanType] = toolsubagent.PlanVersion
+			joined[toolsubagent.ControlPlanType] = toolsubagent.PlanVersion
+		}
+		cleanupErr := lifecycleproof.Reconcile(managerErr, ownersErr, history.RemoteOperations, joined)
+		if cleanupErr == nil && observer.Err() == nil {
+			payload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.ExecutionDrained, Parameters: inbox.ExecutionDrainReceipt{Version: 1, Scope: cleanupScope}})
+			if err == nil {
+				err = store.AppendInput(context.Background(), sessionID, inbox.Input{ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: payload})
+			}
+			cleanupErr = errors.Join(err, observer.Err())
+		}
+		runErr = errors.Join(runErr, cleanupErr)
+	}()
 	current := coordinator.New(coordinator.Dependencies{
 		ToolHeartbeatInterval: *toolHeartbeatInterval,
 		ActivitySummary:       func() string { return runnerActivitySummary(hub, operations) },
@@ -931,4 +1071,37 @@ func (observer *sessionObserver) Err() error {
 	observer.mu.Lock()
 	defer observer.mu.Unlock()
 	return observer.err
+}
+
+// joinedModelClient seals new callbacks before joining all admitted Respond calls.
+// Provider Close is not itself a universal Respond join contract.
+type joinedModelClient struct {
+	providers.Client
+	mu       sync.Mutex
+	sealed   bool
+	calls    sync.WaitGroup
+	once     sync.Once
+	closeErr error
+}
+
+func (c *joinedModelClient) Respond(ctx context.Context, request llm.Request, options llm.RequestOptions) (llm.Response, error) {
+	c.mu.Lock()
+	if c.sealed {
+		c.mu.Unlock()
+		return llm.Response{}, context.Canceled
+	}
+	c.calls.Add(1)
+	c.mu.Unlock()
+	defer c.calls.Done()
+	return c.Client.Respond(ctx, request, options)
+}
+func (c *joinedModelClient) Close() error {
+	c.once.Do(func() {
+		c.mu.Lock()
+		c.sealed = true
+		c.mu.Unlock()
+		c.closeErr = c.Client.Close()
+		c.calls.Wait()
+	})
+	return c.closeErr
 }

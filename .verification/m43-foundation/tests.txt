@@ -1,0 +1,16 @@
+=== RUN   TestLostSubmitResponseReattachAndAuthority
+=== RUN   TestLostSubmitResponseReattachAndAuthority/controller
+=== RUN   TestLostSubmitResponseReattachAndAuthority/environment
+=== RUN   TestLostSubmitResponseReattachAndAuthority/schema
+=== RUN   TestLostSubmitResponseReattachAndAuthority/fingerprint
+=== RUN   TestLostSubmitResponseReattachAndAuthority/attempt
+--- PASS: TestLostSubmitResponseReattachAndAuthority (0.02s)
+    --- PASS: TestLostSubmitResponseReattachAndAuthority/controller (0.00s)
+    --- PASS: TestLostSubmitResponseReattachAndAuthority/environment (0.00s)
+    --- PASS: TestLostSubmitResponseReattachAndAuthority/schema (0.00s)
+    --- PASS: TestLostSubmitResponseReattachAndAuthority/fingerprint (0.00s)
+    --- PASS: TestLostSubmitResponseReattachAndAuthority/attempt (0.00s)
+=== RUN   TestCloseJoinsLiveChildAndService
+--- PASS: TestCloseJoinsLiveChildAndService (0.00s)
+PASS
+ok  	github.com/unreallabsai/unreal-agent/cmd/internal/jobexecutor	0.018s

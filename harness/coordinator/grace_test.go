@@ -336,7 +336,7 @@ func newToolGraceTestRun(t *testing.T) *stopTestRun {
 }
 
 func toolGraceResponse(callIDs ...string) llm.Response {
-	var response llm.Response
+	response := llm.Response{Stop: llm.StopComplete}
 	for _, id := range callIDs {
 		response.Output = append(response.Output, llm.Item{Type: llm.ItemToolCall, Data: llm.ToolCall{
 			CallID: id, Name: tool.BashName, Arguments: `{}`,

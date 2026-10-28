@@ -1,0 +1,8 @@
+Id=m43-foundation-executor-1793173714-1995581.service
+ActiveState=active
+SubState=exited
+MainPID=0
+Result=success
+ExecMainCode=1
+ExecMainStatus=0
+ControlGroup=

@@ -55,7 +55,7 @@ func TestReplayPreservesCommittedResultsWhileDeliveringOldCompletions(t *testing
 		// A finishes while a model request is in flight. The response adds C
 		// ahead of the staged completion, just as the coordinator does.
 		builder.AddToolResult("a", []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "A completed"}}, false)
-		builder.AddModelResponse(llm.Response{Output: []llm.Item{toolCall("c")}})
+		builder.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: []llm.Item{toolCall("c")}})
 		builder.AddToolResult("c", nil, true)
 		secondRequest, err := builder.Build()
 		if err != nil {
@@ -72,7 +72,7 @@ func TestReplayPreservesCommittedResultsWhileDeliveringOldCompletions(t *testing
 			t.Fatalf("new call result must precede the older completion update: %#v", results)
 		}
 		builder.Commit()
-		builder.AddModelResponse(llm.Response{Output: []llm.Item{message(llm.RoleAssistant, "Waiting for C")}})
+		builder.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: []llm.Item{message(llm.RoleAssistant, "Waiting for C")}})
 		builder.AddToolResult("c", []llm.ToolResultOutput{{Kind: llm.ToolResultText, Value: "C completed"}}, false)
 		thirdRequest, err := builder.Build()
 		if err != nil {

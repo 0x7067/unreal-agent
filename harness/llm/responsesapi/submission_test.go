@@ -32,7 +32,7 @@ func TestSubmittedPrefixAndLateResultOrderOnWire(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			builder := contextbuilder.NewBuilder()
 			builder.SetModel(llm.Model{ID: "test"})
-			builder.AddModelResponse(llm.Response{Output: []llm.Item{
+			builder.AddModelResponse(llm.Response{Stop: llm.StopComplete, Output: []llm.Item{
 				{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "A", Name: "test", Arguments: `{}`}},
 				{Type: llm.ItemToolCall, Data: llm.ToolCall{CallID: "B", Name: "test", Arguments: `{}`}},
 			}})
