@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/activitysummary"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/subagent"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
+	"github.com/unreallabsai/unreal-agent/harness/executionbudget"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
@@ -100,5 +103,37 @@ func TestEffectiveChildBudgetEnvironmentHasNoDuplicateKeys(t *testing.T) {
 	result := selectedEnvironment([]string{"UNREAL_HARNESS_OPERATION_TIMEOUT=9h", "OTHER=keep", "UNREAL_HARNESS_OPERATION_TIMEOUT=8h", "UNREAL_HARNESS_MAX_OPERATIONS=99"}, "UNREAL_HARNESS_OPERATION_TIMEOUT=0s", "UNREAL_HARNESS_MAX_OPERATIONS=0")
 	if strings.Join(result, ";") != "OTHER=keep;UNREAL_HARNESS_OPERATION_TIMEOUT=0s;UNREAL_HARNESS_MAX_OPERATIONS=0" {
 		t.Fatalf("ambiguous inherited policy: %v", result)
+	}
+}
+
+func TestSummaryCapturesHubAndAccountWithoutManager(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	hub := subagent.NewHub(ctx)
+	defer func() {
+		cancel()
+		if err := hub.Wait(t.Context()); err != nil {
+			t.Error(err)
+		}
+	}()
+	_, _, err := hub.BindExternal(subagent.AgentActivity{Phase: "report_available", ChildActivity: subagent.ChildActivity{ReportAvailable: true}}, func(context.Context, subagent.ControlPlan) (any, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := executionbudget.NewAccount(executionbudget.Limits{MaxOperations: 3})
+	lease, err := account.Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	o := &ownedExecution{hub: hub, account: account}
+	fleet := hub.Snapshot()
+	activity := operation.ActivitySnapshot{Account: account.Snapshot()}
+	if got, want := o.summary(), activitysummary.Format(time.Time{}, &fleet, &activity); got != want {
+		t.Fatalf("adapter summary=%q, want %q", got, want)
+	}
+	// Missing hub must not suppress available envelope accounting.
+	o.hub = nil
+	if text := o.summary(); !strings.Contains(text, "owned=1") || !strings.Contains(text, "agents unavailable") {
+		t.Fatal(text)
 	}
 }

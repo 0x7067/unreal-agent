@@ -43,7 +43,6 @@ func ReadLifecycle(ctx context.Context, reader io.Reader, id session.ID) (sessio
 }
 
 type readOnlyItems struct {
-	sessionstore.Store
 	items []sessionstore.Item
 }
 

@@ -11,7 +11,6 @@ import (
 )
 
 type lifecycleItems struct {
-	Store
 	items []Item
 }
 

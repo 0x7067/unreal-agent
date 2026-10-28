@@ -122,10 +122,14 @@ func (h *LifecycleHistory) validatePendingLifecycle() error {
 	return nil
 }
 
+type lifecycleItemsReader interface {
+	Items(context.Context, session.ID, Sequence, int) (Page, error)
+}
+
 // ReadLifecycle must be called under the session writer lease on startup, before
 // provider/tool initialization. Read-only diagnostics may also use it with a
 // bounded context; no receipt is invented from EOF or operation terminal flags.
-func ReadLifecycle(ctx context.Context, store Store, id session.ID) (LifecycleHistory, error) {
+func ReadLifecycle(ctx context.Context, store lifecycleItemsReader, id session.ID) (LifecycleHistory, error) {
 	var history LifecycleHistory
 	after := BeforeFirst
 	for {

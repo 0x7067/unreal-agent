@@ -1,7 +1,8 @@
 # Upstream alignment and simplification
 
-Status: **baseline policies and scheduled reload implemented**. The unrelated
-extractions and durable-history redesign below remain backlog.
+Status: **baseline policies, scheduled reload, narrow lifecycle reads and shared
+activity formatting implemented**. Larger extractions and durable-history policy
+changes remain backlog.
 Comparison baseline: `upstream/main` at `a5f3fd1`, fork `main` at `1f276f6`.
 
 ## Direction
@@ -70,6 +71,29 @@ cancels waiting, not an already admitted retirement. Private worker protocol is 
 public runtime capabilities are v2, with `reload_intervention.v1` advertised
 separately. Old peers cannot silently opt into the new semantics.
 
+## Follow-up simplification pass
+
+- `sessionstore.ReadLifecycle` now requires only `Items`, not a writable `Store`.
+  The read-only canonical adapter and test fake no longer embed a nil Store.
+  The upstream Store interface, ordered decoding, startup writer leases and
+  diagnostic-only authority are unchanged.
+- `cmd/internal/activitysummary.Format` replaces two heartbeat formatting paths.
+  It consumes detached snapshots and an explicit clock; callers only capture
+  observations. Both paths share 4096-byte UTF-8-safe bounds, normalized labels,
+  omission markers, cancellation/report prioritization and report-versus-drain
+  caveats. This changes diagnostic wording, not structured activity protocols or
+  execution authority. No manager/lifecycle abstraction or configuration mode
+  was introduced.
+- CLI transport reuse was reviewed and left unchanged. Only its redundant
+  forwarding View wrapper was deleted; CLI and tests call `attachproto.View`
+  directly with the same validation. The CLI streams actual
+  snapshot frames, while Client.Dial returns a complete projected snapshot. A
+  migration preserving frame metadata, partial-output failures and Submit/Next
+  cancellation/error ordering needs more than a mechanical substitution. Do not
+  synthesize frames or add a new streaming API solely to claim a smaller diff.
+
+See the [follow-up verification](../verification/simplification-pass.md).
+
 ## Still deliberately different from upstream
 
 - Failed/incomplete responses cannot dispatch tools or carry executable/opaque
@@ -83,21 +107,20 @@ separately. Old peers cannot silently opt into the new semantics.
   new writers would not retroactively make existing histories upstream-readable.
   Scoped graph interventions also require this fork. Unknown versions are refused.
 
-## Deferred opportunities (not part of this change)
+## Remaining opportunities
 
 | Area | Potential reduction | Required gate |
 | --- | --- | --- |
 | Durable request/compaction accounting (`harness/coordinator/*recovery.go`) | Separate ordinary execution from explicitly selected durable recovery. | Inventory replay/abort/scheduling dependencies first. Existing histories retain their recorded budgets, manual origins and effect authority; define interrupted plain execution explicitly. |
 | History compatibility (`harness/sessionstore/localfile/codec.go`) | Make the extended-history boundary explicit rather than relying on the same format-2 header. | Decide whether format versioning or required capabilities is smaller. Preserve legacy readers/fixtures; never strip controls/checkpoints or silently downgrade. |
-| Read-only lifecycle inspection (`harness/sessionstore/lifecycle.go`, `localfile/readonly_lifecycle.go`) | Accept Items-only reading instead of embedding a nil writable Store. | Preserve ordered decoding, lease requirements and diagnostic-only authority. |
 | Attach transport (`cmd/internal/residentcli/run.go`, `attachclient/client.go`) | Reuse the existing client rather than a CLI-specific connection state machine. | Preserve exact CLI JSONL/snapshot metadata, single reader, authentication, cursor and stable-ID semantics. Do not merge public attach and private worker protocols. |
 | Execution composition (`agentrunner/run.go`, `workerruntime/setup.go`) | Share only identical supervisor/graph assembly and ordered joins. | Preserve partial-setup cleanup, credentials, logs, different defaults and independent cleanup evidence. No universal runner/config framework. |
-| Activity summaries (`agentrunner/activity_summary.go`, `workerruntime/diagnostics.go`) | One pure formatter over detached snapshots. | Keep redaction, omission markers, explicit bounds and report-versus-drain distinctions; never turn formatting into idle permission. |
 | Management admission (`harness/operation/management_budget.go`) | Let trusted handlers classify their own versioned controls instead of decoding tool protocols in the generic manager. | Unknown/malformed plans remain ordinary work; preserve bounded cancellation capacity and separate classification from authorization. |
 
-No reader/formatter/attach/setup extraction or workload state-machine unification
-was undertaken merely because the review identified it. Evaluate later changes by
-fewer production paths and a smaller maintained upstream diff, not more wrappers.
+The reader/formatter changes above are deliberately small. No attach/setup
+extraction or workload state-machine unification was undertaken merely because the
+review identified it. Evaluate later changes by fewer production paths and a
+smaller maintained upstream diff, not more wrappers.
 
-Current validation and live-proof evidence is recorded in the
+Initial baseline/reload validation and live-proof evidence is recorded in the
 [working-tree verification report](../verification/upstream-alignment-working-tree.md).

@@ -17,16 +17,16 @@ import (
 func frame(kind string) attachproto.Event {
 	return attachproto.Event{Type: kind, Protocol: attachproto.Version, SessionID: "test", Incarnation: "host", Connection: "client", Revision: 7, Head: 1}
 }
-func validSnapshot(t *testing.T) *view {
+func validSnapshot(t *testing.T) *attachproto.View {
 	t.Helper()
-	v := newView(frame("hello"))
+	v := attachproto.NewView(frame("hello"))
 	header := frame("snapshot")
 	header.Status = &attachproto.Status{Generation: 1}
 	header.Model = &llm.Model{ID: "fake"}
 	item := frame("snapshot_item")
 	item.Item = &sessionstore.Item{Sequence: 1}
 	for _, e := range []attachproto.Event{header, item, frame("snapshot_end")} {
-		if err := v.accept(e); err != nil {
+		if err := v.Accept(e); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -34,8 +34,8 @@ func validSnapshot(t *testing.T) *view {
 }
 func TestViewRejectsInvalidSnapshotAndLiveState(t *testing.T) {
 	for _, kind := range []string{"snapshot_end", "snapshot_item", "pending", "status", "unknown"} {
-		v := newView(frame("hello"))
-		if err := v.accept(frame(kind)); err == nil {
+		v := attachproto.NewView(frame("hello"))
+		if err := v.Accept(frame(kind)); err == nil {
 			t.Fatal("accepted incomplete snapshot", kind)
 		}
 	}
@@ -60,7 +60,7 @@ func TestViewRejectsInvalidSnapshotAndLiveState(t *testing.T) {
 			e.Head = 2
 			e.Item = &sessionstore.Item{Sequence: 2}
 			test.change(&e)
-			if err := v.accept(e); err == nil {
+			if err := v.Accept(e); err == nil {
 				t.Fatal("accepted invalid state")
 			}
 		})
@@ -69,15 +69,15 @@ func TestViewRejectsInvalidSnapshotAndLiveState(t *testing.T) {
 	e := frame("status")
 	e.Revision = 8
 	e.Status = &attachproto.Status{Generation: 1}
-	if err := v.accept(e); err != nil {
+	if err := v.Accept(e); err != nil {
 		t.Fatal(err)
 	}
 	e = frame("accepted")
 	e.Revision = 8
-	if err := v.accept(e); err != nil {
+	if err := v.Accept(e); err != nil {
 		t.Fatal("reply advanced cursor", err)
 	}
-	if err := v.accept(frame("snapshot_end")); err == nil {
+	if err := v.Accept(frame("snapshot_end")); err == nil {
 		t.Fatal("accepted duplicate snapshot")
 	}
 }

@@ -52,13 +52,3 @@ func TestRunnerHeartbeatSummaryUsesOnlyRedactedSnapshots(t *testing.T) {
 		}
 	}
 }
-
-func TestSummaryLabelsAreBoundedAndCannotInjectLines(t *testing.T) {
-	label := summaryLabel(strings.Repeat("界", 100) + "\nforged status")
-	if len(label) > 128 || !utf8.ValidString(label) || strings.ContainsAny(label, "\n\r") {
-		t.Fatalf("label=%q", label)
-	}
-	if summaryLabel("a\nb\x00c") != "a b c" {
-		t.Fatal("control characters not normalized")
-	}
-}

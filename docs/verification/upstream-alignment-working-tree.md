@@ -5,6 +5,11 @@ This records the implementation described in
 [the reload contract](../plans/hot-reload.md). Verification was recorded before
 committing the implementation.
 
+Scope: baseline/reload implementation committed as `2243def`. Build hashes and
+installation statements below describe that verification point, not subsequent
+builds. Later reader/formatter work is covered by the
+[simplification-pass report](simplification-pass.md).
+
 ## Scope and compatibility
 
 - Settings, Messages/Responses retry implementations and the base preamble compare

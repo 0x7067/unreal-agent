@@ -212,7 +212,7 @@ func attach(ctx context.Context, runtimeDirectory, stateDirectory string, id ses
 	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return err
 	}
-	state := newView(hello)
+	state := attachproto.NewView(hello)
 	var inFlight bool
 	var requestID string
 	defer func() {
@@ -225,7 +225,7 @@ func attach(ctx context.Context, runtimeDirectory, stateDirectory string, id ses
 		if err != nil {
 			return err
 		}
-		if err := state.accept(event); err != nil {
+		if err := state.Accept(event); err != nil {
 			return err
 		}
 		if event.Type == "accepted" || event.Type == "error" {
