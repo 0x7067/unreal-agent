@@ -180,8 +180,13 @@ func TestGraphSubagentsInheritActualRegistrySelection(t *testing.T) {
 	t.Setenv(providers.APIKeyEnvironment, "secret")
 	t.Setenv(llmProviderEnvironment, "")
 	t.Setenv(llmBaseURLEnvironment, "")
+	var responseMu sync.Mutex
 	started, accepted, finished := false, false, false
 	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+		// An interrupted request can overlap its replacement; serialize the
+		// fixture's state transitions without changing production concurrency.
+		responseMu.Lock()
+		defer responseMu.Unlock()
 		results := toolResults(request.Input)
 		if strings.Contains(results["graph"], "all current task generations accepted") {
 			finished = true
@@ -214,6 +219,8 @@ func TestGraphSubagentsInheritActualRegistrySelection(t *testing.T) {
 	defer cancel()
 	var stdout, stderr strings.Builder
 	code := RunMain(ctx, []string{"-workspace", t.TempDir(), "-session-directory", t.TempDir()}, os.Getenv, os.Environ, strings.NewReader(`{"prompt":"delegate","model":"gpt-test","extra_allowed_tools":["Agent"]}`), &stdout, &stderr, config)
+	responseMu.Lock()
+	defer responseMu.Unlock()
 	if code != 0 || !accepted || !finished {
 		t.Fatalf("exit=%d accepted=%v finished=%v stderr=%s output=%s", code, accepted, finished, stderr.String(), stdout.String())
 	}
