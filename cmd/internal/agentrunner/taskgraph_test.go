@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,8 +17,13 @@ func TestRunMainTaskGraphAcceptance(t *testing.T) {
 	workspace := t.TempDir()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
+	var responseMu sync.Mutex
 	started, accepted, finished := false, false, false
 	client := &fakeClient{respond: func(_ context.Context, request llm.Request) (llm.Response, error) {
+		// An interrupted request can overlap its replacement; serialize the
+		// fixture's state transitions without changing production concurrency.
+		responseMu.Lock()
+		defer responseMu.Unlock()
 		if !containsTool(request.Tools, "TaskGraph") {
 			return llm.Response{}, context.Canceled
 		}
@@ -50,6 +56,8 @@ func TestRunMainTaskGraphAcceptance(t *testing.T) {
 		}
 		return ""
 	}, os.Environ, strings.NewReader(`{"prompt":"execute graph","model":"gpt-test"}`), &out, &stderr, testConfig(client))
+	responseMu.Lock()
+	defer responseMu.Unlock()
 	if code != 0 || !accepted || !finished {
 		t.Fatalf("exit=%d accepted=%v finished=%v stderr=%s output=%s", code, accepted, finished, stderr.String(), out.String())
 	}
