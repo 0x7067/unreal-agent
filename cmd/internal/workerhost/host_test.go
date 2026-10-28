@@ -80,6 +80,19 @@ func helper(mode string) error {
 			}
 		}
 	}
+	if mode == "worker" {
+		if gate := os.Getenv("UA_HOST_TEST_WORKER_GATE"); gate != "" {
+			if err := os.WriteFile(gate+".ready", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+				return err
+			}
+			for {
+				if _, err := os.Stat(gate); err == nil {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
 	if err := workerproto.Write(os.Stdout, workerproto.Event{Type: "hello", Identity: &identity}); err != nil {
 		return err
 	}

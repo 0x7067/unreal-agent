@@ -37,7 +37,7 @@ func (h *Host) queryActivity(ctx context.Context) (workerproto.Event, uint64, er
 	h.mu.Lock()
 	p, unavailable := h.current, h.closing || h.closed
 	h.mu.Unlock()
-	if p == nil || unavailable || p.retired.Load() {
+	if p == nil || !p.accepting.Load() || unavailable || p.retired.Load() {
 		h.unlockDelivery()
 		return workerproto.Event{}, 0, ErrStopped
 	}
