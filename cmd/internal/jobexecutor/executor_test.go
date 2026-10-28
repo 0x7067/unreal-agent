@@ -11,7 +11,12 @@ import (
 )
 
 func TestLostSubmitResponseReattachAndAuthority(t *testing.T) {
-	root := t.TempDir()
+	// macOS limits Unix socket paths to 104 bytes; t.TempDir() exceeds it there.
+	root, err := os.MkdirTemp("/tmp", "je-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +157,12 @@ func TestLostSubmitResponseReattachAndAuthority(t *testing.T) {
 }
 
 func TestCloseJoinsLiveChildAndService(t *testing.T) {
-	root := t.TempDir()
+	// macOS limits Unix socket paths to 104 bytes; t.TempDir() exceeds it there.
+	root, err := os.MkdirTemp("/tmp", "je-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}

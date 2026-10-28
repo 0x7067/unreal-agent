@@ -25,11 +25,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // The thin executable fixture runs the production command dispatcher, headless
 // host, client, worker, and provider adapter in separate real processes.
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	if Handles(os.Args[1:]) {
 		os.Exit(Main(os.Args[1:]))
 	}

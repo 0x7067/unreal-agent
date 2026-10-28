@@ -26,9 +26,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	if len(os.Args) > 1 && os.Args[1] == "agent-runner" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := agentrunner.RunMain(ctx, os.Args[2:], os.Getenv, os.Environ, os.Stdin, os.Stdout, os.Stderr, agentrunner.Config{Name: "workerhost-fixture", Providers: providers.Default(), ParseRequest: agentrunner.ParseRequest})
