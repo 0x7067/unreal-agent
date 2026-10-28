@@ -262,6 +262,10 @@ func (manager *LocalOperationManager) run() {
 				for _, current := range operations {
 					if current.remoteJobHandlerIndex == update.handlerIndex {
 						current.remoteUnknown = true
+						// A retained terminal operation already reported its one terminal update.
+						if current.terminal {
+							continue
+						}
 						manager.failLocalOperation(
 							operations,
 							current,
