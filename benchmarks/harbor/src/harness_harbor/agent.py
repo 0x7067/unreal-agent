@@ -25,6 +25,24 @@ APT_ARCHIVE_FALLBACK = (
 )
 
 
+def session_export(sessions: str) -> str:
+    """Shell tail after the runner: copy the private $store into sessions.
+
+    Always removes the store. Keeps a runner failure's status; otherwise a failed
+    copy fails the command, so missing session records are never reported as a
+    successful trial.
+    """
+    quoted = shlex.quote(sessions)
+    return (
+        f'status=$?; mkdir -p {quoted} && cp -R "$store/." {quoted}/; copied=$?; '
+        'rm -rf "$store"; '
+        'if [ "$copied" -ne 0 ]; then '
+        "echo 'unreal-agent: session export failed' >&2; "
+        '[ "$status" -eq 0 ] && status=$copied; fi; '
+        "exit $status"
+    )
+
+
 class UnrealAgent(BaseInstalledAgent):
     SUPPORTS_ATIF = True
     MODEL_CONNECTION = ModelConnectionSpec()
@@ -151,7 +169,6 @@ class UnrealAgent(BaseInstalledAgent):
         # The runner refuses a session lease under a shared writable ancestor such
         # as the /logs mount, so the store lives in a private directory and its
         # sessions are copied into the collected logs afterwards.
-        sessions = shlex.quote(str(logs / "sessions"))
         command = (
             "if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then "
             f"export SSL_CERT_FILE={self._remote}/ca.pem; fi; "
@@ -170,8 +187,7 @@ class UnrealAgent(BaseInstalledAgent):
             + f" <{shlex.quote(str(logs / 'request.json'))}"
             + f" >{shlex.quote(str(logs / 'runner.jsonl'))}"
             + f" 2>{shlex.quote(str(logs / 'runner.stderr'))}; "
-            + f'status=$?; mkdir -p {sessions} && cp -R "$store/." {sessions}/; '
-            + "exit $status"
+            + session_export(str(logs / "sessions"))
         )
         await self.exec_as_agent(environment, command=command, env=env)
 
