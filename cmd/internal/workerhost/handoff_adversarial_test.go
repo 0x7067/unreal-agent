@@ -50,6 +50,12 @@ replay() {
 	fi
 }
 
+# flock(2) on fd 9 through perl: macOS ships no flock(1). The lock belongs to the
+# open file description, so it outlives the perl child exactly as flock(1)'s does.
+lock_fd9() {
+	perl -MFcntl=:flock -e 'open(my $f, ">&=", 9) or exit 1; flock($f, $ARGV[0] eq "un" ? LOCK_UN : LOCK_EX | LOCK_NB) or exit 1' "$1"
+}
+
 await_gate() {
 	: > "$1.seen"
 	n=0
@@ -111,7 +117,7 @@ worker() {
 	[ -n "$scope" ] && [ -n "$directory" ] && [ -n "$session" ] || exit 10
 	umask 077
 	exec 9>> "$directory/$session.session.lock"
-	flock -n 9 || exit 11
+	lock_fd9 ex || exit 11
 	replay
 	printf '%s\n' '{"Type":"ready"}'
 	while IFS= read -r line; do
@@ -147,7 +153,7 @@ worker() {
 			if [ -n "$FAKE_EXIT_GATE" ]; then
 				await_gate "$FAKE_EXIT_GATE"
 			fi
-			flock -u 9
+			lock_fd9 un
 			exec 9>&-
 			exit 0
 			;;
