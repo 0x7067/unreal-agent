@@ -3,6 +3,11 @@
 package testtmp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -17,13 +22,25 @@ func Resolve() {
 	}
 }
 
-// MkdirTemp creates a short directory under the symlink-free /tmp for tests
-// that bind Unix sockets: macOS limits their paths to 103 bytes and links /tmp
-// to /private/tmp. Keep prefixes short; the caller removes the directory.
+// MkdirTemp creates a private directory, /private/tmp/<prefix><6 hex> on macOS,
+// for tests that bind Unix sockets: macOS limits their paths to 103 bytes and
+// links /tmp to /private/tmp. The fixed suffix (os.MkdirTemp's is up to 10
+// digits) leaves 13 bytes for the prefix plus the socket's parent directory
+// name under a 64-hex endpoint name. The caller removes the directory.
 func MkdirTemp(prefix string) (string, error) {
 	base, err := filepath.EvalSymlinks("/tmp")
 	if err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(base, prefix)
+	for range 100 {
+		suffix := make([]byte, 3)
+		if _, err := rand.Read(suffix); err != nil {
+			return "", err
+		}
+		dir := filepath.Join(base, prefix+hex.EncodeToString(suffix))
+		if err := os.Mkdir(dir, 0o700); !errors.Is(err, fs.ErrExist) {
+			return dir, err
+		}
+	}
+	return "", fmt.Errorf("testtmp: no free directory for prefix %q", prefix)
 }
