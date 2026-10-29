@@ -12,6 +12,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/attachproto"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func frame(kind string) attachproto.Event {
@@ -83,7 +84,7 @@ func TestViewRejectsInvalidSnapshotAndLiveState(t *testing.T) {
 }
 
 func TestLostSubmissionReplyIsExplicitlyUncertain(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "ua-ack-")
+	root, err := testtmp.MkdirTemp("uak-")
 	if err != nil {
 		t.Fatal(err)
 	}

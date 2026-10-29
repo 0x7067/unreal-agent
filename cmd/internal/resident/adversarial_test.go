@@ -27,6 +27,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // A raw watcher has deliberately no hidden reader. Only the provider is fake;
@@ -36,7 +37,7 @@ func TestAdversarialStalledWatcherRealWorker(t *testing.T) {
 	// handshakes under race instrumentation. Per-attack deadlines stay at 2s.
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	root, err := os.MkdirTemp("/tmp", "ua-adversary-")
+	root, err := testtmp.MkdirTemp("uad-")
 	if err != nil {
 		t.Fatal(err)
 	}

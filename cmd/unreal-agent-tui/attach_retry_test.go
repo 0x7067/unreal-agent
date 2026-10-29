@@ -17,6 +17,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 type uncertainInputWriter struct{ input inbox.Input }
@@ -27,7 +28,7 @@ func (w *uncertainInputWriter) Submit(_ context.Context, in inbox.Input) error {
 	return attachclient.ErrUncertain
 }
 func TestAttachReconnectRetainsIdentityExplicitRetryAndOneEcho(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "ur13-")
+	root, err := testtmp.MkdirTemp("ur13-")
 	if err != nil {
 		t.Fatal(err)
 	}

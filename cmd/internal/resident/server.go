@@ -206,6 +206,10 @@ func serveClient(ctx context.Context, p *publisher, host *workerhost.Host, store
 		e.ID = hello.ID
 		e.Code = "busy"
 		p.mu.Unlock()
+		// Free the handshake slot before replying: a client that reads busy and
+		// redials at once must not be shed by a slot this rejection still holds.
+		release()
+		released = true
 		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_ = attachproto.Write(conn, e)
 		return

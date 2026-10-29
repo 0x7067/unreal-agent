@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func tlsFixtureCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
@@ -38,7 +40,7 @@ func tlsFixtureCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
 }
 func tlsFixtureService(t *testing.T) (*Service, string) {
 	t.Helper()
-	root, err := os.MkdirTemp("/tmp", "jt-")
+	root, err := testtmp.MkdirTemp("jt-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,12 +32,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // Actual verified TLS environment, independently owned service/job and real worker A/B.
 // The service fault drops acknowledgments only after durable reservation and launch.
 func TestM45VerifiedRemoteRecoveryAndNoLocalFallback(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "j45.")
+	root, err := testtmp.MkdirTemp("j45.")
 	if err != nil {
 		t.Fatal(err)
 	}

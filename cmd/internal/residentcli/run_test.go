@@ -25,11 +25,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // The thin executable fixture runs the production command dispatcher, headless
 // host, client, worker, and provider adapter in separate real processes.
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	if Handles(os.Args[1:]) {
 		os.Exit(Main(os.Args[1:]))
 	}
@@ -160,7 +162,7 @@ func snapshot(t *testing.T, ctx context.Context, p *cliProcess) (attachproto.Eve
 func TestRealHeadlessHostClientDisconnectReconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 65*time.Second)
 	defer cancel()
-	root, err := os.MkdirTemp("/tmp", "ua-m11-")
+	root, err := testtmp.MkdirTemp("u11-")
 	if err != nil {
 		t.Fatal(err)
 	}

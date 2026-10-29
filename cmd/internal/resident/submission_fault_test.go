@@ -28,6 +28,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // faultProxy owns one connection in each direction. All framing passes through
@@ -222,7 +223,7 @@ func TestSubmissionFaultStableIdentity(t *testing.T) {
 			t.Run(cut+"/"+cursorMode, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 18*time.Second)
 				defer cancel()
-				root, err := os.MkdirTemp("/tmp", "ua-fault-")
+				root, err := testtmp.MkdirTemp("uaf-")
 				if err != nil {
 					t.Fatal(err)
 				}

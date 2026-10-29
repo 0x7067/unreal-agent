@@ -19,6 +19,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/durablechild"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 	"golang.org/x/sys/unix"
 )
 
@@ -27,7 +28,7 @@ func TestRealOwnerLaunchSurvivesParentProcessGroupKill(t *testing.T) {
 	defer cancel()
 	root := t.TempDir()
 	mustFixture(os.Chmod(root, 0700))
-	runtimeDir, err := os.MkdirTemp("/tmp", "u26-launch-")
+	runtimeDir, err := testtmp.MkdirTemp("u26l-")
 	mustFixture(err)
 	defer os.RemoveAll(runtimeDir)
 	t.Setenv("HOME", root)

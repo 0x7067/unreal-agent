@@ -257,6 +257,28 @@ func TestCreateAcceptsExistingPathWithRestrictiveModeWithoutChangingIt(t *testin
 	}
 }
 
+func TestCreateExclusiveRejectsExistingPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "created")
+	request := primitives.IOCreateRequest{
+		Source:        "operation-1",
+		CorrelationID: "create-1",
+		Kind:          primitives.IOCreateRegularFile,
+		Path:          path,
+		Mode:          primitives.IOCreateDefaultMode,
+		Exclusive:     true,
+	}
+	if events := collectEvents(create(t.Context(), request)); len(events) != 1 || events[0].Type != primitives.PrimitiveEventIOCreateCompleted {
+		t.Fatalf("first exclusive create events = %#v", events)
+	}
+	events := collectEvents(create(t.Context(), request))
+	if len(events) != 1 || events[0].Type != primitives.PrimitiveEventFailed {
+		t.Fatalf("second exclusive create events = %#v, want one failure", events)
+	}
+	if failure := eventResult[primitives.PrimitiveFailureResult](t, events[0]); !strings.Contains(failure.Error, os.ErrExist.Error()) {
+		t.Fatalf("failure = %q, want %q", failure.Error, os.ErrExist)
+	}
+}
+
 func TestCreateDirectoryPreservesPathResolution(t *testing.T) {
 	directory := t.TempDir()
 	separator := string(os.PathSeparator)

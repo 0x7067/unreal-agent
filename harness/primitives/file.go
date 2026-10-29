@@ -222,6 +222,8 @@ type IOCreateRequest struct {
 	Path          string
 	// Mode is used only when creating a new entry and is subject to umask.
 	Mode os.FileMode
+	// Exclusive fails with os.ErrExist instead of using an existing entry.
+	Exclusive bool
 }
 
 type IOCreateResult struct {

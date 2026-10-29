@@ -100,3 +100,33 @@ The missing Lean results are substantive proof/model obligations, not a claim
 that automation alone would establish them. Extending these models to the
 planned external I/O owners in [`supervisor-io-follow-up.md`](../../plans/supervisor-io-follow-up.md)
 requires explicit new states, ownership rules and evidence.
+
+## Drift audit (2026-10-28, against 9700570)
+
+The models still check clean, but they describe the pre-`2243def` protocol.
+Production no longer uses `Inbox.Freeze`/`Thaw` (no non-test caller). Reload
+writes an ordered `drain` frame and the worker submits a synthetic
+`StopWhenIdle`. The host waits for a busy worker instead of refusing. After
+the caller abandons a reload, the replacement still launches
+(`verify_abandoned_retire_test.go`). None of these paths is modeled, so the I1-I10
+results do not cover the shipped reload.
+
+One divergence is a confirmed bug. The model only delivers to a `ready` owner,
+but `launch` publishes `h.current` before the hello/`start` handshake, and the
+reload has already released the delivery fence (`host.go` `drain` write, then
+`completeHandoff` -> `launch`). An input submitted during replacement launch
+is written as the child's first request; the worker rejects it ("first request
+must be start"), and the session latches "Replacement failed".
+`cmd/internal/workerhost/formal_findings_test.go`
+(`TestInputSubmittedDuringReplacementLaunchWaitsForStart`) reproduces it with
+an opt-in hello gate in the test worker (`UA_HOST_TEST_WORKER_GATE`); the
+same steps without the mid-launch submit pass.
+Fixed: `process.accepting` is set only after the ready handshake; dispatch and
+activity-snapshot writes skip a process until then, and launch wakes the
+dispatcher once it is set.
+
+Reviewed but unconfirmed: interventions are written ahead of earlier journaled
+inputs during drain (by design per `host.go`). A failed input write does not
+latch the pipe, so later inputs can still be written. Status
+publication between dispatch, consume, and `completeHandoff` is not ordered.
+The post-admission waits for reply and exit have no timeout.

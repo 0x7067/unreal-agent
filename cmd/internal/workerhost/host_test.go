@@ -26,9 +26,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	if len(os.Args) > 1 && os.Args[1] == "agent-runner" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := agentrunner.RunMain(ctx, os.Args[2:], os.Getenv, os.Environ, os.Stdin, os.Stdout, os.Stderr, agentrunner.Config{Name: "workerhost-fixture", Providers: providers.Default(), ParseRequest: agentrunner.ParseRequest})
@@ -69,6 +71,19 @@ func helper(mode string) error {
 	}
 	if mode == "worker-probe" {
 		if gate := os.Getenv("UA_HOST_TEST_PROBE_GATE"); gate != "" {
+			if err := os.WriteFile(gate+".ready", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+				return err
+			}
+			for {
+				if _, err := os.Stat(gate); err == nil {
+					break
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	if mode == "worker" {
+		if gate := os.Getenv("UA_HOST_TEST_WORKER_GATE"); gate != "" {
 			if err := os.WriteFile(gate+".ready", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
 				return err
 			}

@@ -78,6 +78,12 @@ func createOrUsePath(
 			}
 		}
 
+		if request.Exclusive {
+			return IOCreateResult{}, errors.Join(
+				fmt.Errorf("create %q: %w", request.Path, os.ErrExist),
+				closeFile("parent directory", parentPath, parent),
+			)
+		}
 		result, retry, err := useExistingPath(request, name, parentPath, parent)
 		if !retry {
 			return result, err

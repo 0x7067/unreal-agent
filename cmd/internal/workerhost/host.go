@@ -123,6 +123,7 @@ type process struct {
 	sequence      sessionstore.Sequence
 	sent          map[inbox.ID]bool // only under host.delivery
 	draining      atomic.Bool       // process-lifetime delivery cutoff; never undone
+	accepting     atomic.Bool       // ready handshake done; the first request must be start
 	retired       atomic.Bool
 	expectedStop  atomic.Bool
 	waited        chan error
@@ -327,7 +328,7 @@ func (h *Host) dispatch() {
 		closing := h.closing
 		failure := h.failure
 		h.mu.Unlock()
-		if p != nil && !closing && failure == nil && !p.retired.Load() {
+		if p != nil && p.accepting.Load() && !closing && failure == nil && !p.retired.Load() {
 			retiring := p.draining.Load()
 			for _, input := range h.journal.Pending() {
 				if retiring && inbox.ValidateIntervention(input, p.controlScope) != nil {
@@ -440,6 +441,10 @@ func (h *Host) launch(ctx context.Context, stage staged) (*process, error) {
 	if err = p.await(ctx, p.ready); err != nil {
 		return p, err
 	}
+	// h.current is published before the handshake; inputs journaled meanwhile
+	// were skipped by dispatch and are delivered now.
+	p.accepting.Store(true)
+	h.wake()
 	h.status(Status{Generation: p.generation, Build: p.build, Message: "Worker ready"})
 	return p, nil
 }

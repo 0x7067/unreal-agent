@@ -26,9 +26,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	args := os.Args[1:]
 	if len(args) == 2 && args[0] == "m26-launch-owner" {
 		runLaunchFixture(args[1])
@@ -55,7 +57,7 @@ func independentChildRecovery(t *testing.T, cut string) {
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	runtimeDir, err := os.MkdirTemp("/tmp", "u26-")
+	runtimeDir, err := testtmp.MkdirTemp("u26-")
 	if err != nil {
 		t.Fatal(err)
 	}

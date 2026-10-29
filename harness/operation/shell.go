@@ -249,7 +249,14 @@ func (shell *Shell) dispatchPhase(paths shellPaths) (Step, error) {
 	case ShellPhaseCreateOut:
 		return shell.dispatch(createShellFile(current.ID, correlation, paths.out))
 	case ShellPhaseCreateErr:
-		return shell.dispatch(createShellFile(current.ID, correlation, paths.err))
+		// The process starts only after this create completes, so an existing
+		// file means a previous run may have started it before its checkpoint
+		// was durable. Never reuse it: that would run the command again.
+		create := createShellFile(current.ID, correlation, paths.err)
+		request := create.Data.(primitives.IOCreateRequest)
+		request.Exclusive = true
+		create.Data = request
+		return shell.dispatch(create)
 	case ShellPhaseProcess:
 		return shell.dispatch(startShellProcess(current.ID, *state, paths))
 	case ShellPhaseReadOut, ShellPhaseReadErr, ShellPhaseReadOutTail, ShellPhaseReadErrTail:
@@ -277,7 +284,11 @@ func (shell *Shell) handleAwaiting(event primitives.PrimitiveEvent) (Step, error
 		return shell.cancel()
 	}
 	if event.Type == primitives.PrimitiveEventFailed {
-		return shell.fail(shellPrimitiveFailure(event))
+		failure := shellPrimitiveFailure(event)
+		if state.Phase == ShellPhaseCreateErr && strings.Contains(failure.Error(), os.ErrExist.Error()) {
+			failure = fmt.Errorf("shell execution outcome is unknown because the process may have started before its checkpoint was recorded: %w", failure)
+		}
+		return shell.fail(failure)
 	}
 	if err := validateShellCorrelation(event, primitives.CorrelationID(state.Phase)); err != nil {
 		return shell.fail(err)

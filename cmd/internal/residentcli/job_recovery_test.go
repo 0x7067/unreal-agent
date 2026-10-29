@@ -25,12 +25,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // Real separately supervised production executor CLI + real worker A/B. The
 // owned proxy drops acknowledgment only AFTER the executor launched the job.
 func TestM43WorkerRestartReattachesIndependentExecutor(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "j43.")
+	root, err := testtmp.MkdirTemp("j43.")
 	if err != nil {
 		t.Fatal(err)
 	}

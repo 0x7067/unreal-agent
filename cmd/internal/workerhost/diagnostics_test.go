@@ -31,6 +31,7 @@ func TestSnapshotCancellationInterruptsBlockedTransportWithoutWriterGoroutine(t 
 	}
 	var retired atomic.Bool
 	p := &process{input: writer, generation: 1, cancel: func() { retired.Store(true) }, waiting: make(map[string]chan workerproto.Event), done: make(chan struct{})}
+	p.accepting.Store(true) // a ready worker
 	h := &Host{ctx: context.Background(), query: make(chan struct{}, 1), delivery: make(chan struct{}, 1), current: p}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
