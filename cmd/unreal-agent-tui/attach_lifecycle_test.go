@@ -16,6 +16,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 type lifecycleTestWriter struct {
@@ -261,7 +262,7 @@ func TestAttachLifecycleStrictLocalJournal(t *testing.T) {
 	}
 }
 func TestAttachLifecycleOfflineReconcilesOnlyOriginalIDsWithoutCanonicalMutation(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "ul-")
+	root, err := testtmp.MkdirTemp("ul-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-// Package testtmp prepares the test temporary directory for code that refuses
+// Package testtmp prepares test temporary directories for code that refuses
 // symlinked path ancestors.
 package testtmp
 
@@ -15,4 +15,15 @@ func Resolve() {
 	if dir, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
 		os.Setenv("TMPDIR", dir)
 	}
+}
+
+// MkdirTemp creates a short directory under the symlink-free /tmp for tests
+// that bind Unix sockets: macOS limits their paths to 103 bytes and links /tmp
+// to /private/tmp. Keep prefixes short; the caller removes the directory.
+func MkdirTemp(prefix string) (string, error) {
+	base, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(base, prefix)
 }

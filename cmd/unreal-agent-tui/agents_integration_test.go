@@ -30,9 +30,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	toolsubagent "github.com/unreallabsai/unreal-agent/harness/tool/subagent"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestMain(m *testing.M) {
+	testtmp.Resolve()
 	if os.Getenv("UNREAL_TUI_DIAGNOSTICS_HELPER") == "1" && len(os.Args) > 1 {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

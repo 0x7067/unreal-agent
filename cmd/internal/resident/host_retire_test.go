@@ -24,10 +24,11 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/ingress"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestRuntimeHostRetirementRetainsDurableInputUntilFreshHost(t *testing.T) {
-	root, err := os.MkdirTemp("/tmp", "u35.")
+	root, err := testtmp.MkdirTemp("u35.")
 	if err != nil {
 		t.Fatal(err)
 	}

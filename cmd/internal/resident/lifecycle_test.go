@@ -26,11 +26,12 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/session"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func residentLifecycleFixture(t *testing.T, provider *httptest.Server, enableRuntime ...bool) (string, string, string, Info, <-chan error) {
 	t.Helper()
-	root, err := os.MkdirTemp("/tmp", "ua-lifecycle-")
+	root, err := testtmp.MkdirTemp("ulc-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,11 +14,12 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/attachproto"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func fakeHost(t *testing.T, handle func(*net.UnixConn)) (string, string, <-chan struct{}) {
 	t.Helper()
-	root, err := os.MkdirTemp("/tmp", "uac-")
+	root, err := testtmp.MkdirTemp("uac-")
 	if err != nil {
 		t.Fatal(err)
 	}

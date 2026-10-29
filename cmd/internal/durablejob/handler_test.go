@@ -14,13 +14,14 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/jobexecutor"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 const token = "adapter-test-token-at-least-24-characters"
 
 func private(t *testing.T) string {
 	t.Helper()
-	d, e := os.MkdirTemp("/tmp", "dj-")
+	d, e := testtmp.MkdirTemp("dj-")
 	if e != nil {
 		t.Fatal(e)
 	}

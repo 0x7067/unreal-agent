@@ -162,7 +162,7 @@ func snapshot(t *testing.T, ctx context.Context, p *cliProcess) (attachproto.Eve
 func TestRealHeadlessHostClientDisconnectReconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 65*time.Second)
 	defer cancel()
-	root, err := os.MkdirTemp("/tmp", "ua-m11-")
+	root, err := testtmp.MkdirTemp("u11-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,13 +15,14 @@ import (
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/harness/session"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 	"golang.org/x/sys/unix"
 )
 
 // testing.T.TempDir paths may exceed Darwin's 103-byte socket path budget.
 func endpointDirs(t *testing.T) (string, string) {
 	t.Helper()
-	root, err := os.MkdirTemp("/tmp", "at-")
+	root, err := testtmp.MkdirTemp("at-")
 	if err != nil {
 		t.Fatal(err)
 	}

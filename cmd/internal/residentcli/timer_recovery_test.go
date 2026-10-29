@@ -25,12 +25,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 // The worker fixture is the production CLI dispatcher in this test executable.
 // No client exists until AFTER the canonical notification has committed.
 func TestM44RealWorkerTimerRestartAbortAndClientReconciliation(t *testing.T) {
-	root, e := os.MkdirTemp("/tmp", "t44.")
+	root, e := testtmp.MkdirTemp("t44.")
 	if e != nil {
 		t.Fatal(e)
 	}

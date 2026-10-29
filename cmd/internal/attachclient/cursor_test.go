@@ -14,12 +14,13 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestCursorClientDeltaAndOldHostFallback(t *testing.T) {
 	for _, old := range []bool{false, true} {
 		t.Run(map[bool]string{true: "strict_old_host", false: "delta"}[old], func(t *testing.T) {
-			root, err := os.MkdirTemp("/tmp", "uac-cur-")
+			root, err := testtmp.MkdirTemp("ucc-")
 			if err != nil {
 				t.Fatal(err)
 			}

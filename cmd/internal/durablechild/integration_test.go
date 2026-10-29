@@ -57,7 +57,7 @@ func independentChildRecovery(t *testing.T, cut string) {
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	runtimeDir, err := os.MkdirTemp("/tmp", "u26-")
+	runtimeDir, err := testtmp.MkdirTemp("u26-")
 	if err != nil {
 		t.Fatal(err)
 	}

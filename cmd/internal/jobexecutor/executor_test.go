@@ -8,11 +8,13 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestLostSubmitResponseReattachAndAuthority(t *testing.T) {
 	// macOS limits Unix socket paths to 104 bytes; t.TempDir() exceeds it there.
-	root, err := os.MkdirTemp("/tmp", "je-")
+	root, err := testtmp.MkdirTemp("je-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +160,7 @@ func TestLostSubmitResponseReattachAndAuthority(t *testing.T) {
 
 func TestCloseJoinsLiveChildAndService(t *testing.T) {
 	// macOS limits Unix socket paths to 104 bytes; t.TempDir() exceeds it there.
-	root, err := os.MkdirTemp("/tmp", "je-")
+	root, err := testtmp.MkdirTemp("je-")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
 
 func TestAttachOptionsNeverBootstrapConfiguration(t *testing.T) {
@@ -91,7 +92,7 @@ func TestAttachedUIHeadlessTurnAndLateToolOutput(t *testing.T) {
 			t.Setenv("UNREAL_TUI_DIAGNOSTICS_HELPER", "1")
 			t.Setenv("OPENAI_API_KEY", "fake")
 			t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "fake")
-			root, err := os.MkdirTemp("/tmp", "u12-")
+			root, err := testtmp.MkdirTemp("u12-")
 			if err != nil {
 				t.Fatal(err)
 			}
