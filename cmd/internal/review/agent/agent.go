@@ -38,7 +38,6 @@ import (
 
 const (
 	maxSummaryCorrections = 2
-	defaultReviewProvider = "openrouter"
 	openRouterBaseURL     = "https://openrouter.ai/api/v1"
 	openRouterBaseEnv     = "UNREAL_REVIEW_OPENROUTER_API"
 	toolHeartbeatInterval = 10 * time.Minute
@@ -85,9 +84,9 @@ type Harness struct {
 	// MaxBashCalls limits Bash tool calls within one Run. Zero is unlimited;
 	// negative disables Bash for stages that must operate only on supplied data.
 	MaxBashCalls int
-	// Provider is a name from providers.Default. Empty selects openrouter.
+	// Provider is a name from providers.Default. The CLI sets it; empty is an error.
 	Provider string
-	// Getenv reads process configuration for the client factory. Nil uses os.Getenv.
+	// Getenv reads process configuration for the client factory. The CLI sets it.
 	Getenv func(string) string
 }
 
@@ -108,7 +107,7 @@ func (h Harness) Run(ctx context.Context, req review.AgentRequest) (result revie
 		}
 	}
 
-	selected, err := h.provider()
+	selected, err := providers.Find(providers.Default(), strings.TrimSpace(h.Provider))
 	if err != nil {
 		return review.AgentResult{}, err
 	}
@@ -131,25 +130,10 @@ func (h Harness) Run(ctx context.Context, req review.AgentRequest) (result revie
 	return h.run(ctx, adapter, req)
 }
 
-func (h Harness) provider() (providers.Provider, error) {
-	name := strings.TrimSpace(h.Provider)
-	if name == "" {
-		name = defaultReviewProvider
-	}
-	return providers.Find(providers.Default(), name)
-}
-
-func (h Harness) getenv(name string) string {
-	if h.Getenv != nil {
-		return h.Getenv(name)
-	}
-	return os.Getenv(name)
-}
-
 // modelBase keeps OpenRouter on the public API unless UNREAL_REVIEW_OPENROUTER_API
 // names a loopback stand-in. Other providers use the registry base URL.
 func (h Harness) modelBase(selected providers.Provider, openRouterAPI string) (string, error) {
-	if selected.Name == defaultReviewProvider {
+	if selected.Name == "openrouter" {
 		return OpenRouterBase(openRouterAPI)
 	}
 	if selected.BaseURL == "" {
@@ -165,10 +149,10 @@ func (h Harness) newModelAdapter(selected providers.Provider, base string) (llm.
 	}
 	// The registry client follows redirects. The canary stub and the loopback
 	// tests require a client that refuses to leave 127.0.0.1, ::1, or localhost.
-	if selected.Name == defaultReviewProvider && loopbackHost(u.Hostname()) {
+	if selected.Name == "openrouter" && loopbackHost(u.Hostname()) {
 		return newLoopbackModelAdapter(h.APIKey, base)
 	}
-	client, err := selected.NewClient(h.APIKey, base, responsesapi.DefaultMaxAttempts, h.getenv)
+	client, err := selected.NewClient(h.APIKey, base, responsesapi.DefaultMaxAttempts, h.Getenv)
 	if err != nil {
 		return nil, nil, err
 	}

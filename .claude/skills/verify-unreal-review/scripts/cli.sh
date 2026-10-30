@@ -66,9 +66,9 @@ bin=$VERIFY_BIN
 set +e
 if [ "$no_github" -eq 1 ]; then
 	if [ -n "$stdin_file" ]; then
-		env -u GH_TOKEN -u GITHUB_TOKEN "$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
+		env -u GH_TOKEN -u GITHUB_TOKEN -u UNREAL_REVIEW_PROVIDER "$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
 	else
-		env -u GH_TOKEN -u GITHUB_TOKEN "$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
+		env -u GH_TOKEN -u GITHUB_TOKEN -u UNREAL_REVIEW_PROVIDER "$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
 	fi
 else
 	if [ -n "$stdin_file" ]; then

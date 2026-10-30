@@ -13,19 +13,6 @@ const (
 	reviewProviderEnv     = "UNREAL_REVIEW_PROVIDER"
 )
 
-// reviewCredentialEnv is the only credential each provider may send.
-// An empty value means the provider takes no API key (ollama, and Codex,
-// whose auth is the token or auth file read by its client). The generic
-// UNREAL_HARNESS_LLM_API_KEY is intentionally absent.
-var reviewCredentialEnv = map[string]string{
-	"ollama":       "",
-	"openai":       "OPENAI_API_KEY",
-	"openai-codex": "",
-	"openrouter":   "OPENROUTER_API_KEY",
-	"fireworks":    "FIREWORKS_API_KEY",
-	"anthropic":    "ANTHROPIC_API_KEY",
-}
-
 // reviewGetenv reads an isolated secret first, then the process environment.
 // isolateSecrets removes provider credentials before reexec, so os.Getenv
 // alone cannot see them.
@@ -55,22 +42,17 @@ func reviewProvider() (providers.Provider, error) {
 	return providers.Find(providers.Default(), name)
 }
 
-// reviewAPIKey resolves the selected provider's own credential. OpenRouter
-// keeps the historical "set OPENROUTER_API_KEY" error. Other missing keys
-// name their own variable.
+// reviewAPIKey reads the selected registry entry's own credential.
+// APIKeyEnvironment is empty for ollama and openai-codex. The generic
+// UNREAL_HARNESS_LLM_API_KEY is never read. A missing key is "set <VAR>",
+// which is "set OPENROUTER_API_KEY" for the default provider.
 func reviewAPIKey(selected providers.Provider) (string, error) {
-	env, ok := reviewCredentialEnv[selected.Name]
-	if !ok {
-		return "", fmt.Errorf("provider %q has no review credential mapping", selected.Name)
-	}
+	env := selected.APIKeyEnvironment
 	if env == "" {
 		return "", nil
 	}
 	if key := strings.TrimSpace(reviewGetenv(env)); key != "" {
 		return key, nil
-	}
-	if env == "OPENROUTER_API_KEY" {
-		return "", ErrAPIKey
 	}
 	return "", fmt.Errorf("set %s", env)
 }

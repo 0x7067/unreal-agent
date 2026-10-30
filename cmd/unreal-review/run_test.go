@@ -14,6 +14,15 @@ import (
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
+func TestMain(m *testing.M) {
+	// Loopback stubs assume the default OpenRouter provider. A developer
+	// shell that exported UNREAL_REVIEW_PROVIDER must not redirect them.
+	if err := os.Unsetenv("UNREAL_REVIEW_PROVIDER"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)

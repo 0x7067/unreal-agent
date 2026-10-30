@@ -22,6 +22,8 @@ import (
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
+func emptyGetenv(string) string { return "" }
+
 type scriptedAdapter struct {
 	mu        sync.Mutex
 	responses []llm.Response
@@ -107,7 +109,7 @@ func TestRunRecordsFindingAndSummary(t *testing.T) {
 		messageResponse("resp-2", "The warning finding describes a goroutine leak in the review retry loop."),
 	}}
 
-	result, err := Harness{ThinkingLevel: "high"}.run(t.Context(), adapter, req)
+	result, err := Harness{Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}.run(t.Context(), adapter, req)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -151,7 +153,7 @@ func TestRunCorrectsBrokenSummary(t *testing.T) {
 		messageResponse("resp-3", "The warning finding describes a goroutine leak in the review retry loop."),
 	}}
 
-	h := Harness{ThinkingLevel: "high"}
+	h := Harness{Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}
 	if _, err := h.run(t.Context(), adapter, req); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -177,7 +179,7 @@ func TestRunFailsAfterRepeatedSummaryViolations(t *testing.T) {
 		messageResponse("resp-4", findings.CleanVerdict),
 	}}
 
-	h := Harness{ThinkingLevel: "high"}
+	h := Harness{Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}
 	_, err := h.run(t.Context(), adapter, req)
 	if err == nil {
 		t.Fatal("run: want an error after repeated summary violations")
@@ -201,7 +203,7 @@ func TestRunRecordsCleanSummaryWithoutFindings(t *testing.T) {
 		messageResponse("resp-1", summary),
 	}}
 
-	h := Harness{ThinkingLevel: "high"}
+	h := Harness{Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}
 	if _, err := h.run(t.Context(), adapter, req); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -366,7 +368,7 @@ func TestProviderTextNotLoopbackIsNotSentinel(t *testing.T) {
 func TestHarnessRunRejectsNonLoopbackOpenRouter(t *testing.T) {
 	req := reviewRequest(t)
 	req.OpenRouterAPI = "https://openrouter.ai/api/v1"
-	_, err := (Harness{APIKey: "dummy", ThinkingLevel: "high"}).Run(t.Context(), req)
+	_, err := (Harness{APIKey: "dummy", Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}).Run(t.Context(), req)
 	if err == nil || !errors.Is(err, ErrNotLoopback) {
 		t.Fatalf("error = %v, want a loopback refusal", err)
 	}
@@ -407,7 +409,7 @@ func TestHarnessRunUsesLocalOpenRouterAndReports401(t *testing.T) {
 	req := reviewRequest(t)
 	req.SessionDir = session
 	req.OpenRouterAPI = server.URL + "/api/v1"
-	_, err := (Harness{APIKey: "dummy", ThinkingLevel: "high"}).Run(ctx, req)
+	_, err := (Harness{APIKey: "dummy", Provider: "openrouter", Getenv: emptyGetenv, ThinkingLevel: "high"}).Run(ctx, req)
 	select {
 	case <-arrived:
 	default:

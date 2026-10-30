@@ -38,7 +38,7 @@ func registerRunFlags(fs *flag.FlagSet) runFlags {
 	f.outPath = fs.String("out", "findings.jsonl", "findings JSONL path, or - for stdout")
 	f.fresh = fs.Bool("fresh", false, "start a new review even if --out already exists")
 	f.decompose = fs.Bool("decompose", false, "use bounded scopes and aggregate coverage even below the automatic large-diff threshold")
-	f.model = fs.String("model", os.Getenv("UNREAL_HARNESS_LLM_MODEL"), "OpenRouter model id")
+	f.model = fs.String("model", os.Getenv("UNREAL_HARNESS_LLM_MODEL"), "model id for the selected provider (UNREAL_REVIEW_PROVIDER, default openrouter)")
 	f.thinking = fs.String("thinking-level", "high", "low, medium, high, xhigh, or max")
 	f.strategy = fs.String("strategy", "single", "single or focused (four discovery passes plus verification)")
 	f.timeout = fs.Duration("timeout", 20*time.Minute, "timeout for the whole review")

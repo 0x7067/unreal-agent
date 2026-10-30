@@ -23,7 +23,7 @@ const (
 	canaryOwner = "canary"
 	canaryRepo  = "fixture"
 	// Nothing listens here. A run --pr that starts the agent dials this origin
-	// and cannot reach openrouter.ai. make canary starts the shell stub in a
+	// and cannot reach openrouter.ai. make review-canary starts the shell stub in a
 	// separate process, so this env has to be set on the test's own exec.
 	canaryOpenRouterAPI = "http://127.0.0.1:9/api/v1"
 )

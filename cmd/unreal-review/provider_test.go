@@ -11,14 +11,6 @@ import (
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
-func TestReviewCredentialMapCoversRegistry(t *testing.T) {
-	for _, provider := range providers.Default() {
-		if _, ok := reviewCredentialEnv[provider.Name]; !ok {
-			t.Errorf("provider %q has no review credential mapping", provider.Name)
-		}
-	}
-}
-
 func TestReviewAPIKeyUsesOnlyTheVendorCredential(t *testing.T) {
 	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
 	secrets["OPENAI_API_KEY"] = "openai-key"

@@ -7,10 +7,6 @@ import (
 	"os"
 )
 
-var (
-	ErrAPIKey = errors.New("set OPENROUTER_API_KEY")
-)
-
 func main() {
 	if err := isolateSecrets(); err != nil {
 		fmt.Fprintf(os.Stderr, "unreal-review: %v\n", err)
@@ -66,8 +62,9 @@ range flags, run reviews staged, unstaged, and untracked changes
 against HEAD. --from/--to is merge-base of those refs; omit --to to
 include the working tree. --commit reviews one commit against its
 parent. --branch reviews a branch since it diverged from main or
-master. --workspace selects the checkout. --model names the OpenRouter
-model. --fresh starts over an existing --out. --strategy is single or
+master. --workspace selects the checkout. --model names the model id
+for the selected provider (UNREAL_REVIEW_PROVIDER, default openrouter).
+--fresh starts over an existing --out. --strategy is single or
 focused. --decompose requests bounded tasks below the automatic size
 threshold. --timeout limits the review. --thinking-level defaults to
 high (low|medium|high|xhigh|max). --agent-log writes the harness
@@ -83,7 +80,7 @@ the review itself. GitHub posting requires a complete review.
 
 Environment:
   UNREAL_REVIEW_PROVIDER         model provider (default openrouter)
-  OPENROUTER_API_KEY             required for run
+  OPENROUTER_API_KEY             run needs the selected provider's credential (this one by default)
   UNREAL_HARNESS_LLM_MODEL       default --model
   GH_TOKEN                       required for --pr and to post a GitHub review
 `)

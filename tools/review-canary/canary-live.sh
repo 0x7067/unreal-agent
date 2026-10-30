@@ -11,7 +11,7 @@
 #
 # Range: a temporary git repo with one committed one-line change, reviewed with
 # `run --commit HEAD` at --thinking-level low. Not `run --pr` (no GH_TOKEN, no
-# GitHub). Not part of the CI canary job. Offline regression remains `make canary`.
+# GitHub). Not part of the CI canary job. Offline regression remains `make review-canary`.
 set -euo pipefail
 
 DOCUMENTED_MODEL=openai/gpt-6-luna-pro
@@ -36,7 +36,7 @@ UNREAL_REVIEW_OPENROUTER_API must be unset, including not set to an empty
 string. This smoke calls https://openrouter.ai/api/v1 and will not use
 tools/review-canary/openrouter-stub.py.
 
-Not part of CI. The offline regression is: make canary
+Not part of CI. The offline regression is: make review-canary
 EOF
 }
 
