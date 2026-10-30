@@ -1,6 +1,6 @@
 #!/bin/bash
-# Live OpenRouter smoke. Unlike tools/canary.sh, this calls https://openrouter.ai/api/v1.
-# It does not start tools/openrouter-stub.py and does not set UNREAL_REVIEW_OPENROUTER_API.
+# Live OpenRouter smoke. Unlike tools/review-canary/canary.sh, this calls https://openrouter.ai/api/v1.
+# It does not start tools/review-canary/openrouter-stub.py and does not set UNREAL_REVIEW_OPENROUTER_API.
 # UNREAL_REVIEW_OPENROUTER_API must be unset. A set value, including an empty
 # string, is refused so a loopback stand-in cannot satisfy the smoke.
 #
@@ -34,7 +34,7 @@ Requires:
 The documented model is not filled in when UNREAL_HARNESS_LLM_MODEL is unset.
 UNREAL_REVIEW_OPENROUTER_API must be unset, including not set to an empty
 string. This smoke calls https://openrouter.ai/api/v1 and will not use
-tools/openrouter-stub.py.
+tools/review-canary/openrouter-stub.py.
 
 Not part of CI. The offline regression is: make canary
 EOF
@@ -111,7 +111,7 @@ if [ $# -gt 0 ]; then
 fi
 
 if [ -z "$(trim "${OPENROUTER_API_KEY:-}")" ]; then
-	fail "set OPENROUTER_API_KEY. This smoke calls https://openrouter.ai/api/v1. The offline regression (no secret) is make canary."
+	fail "set OPENROUTER_API_KEY. This smoke calls https://openrouter.ai/api/v1. The offline regression (no secret) is make review-canary."
 fi
 if [ -z "$(trim "${UNREAL_HARNESS_LLM_MODEL:-}")" ]; then
 	fail "set UNREAL_HARNESS_LLM_MODEL. Documented model: ${DOCUMENTED_MODEL}."
@@ -119,13 +119,13 @@ fi
 # ${var+x} is set when the variable is present, even if the value is empty.
 # An empty string must not fall through to the public API.
 if [ -n "${UNREAL_REVIEW_OPENROUTER_API+x}" ]; then
-	fail "unset UNREAL_REVIEW_OPENROUTER_API (a blank value counts as set). This smoke calls https://openrouter.ai/api/v1 and will not use a loopback stand-in (tools/openrouter-stub.py)."
+	fail "unset UNREAL_REVIEW_OPENROUTER_API (a blank value counts as set). This smoke calls https://openrouter.ai/api/v1 and will not use a loopback stand-in (tools/review-canary/openrouter-stub.py)."
 fi
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN="$ROOT/bin/unreal-review"
 if [ ! -x "$BIN" ]; then
-	fail "missing $BIN. Run make canary-live (or make build) from the repo root."
+	fail "missing $BIN. Run make review-canary-live (or make build) from the repo root."
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/unreal-review-canary-live.XXXXXX")

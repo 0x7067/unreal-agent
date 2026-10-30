@@ -28,7 +28,7 @@
 Preconditions:
 
 - Launch and doctor have succeeded.
-- `$VERIFY_EXAMPLE` is `$VERIFY_REPO/examples/findings.jsonl`.
+- `$VERIFY_EXAMPLE` is `$VERIFY_REPO/tools/review-canary/testdata/findings.jsonl`.
 - Use `scripts/cli.sh --no-github-auth` unless the step is `gh-post`.
 - Do not run `gh-post` unless the user named a disposable `owner/repo#n`.
 
@@ -41,7 +41,7 @@ Preconditions:
 - **Legacy missing status.** Run `scripts/sample-findings.sh legacy "$VERIFY_SCRATCH/legacy.jsonl"` then `scripts/cli.sh --name gh-legacy --no-github-auth -- render github --dry-run --pr owner/repo#3 "$VERIFY_SCRATCH/legacy.jsonl"`. Exit code `0`. The comment has `"side": "LEFT"` and `"path": "a.go"`. The body contains `legacy`.
 - **Post without token.** Run `scripts/cli.sh --name gh-no-token --no-github-auth -- render github --pr owner/repo#12 "$VERIFY_EXAMPLE"`. Exit code `1`. `stderr.txt` contains `set GH_TOKEN to post a review`.
 - **Dry-run still GETs with a token.** Run `GH_TOKEN=verify-unreal-review-dummy scripts/cli.sh --name gh-dry-with-token -- render github --dry-run --pr owner/repo#12 "$VERIFY_EXAMPLE"`. Exit code `1`. `stderr.txt` contains `github GET /repos/owner/repo/pulls/12`. It does not contain `posted`. The GET is proof `--dry-run` still fetched the pull request when `GH_TOKEN` is set. A dummy token typically yields `401`; a real token against `owner/repo` yields `404`.
-- **Live post.** Unreachable unless the user named a disposable pull request. On that path, run `scripts/cli.sh --name gh-post -- render github --pr <that-pr> "$VERIFY_EXAMPLE"` and expect stderr `posted 2 inline comment(s)` only if those lines exist in that PR patch; otherwise comments may be dropped. Do not use `examples/findings.jsonl` against a real unrelated PR as success proof.
+- **Live post.** Unreachable unless the user named a disposable pull request. On that path, run `scripts/cli.sh --name gh-post -- render github --pr <that-pr> "$VERIFY_EXAMPLE"` and expect stderr `posted 2 inline comment(s)` only if those lines exist in that PR patch; otherwise comments may be dropped. Do not use `tools/review-canary/testdata/findings.jsonl` against a real unrelated PR as success proof.
 - **Proof.** Keep `gh-dry-run/stdout.txt` (RIGHT-side comments, no network), `gh-no-token/stderr.txt`, and `gh-dry-with-token/stderr.txt` (GET, no `posted`).
 
 ## Gotchas

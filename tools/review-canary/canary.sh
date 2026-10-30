@@ -2,8 +2,8 @@
 # Offline assertions for the verify-unreal-review recipes.
 # Exit status, stdout, stderr, and JSONL are checked against features/*.md.
 # Skipped on purpose: range-live, gh-post (live), gh-dry-with-token (calls api.github.com).
-# Fake-GitHub coverage of run --pr and render github is the Go test make canary runs next.
-# Non-empty diffs still expect a 401. That status comes from tools/openrouter-stub.py
+# Fake-GitHub coverage of run --pr and render github is the Go test make review-canary runs next.
+# Non-empty diffs still expect a 401. That status comes from tools/review-canary/openrouter-stub.py
 # on 127.0.0.1, not from openrouter.ai.
 set -euo pipefail
 
@@ -18,7 +18,7 @@ stub_stop() {
 trap 'status=$?; echo "canary: command failed at line $LINENO (exit $status)" >&2; echo "evidence: ${VERIFY_EVIDENCE:-unset}" >&2; stub_stop; exit $status' ERR
 trap 'stub_stop' EXIT
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 
 export LC_ALL=C.UTF-8
@@ -34,15 +34,15 @@ case $VERIFY_RUN_ID in
 	;;
 esac
 mkdir -p "$VERIFY_ROOT"
-unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
+unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
 
 # lib.sh keys off $0, so sourcing it from this script would point at tools/.
 # Launch still sources lib.sh itself; these are the same paths it derives.
-FEATURES="$ROOT/.agents/skills/verify-unreal-review/features"
-SCRIPTS="$ROOT/.agents/skills/verify-unreal-review/scripts"
+FEATURES="$ROOT/.claude/skills/verify-unreal-review/features"
+SCRIPTS="$ROOT/.claude/skills/verify-unreal-review/scripts"
 VERIFY_EVIDENCE="$VERIFY_ROOT/evidence/$VERIFY_RUN_ID"
 VERIFY_SCRATCH="$VERIFY_ROOT/scratch/$VERIFY_RUN_ID"
-VERIFY_EXAMPLE="$ROOT/examples/findings.jsonl"
+VERIFY_EXAMPLE="$ROOT/tools/review-canary/testdata/findings.jsonl"
 EMPTY=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 
 say() { printf 'canary: %s\n' "$*"; }
@@ -55,7 +55,7 @@ start_openrouter_stub() {
 	rm -f "$url_file"
 	STUB_LOG="$VERIFY_ROOT/openrouter-stub.log"
 	: >"$STUB_LOG"
-	python3 "$ROOT/tools/openrouter-stub.py" "$STUB_LOG" >"$url_file" &
+	python3 "$ROOT/tools/review-canary/openrouter-stub.py" "$STUB_LOG" >"$url_file" &
 	STUB_PID=$!
 	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 		if [ -s "$url_file" ]; then

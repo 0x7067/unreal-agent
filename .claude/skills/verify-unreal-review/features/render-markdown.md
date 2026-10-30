@@ -4,7 +4,7 @@
 
 ## Sub-features
 
-- `md-example` renders `examples/findings.jsonl` to stdout.
+- `md-example` renders `tools/review-canary/testdata/findings.jsonl` to stdout.
 - `md-out` writes the same report to `--out`.
 - `md-stdin` reads `-` from stdin.
 - `md-empty` prints `No findings.` for an empty file.
@@ -23,7 +23,7 @@
 Preconditions:
 
 - Launch and doctor have succeeded.
-- `$VERIFY_EXAMPLE` is `$VERIFY_REPO/examples/findings.jsonl`.
+- `$VERIFY_EXAMPLE` is `$VERIFY_REPO/tools/review-canary/testdata/findings.jsonl`.
 - `scripts/sample-findings.sh` can write running and empty files into scratch.
 
 - **Example file.** Run `scripts/cli.sh --name md-example -- render markdown "$VERIFY_EXAMPLE"`. Exit code `0`. `stdout.txt` is exactly:

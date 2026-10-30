@@ -15,8 +15,8 @@ From the repo root, or via the scripts below. Scripts resolve the repo from thei
 
 ```bash
 export VERIFY_ROOT=${VERIFY_ROOT:-/tmp/verify-unreal-review}
-.agents/skills/verify-unreal-review/scripts/launch.sh
-.agents/skills/verify-unreal-review/scripts/doctor.sh
+.claude/skills/verify-unreal-review/scripts/launch.sh
+.claude/skills/verify-unreal-review/scripts/doctor.sh
 ```
 
 `launch.sh` runs `make build`, writes `bin/unreal-review`, creates `$VERIFY_ROOT/evidence/$VERIFY_RUN_ID` and `$VERIFY_ROOT/scratch/$VERIFY_RUN_ID`, and records the run id in `$VERIFY_ROOT/current-run`. Ready when it prints `ready: <path-to-bin>` and `doctor.sh` exits 0.
@@ -30,7 +30,7 @@ Teardown is [Cleanup](#cleanup). The CLI does not stay running.
 Read-only. Run after launch, at the start of every fresh session, and after unexpected output.
 
 ```bash
-.agents/skills/verify-unreal-review/scripts/doctor.sh
+.claude/skills/verify-unreal-review/scripts/doctor.sh
 ```
 
 It must report `doctor: ok` and confirm all of:
@@ -50,9 +50,9 @@ Refuse to drive any other `unreal-review` on `PATH`.
 Run every CLI invocation through `scripts/cli.sh` so command, stdout, stderr, and exit land under evidence. `cli.sh` exits 0 after capture; the CLI's exit code is `exit.txt`. Pass `--` with no following args to invoke the binary with no command.
 
 ```bash
-.agents/skills/verify-unreal-review/scripts/cli.sh --name <step> -- <unreal-review args>
-.agents/skills/verify-unreal-review/scripts/cli.sh --name <step> --no-github-auth -- <args>
-.agents/skills/verify-unreal-review/scripts/cli.sh --name <step> --stdin <file> -- render markdown -
+.claude/skills/verify-unreal-review/scripts/cli.sh --name <step> -- <unreal-review args>
+.claude/skills/verify-unreal-review/scripts/cli.sh --name <step> --no-github-auth -- <args>
+.claude/skills/verify-unreal-review/scripts/cli.sh --name <step> --stdin <file> -- render markdown -
 ```
 
 `--no-github-auth` unsets `GH_TOKEN`, so posting cannot reach GitHub.
@@ -60,7 +60,7 @@ Run every CLI invocation through `scripts/cli.sh` so command, stdout, stderr, an
 For `run`, create a disposable repo first:
 
 ```bash
-.agents/skills/verify-unreal-review/scripts/fixture-repo.sh
+.claude/skills/verify-unreal-review/scripts/fixture-repo.sh
 ```
 
 That prints `VERIFY_FIXTURE`, `BASE_SHA`, and `HEAD_SHA` and writes `$VERIFY_SCRATCH/fixture.env` (source it). Pass `--workspace "$VERIFY_FIXTURE"`. Do not use the product checkout as `--workspace` unless the recipe is reviewing this repo's own range.
@@ -71,7 +71,7 @@ Live review of a non-empty diff spends OpenRouter credit. Drive it only when the
 
 Do not post a GitHub review unless the user names a disposable pull request. Default GitHub proof is `--dry-run`.
 
-Stable handles: subcommands `run`, `group`, `eval`, `render markdown`, `render github`; flags `--from`, `--to`, `--commit`, `--branch`, `--exclude`, `--out`, `--fresh`, `--workspace`, `--dry-run`, `--pr`, `--repo`, `--model`, `--thinking-level`, `--strategy`, `--decompose`, `--timeout`, `--agent-log`, and the eval-only `--corpus`, `--cases`, `--runs`, `--json`, `--judge-model`, `--profile`, `--parallel`; positional pathspecs; `examples/findings.jsonl`.
+Stable handles: subcommands `run`, `group`, `eval`, `render markdown`, `render github`; flags `--from`, `--to`, `--commit`, `--branch`, `--exclude`, `--out`, `--fresh`, `--workspace`, `--dry-run`, `--pr`, `--repo`, `--model`, `--thinking-level`, `--strategy`, `--decompose`, `--timeout`, `--agent-log`, and the eval-only `--corpus`, `--cases`, `--runs`, `--json`, `--judge-model`, `--profile`, `--parallel`; positional pathspecs; `tools/review-canary/testdata/findings.jsonl`.
 
 ## Evidence
 
@@ -102,7 +102,7 @@ CI jobs `check` and `canary` are the regression pair. Workflow `Review` is the l
 ## Cleanup
 
 ```bash
-.agents/skills/verify-unreal-review/scripts/cleanup.sh
+.claude/skills/verify-unreal-review/scripts/cleanup.sh
 ```
 
 Deletes `$VERIFY_SCRATCH` for this run id. Leaves `$VERIFY_EVIDENCE` in place. After cleanup, `ls "$VERIFY_EVIDENCE"` must still list the step directories.
@@ -111,13 +111,13 @@ On a failed attempt, run cleanup for that run id before starting another.
 
 ## Helpers
 
-All under `.agents/skills/verify-unreal-review/scripts/`. Executable. `VERIFY_RUN_ID` from launch/`current-run`.
+All under `.claude/skills/verify-unreal-review/scripts/`. Executable. `VERIFY_RUN_ID` from launch/`current-run`.
 
 | Script | Invocation |
 | --- | --- |
-| `launch.sh` | `.agents/skills/verify-unreal-review/scripts/launch.sh` |
-| `doctor.sh` | `.agents/skills/verify-unreal-review/scripts/doctor.sh` |
+| `launch.sh` | `.claude/skills/verify-unreal-review/scripts/launch.sh` |
+| `doctor.sh` | `.claude/skills/verify-unreal-review/scripts/doctor.sh` |
 | `cli.sh` | `…/cli.sh --name <step> [--no-github-auth] [--stdin file] -- <args>` |
 | `fixture-repo.sh` | `…/fixture-repo.sh [name]` (default `review`) |
 | `sample-findings.sh` | `…/sample-findings.sh complete\|running\|failed\|legacy\|empty <path>` |
-| `cleanup.sh` | `.agents/skills/verify-unreal-review/scripts/cleanup.sh` |
+| `cleanup.sh` | `.claude/skills/verify-unreal-review/scripts/cleanup.sh` |

@@ -6,6 +6,7 @@ An async-first agent harness from Unreal Labs.
 - [cmd/](cmd/) — executables that use the library.
   - [cmd/unreal-agent-runner](cmd/unreal-agent-runner) - cloud agent runner.
   - [cmd/unreal-agent-tui](cmd/unreal-agent-tui) - cozy TUI.
+  - [cmd/unreal-review](cmd/unreal-review) - fork-only review CLI (not in upstream `unreallabsai/unreal-agent`). It writes [findings-v1](docs/review/findings-v1.md).
 - [benchmarks/](benchmarks/) — benchmark runners.
 
 Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)
