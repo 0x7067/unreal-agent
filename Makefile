@@ -1,6 +1,7 @@
 .PHONY: build test check install-local
 
-# Local tap for install-local; the cask mirrors unreallabsai/tap/unreal-agent.
+# Local tap for install-local. The generated cask's download URLs point at
+# this fork's GitHub releases; install-local rewrites them to local archives.
 LOCAL_TAP ?= 0x7067/local
 
 build:
@@ -22,7 +23,7 @@ install-local:
 	goreleaser release --snapshot --clean --skip=docker
 	test -d "$$(brew --repository $(LOCAL_TAP))" || brew tap-new --no-git $(LOCAL_TAP)
 	tap="$$(brew --repository $(LOCAL_TAP))" && mkdir -p "$$tap/Casks" && \
-		sed -E 's|https://github.com/unreallabsai/unreal-agent/releases/download/v[^/]+/|file://$(CURDIR)/dist/|' \
+		sed -E 's|https://github.com/0x7067/unreal-agent/releases/download/[^/]+/|file://$(CURDIR)/dist/|' \
 			dist/homebrew/Casks/unreal-agent.rb > "$$tap/Casks/unreal-agent.rb"
 	if brew list --cask $(LOCAL_TAP)/unreal-agent >/dev/null 2>&1; then \
 		brew reinstall --cask $(LOCAL_TAP)/unreal-agent; \

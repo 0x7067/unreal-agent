@@ -21,6 +21,8 @@ builds:
     flags: [-mod=readonly, -trimpath]
     ldflags:
       - -s -w
+      # .Version is the tag with one leading v removed, so v0.4.0-fork.1
+      # embeds 0.4.0-fork.1. .RawVersion would drop the -fork.N suffix.
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
       - -X main.date={{ .CommitDate }}
@@ -37,7 +39,11 @@ checksum:
   algorithm: sha256
 
 dockers_v2:
+  # Fork: do not publish unrea1labs/unreal-agent. This fork has no Docker Hub
+  # credentials. Leave the image name in place; remove disable only together
+  # with a fork-owned image.
   - id: runner
+    disable: true
     ids: [runner]
     dockerfile: Dockerfile.release
     images: [unrea1labs/unreal-agent]
@@ -54,12 +60,18 @@ dockers_v2:
 
 release:
   github:
-    owner: unreallabsai
+    owner: 0x7067
     name: unreal-agent
   name_template: '{{ .Tag }}'
+  # -fork.N is a semver prerelease. "false" keeps the GitHub release normal
+  # (the default is already not "auto"; set it so that does not change).
+  prerelease: "false"
 
 homebrew_casks:
+  # Fork: generate the cask locally but do not push unreallabsai/homebrew-tap
+  # (that needs HOMEBREW_TAP_DEPLOY_KEY). Casks have no disable field.
   - name: unreal-agent
+    skip_upload: true
     ids: [unreal-agent]
     binaries: [unreal-agent-runner, unreal-agent-tui]
     homepage: https://github.com/unreallabsai/unreal-agent
