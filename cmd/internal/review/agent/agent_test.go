@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json/jsontext"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/harness/llm"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
@@ -362,6 +365,138 @@ func TestProviderTextNotLoopbackIsNotSentinel(t *testing.T) {
 	}
 	if errors.Is(err, ErrNotLoopback) {
 		t.Fatalf("provider text identified as loopback refusal: %v", err)
+	}
+}
+
+func codexReviewToken(account string) string {
+	payload := fmt.Sprintf(`{"exp":%d,"https://api.openai.com/auth":{"chatgpt_account_id":%q}}`, time.Now().Add(time.Hour).Unix(), account)
+	return "e30." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
+}
+
+func writeCodexAuthFile(t *testing.T, dir, account string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "auth.json")
+	body := fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":"opaque","account_id":%q}}`, account)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestCodexReviewRefusesAuthFileWithoutTokens(t *testing.T) {
+	home := t.TempDir()
+	codexHome := t.TempDir()
+	fileAccount := "from-file"
+	homeAuth := writeCodexAuthFile(t, filepath.Join(home, ".codex"), fileAccount)
+	codexAuth := writeCodexAuthFile(t, codexHome, fileAccount)
+	if err := os.Chmod(homeAuth, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(codexAuth, 0); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(name string) string {
+		switch name {
+		case "HOME":
+			return home
+		case "CODEX_HOME":
+			return codexHome
+		case "OPENAI_CODEX_AUTH_FILE":
+			return homeAuth
+		default:
+			return ""
+		}
+	}
+	_, _, err := CodexCredentials(getenv)
+	if !errors.Is(err, ErrCodexCredentials) {
+		t.Fatalf("credentials: %v", err)
+	}
+	selected := providers.Provider{
+		Name: "openai-codex",
+		NewClient: func(string, string, int, func(string) string) (providers.Client, error) {
+			t.Fatal("registry client factory was called")
+			return nil, errors.New("unused")
+		},
+	}
+	_, _, err = (Harness{Provider: "openai-codex", Getenv: getenv}).newModelAdapter(selected, "https://chatgpt.com/backend-api/codex")
+	if !errors.Is(err, ErrCodexCredentials) || err.Error() != ErrCodexCredentials.Error() {
+		t.Fatalf("adapter: %v", err)
+	}
+	req := reviewRequest(t)
+	_, err = (Harness{Provider: "openai-codex", Getenv: getenv, ThinkingLevel: "high"}).Run(t.Context(), req)
+	if !errors.Is(err, ErrCodexCredentials) {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestCodexReviewClientUsesEnvPair(t *testing.T) {
+	home := t.TempDir()
+	codexHome := t.TempDir()
+	authFile := writeCodexAuthFile(t, filepath.Join(home, ".codex"), "from-file")
+	writeCodexAuthFile(t, codexHome, "from-file")
+	const account = "from-env"
+	token := codexReviewToken(account)
+	getenv := func(name string) string {
+		switch name {
+		case "HOME":
+			return home
+		case "CODEX_HOME":
+			return codexHome
+		case "OPENAI_CODEX_AUTH_FILE":
+			return authFile
+		case "OPENAI_CODEX_ACCESS_TOKEN":
+			return " " + token + " "
+		case "OPENAI_CODEX_ACCOUNT_ID":
+			return " " + account + " "
+		default:
+			return ""
+		}
+	}
+	var gotAuth, gotAccount string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAccount = r.Header.Get("ChatGPT-Account-ID")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		if _, err := w.Write([]byte(`{"error":{"message":"no","code":401}}`)); err != nil {
+			t.Errorf("write: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	selected := providers.Provider{
+		Name: "openai-codex",
+		NewClient: func(string, string, int, func(string) string) (providers.Client, error) {
+			t.Fatal("registry client factory was called")
+			return nil, errors.New("unused")
+		},
+	}
+	adapter, closeAdapter, err := (Harness{Provider: "openai-codex", Getenv: getenv}).newModelAdapter(selected, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := closeAdapter(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := adapter.Respond(t.Context(), llm.Request{
+		Model: llm.Model{ID: "test"},
+		Input: []llm.Item{{
+			Type: llm.ItemMessage,
+			Data: llm.Message{Role: llm.RoleUser, Text: "hi"},
+		}},
+	}, llm.RequestOptions{}); err == nil {
+		t.Fatal("stub accepted the codex request")
+	}
+	if gotAuth != "Bearer "+token {
+		t.Fatalf("authorization = %q", gotAuth)
+	}
+	if gotAccount != account {
+		t.Fatalf("account = %q", gotAccount)
 	}
 }
 

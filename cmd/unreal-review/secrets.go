@@ -22,7 +22,9 @@ const (
 // secretNames are stripped from the process environment before the review
 // starts, so a Bash tool cannot read them. Provider keys are the non-empty
 // APIKeyEnvironment values in the registry. The generic harness key, the
-// Codex token pair, and the GitHub tokens are explicit extras.
+// Codex token pair, OPENAI_CODEX_AUTH_FILE, and the GitHub tokens are
+// explicit extras. The auth file path is stripped so the review shell
+// cannot open it.
 var secretNames = reviewSecretNames()
 
 func reviewSecretNames() []string {
@@ -35,6 +37,7 @@ func reviewSecretNames() []string {
 	return append(names,
 		"OPENAI_CODEX_ACCESS_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID",
+		"OPENAI_CODEX_AUTH_FILE",
 		"GH_TOKEN",
 		"GITHUB_TOKEN",
 	)

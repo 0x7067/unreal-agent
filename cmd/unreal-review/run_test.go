@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
@@ -21,6 +23,46 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Exit(m.Run())
+}
+
+func TestRunCodexRefusesAuthFile(t *testing.T) {
+	home := t.TempDir()
+	codexHome := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("UNREAL_REVIEW_PROVIDER", "openai-codex")
+	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "")
+	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "")
+	t.Setenv("OPENAI_CODEX_AUTH_FILE", "")
+	for _, name := range []string{"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_AUTH_FILE"} {
+		delete(secrets, name)
+	}
+	for _, dir := range []string{filepath.Join(home, ".codex"), codexHome} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "auth.json")
+		body := []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"opaque","account_id":"from-file"}}`)
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	explicit := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(explicit, []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"opaque","account_id":"from-file"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(explicit, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENAI_CODEX_AUTH_FILE", explicit)
+
+	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", filepath.Join(t.TempDir(), "findings.jsonl")})
+	if !errors.Is(err, agent.ErrCodexCredentials) {
+		t.Fatalf("codex auth file: %v", err)
+	}
 }
 
 func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {

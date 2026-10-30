@@ -21,6 +21,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openaicodex"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
@@ -152,7 +153,49 @@ func (h Harness) newModelAdapter(selected providers.Provider, base string) (llm.
 	if selected.Name == "openrouter" && loopbackHost(u.Hostname()) {
 		return newLoopbackModelAdapter(h.APIKey, base)
 	}
+	// Codex review builds the client from the env pair only. The registry
+	// factory would fall back to ~/.codex/auth.json, $CODEX_HOME/auth.json,
+	// or OPENAI_CODEX_AUTH_FILE, and the review shell could read that file.
+	if selected.Name == "openai-codex" {
+		return newCodexReviewAdapter(h.Getenv, base)
+	}
 	client, err := selected.NewClient(h.APIKey, base, responsesapi.DefaultMaxAttempts, h.Getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, client.Close, nil
+}
+
+// ErrCodexCredentials is the refusal when openai-codex has no env token pair.
+// The auth file is not a substitute.
+var ErrCodexCredentials = errors.New("openai-codex in unreal-review requires OPENAI_CODEX_ACCESS_TOKEN and OPENAI_CODEX_ACCOUNT_ID; the Codex auth file is refused because the review agent's shell could read it from an untrusted diff")
+
+// CodexCredentials reads only the env token pair. A missing value, or a nil
+// getenv, is ErrCodexCredentials. Auth-file variables are ignored.
+func CodexCredentials(getenv func(string) string) (string, string, error) {
+	if getenv == nil {
+		return "", "", ErrCodexCredentials
+	}
+	token := strings.TrimSpace(getenv("OPENAI_CODEX_ACCESS_TOKEN"))
+	account := strings.TrimSpace(getenv("OPENAI_CODEX_ACCOUNT_ID"))
+	if token == "" || account == "" {
+		return "", "", ErrCodexCredentials
+	}
+	return token, account, nil
+}
+
+func newCodexReviewAdapter(getenv func(string) string, base string) (llm.Adapter, func() error, error) {
+	token, account, err := CodexCredentials(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	attempts := responsesapi.DefaultMaxAttempts
+	client, err := openaicodex.NewClient(openaicodex.Config{
+		AccessToken: token,
+		AccountID:   account,
+		BaseURL:     base,
+		MaxAttempts: &attempts,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

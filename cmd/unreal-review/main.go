@@ -81,6 +81,7 @@ the review itself. GitHub posting requires a complete review.
 Environment:
   UNREAL_REVIEW_PROVIDER         model provider (default openrouter)
   OPENROUTER_API_KEY             run needs the selected provider's credential (this one by default)
+  OPENAI_CODEX_ACCESS_TOKEN      with OPENAI_CODEX_ACCOUNT_ID for openai-codex; the auth file is refused
   UNREAL_HARNESS_LLM_MODEL       default --model
   GH_TOKEN                       required for --pr and to post a GitHub review
 `)

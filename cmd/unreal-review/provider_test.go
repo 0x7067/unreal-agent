@@ -49,6 +49,18 @@ func TestReviewAPIKeyUsesOnlyTheVendorCredential(t *testing.T) {
 	if got := reviewClientGetenv(providers.APIKeyEnvironment); got != "" {
 		t.Fatalf("client getenv returned the generic key %q", got)
 	}
+	secrets["OPENAI_CODEX_AUTH_FILE"] = "/tmp/codex-auth.json"
+	secrets["CODEX_HOME"] = "/tmp/codex-home"
+	t.Cleanup(func() {
+		delete(secrets, "OPENAI_CODEX_AUTH_FILE")
+		delete(secrets, "CODEX_HOME")
+	})
+	if got := reviewClientGetenv("OPENAI_CODEX_AUTH_FILE"); got != "" {
+		t.Fatalf("client getenv returned the auth file %q", got)
+	}
+	if got := reviewClientGetenv("CODEX_HOME"); got != "" {
+		t.Fatalf("client getenv returned CODEX_HOME %q", got)
+	}
 }
 
 func TestReviewAPIKeyNamesTheMissingVariable(t *testing.T) {

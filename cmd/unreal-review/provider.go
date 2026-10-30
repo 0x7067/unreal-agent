@@ -24,9 +24,11 @@ func reviewGetenv(name string) string {
 }
 
 // reviewClientGetenv is the getenv passed to provider clients. The generic
-// harness key is blank, so a client cannot attach it to a request.
+// harness key is blank, so a client cannot attach it to a request. Codex
+// file locations are blank so a registry client cannot select an auth file.
 func reviewClientGetenv(name string) string {
-	if name == providers.APIKeyEnvironment {
+	switch name {
+	case providers.APIKeyEnvironment, "OPENAI_CODEX_AUTH_FILE", "CODEX_HOME":
 		return ""
 	}
 	return reviewGetenv(name)

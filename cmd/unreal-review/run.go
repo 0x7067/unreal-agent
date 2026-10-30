@@ -64,6 +64,11 @@ func cmdRun(args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	if provider.Name == "openai-codex" {
+		if _, _, err := agent.CodexCredentials(reviewClientGetenv); err != nil {
+			return err
+		}
+	}
 	level, err := agent.SanitizeLevel(*f.thinking)
 	if err != nil {
 		return err

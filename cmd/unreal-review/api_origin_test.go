@@ -72,9 +72,10 @@ func TestGitHubAPIOrigin(t *testing.T) {
 func TestIsolateSecretsRemovesCredentialsFromChildEnvironment(t *testing.T) {
 	const helper = "UNREAL_REVIEW_TEST_ISOLATE_SECRETS"
 	values := map[string]string{
-		"OPENROUTER_API_KEY": "openrouter-secret",
-		"GH_TOKEN":           "github-secret",
-		"GITHUB_TOKEN":       "inherited-github-secret",
+		"OPENROUTER_API_KEY":     "openrouter-secret",
+		"GH_TOKEN":               "github-secret",
+		"GITHUB_TOKEN":           "inherited-github-secret",
+		"OPENAI_CODEX_AUTH_FILE": "/tmp/codex-auth.json",
 	}
 	if os.Getenv(helper) == "1" {
 		if err := isolateSecrets(); err != nil {
