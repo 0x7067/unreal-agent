@@ -121,6 +121,8 @@ fi
 if [ -n "${UNREAL_REVIEW_OPENROUTER_API+x}" ]; then
 	fail "unset UNREAL_REVIEW_OPENROUTER_API (a blank value counts as set). This smoke calls https://openrouter.ai/api/v1 and will not use a loopback stand-in (tools/review-canary/openrouter-stub.py)."
 fi
+# This smoke is OpenRouter. Do not follow UNREAL_REVIEW_PROVIDER.
+unset UNREAL_REVIEW_PROVIDER || true
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN="$ROOT/bin/unreal-review"

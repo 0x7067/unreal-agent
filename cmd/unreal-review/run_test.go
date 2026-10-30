@@ -107,16 +107,22 @@ func TestRunOpenRouterIgnoresGenericHarnessKey(t *testing.T) {
 	}
 }
 
-func TestRunOpenAIProviderRequiresItsOwnKey(t *testing.T) {
+func TestHarnessProviderDoesNotSelectReviewProvider(t *testing.T) {
 	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "openai")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "")
+	t.Setenv("UNREAL_REVIEW_PROVIDER", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "generic-key")
 	delete(secrets, "OPENROUTER_API_KEY")
-	delete(secrets, "OPENAI_API_KEY")
-	delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
+	secrets["OPENAI_API_KEY"] = "openai-key"
+	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
+	t.Cleanup(func() {
+		delete(secrets, "OPENAI_API_KEY")
+		delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
+	})
 	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", filepath.Join(t.TempDir(), "findings.jsonl")})
-	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") || err.Error() == "set OPENROUTER_API_KEY" {
-		t.Fatalf("error = %v, want the openai credential", err)
+	if err == nil || err.Error() != "set OPENROUTER_API_KEY" {
+		t.Fatalf("harness provider changed review: %v", err)
 	}
 }
 

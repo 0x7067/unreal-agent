@@ -25,7 +25,6 @@ func TestSubcommandHelp(t *testing.T) {
 	}{
 		{args: "run -h", once: "Usage of run:\n", need: []string{"-workspace"}},
 		{args: "group -h", once: "Usage of group:\n", need: []string{"-exclude"}},
-		{args: "eval -h", once: "Usage of eval:\n", need: []string{"-corpus"}},
 		{args: "render markdown -h", once: "Usage of render markdown:\n", need: []string{"-out"}},
 		{args: "render github -h", once: "Usage of render github:\n", need: []string{"-dry-run"}},
 		{
@@ -82,7 +81,6 @@ func TestRegisteredFlagsAppearInHelp(t *testing.T) {
 	}{
 		{name: "run", args: "run -h", register: func(fs *flag.FlagSet) { registerRunFlags(fs) }},
 		{name: "group", args: "group -h", register: func(fs *flag.FlagSet) { registerGroupFlags(fs) }},
-		{name: "eval", args: "eval -h", register: func(fs *flag.FlagSet) { registerEvalFlags(fs) }},
 		{name: "render github", args: "render github -h", register: func(fs *flag.FlagSet) { registerGitHubFlags(fs) }},
 		{name: "render markdown", args: "render markdown -h", register: func(fs *flag.FlagSet) { registerMarkdownFlags(fs) }},
 	}

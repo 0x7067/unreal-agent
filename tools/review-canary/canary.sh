@@ -34,7 +34,7 @@ case $VERIFY_RUN_ID in
 	;;
 esac
 mkdir -p "$VERIFY_ROOT"
-unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
+unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL UNREAL_REVIEW_PROVIDER OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
 
 # lib.sh keys off $0, so sourcing it from this script would point at tools/.
 # Launch still sources lib.sh itself; these are the same paths it derives.
@@ -426,10 +426,6 @@ OPENROUTER_API_KEY=dummy cli --name focused-invalid -- run --strategy nope --mod
 require_exit focused-invalid 1
 expect focused-review.md 'strategy "nope": want single or focused' "$(stderr_of focused-invalid)" "focused-invalid"
 
-OPENROUTER_API_KEY=dummy cli --name focused-eval-invalid -- eval --strategy nope --model x --out "$VERIFY_SCRATCH/unused-eval"
-require_exit focused-eval-invalid 1
-expect focused-review.md 'strategy "nope": want single or focused' "$(stderr_of focused-eval-invalid)" "focused-eval-invalid"
-
 OPENROUTER_API_KEY=dummy cli --name run-exclude-empty -- run --model x --exclude '' --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-exclude-empty 1
 expect cli-usage.md "empty --exclude" "$(stderr_of run-exclude-empty)" "run-exclude-empty"
@@ -441,40 +437,6 @@ expect cli-usage.md 'unreal-review: unknown render target "html"' "$(stderr_of r
 cli --name render-required -- render
 require_exit render-required 1
 expect cli-usage.md "unreal-review: render target required: github or markdown" "$(stderr_of render-required)" "render-required"
-
-env -u UNREAL_HARNESS_LLM_MODEL "$SCRIPTS/cli.sh" --name eval-model -- eval --out "$VERIFY_SCRATCH/e"
-require_exit eval-model 1
-expect eval-corpus.md "set --model or UNREAL_HARNESS_LLM_MODEL" "$(stderr_of eval-model)" "eval-model"
-
-env -u OPENROUTER_API_KEY "$SCRIPTS/cli.sh" --name eval-key -- eval --model x --out "$VERIFY_SCRATCH/e"
-require_exit eval-key 1
-expect eval-corpus.md "set OPENROUTER_API_KEY" "$(stderr_of eval-key)" "eval-key"
-
-OPENROUTER_API_KEY=dummy cli --name eval-corpus -- eval --model x --corpus bogus --out "$VERIFY_SCRATCH/e"
-require_exit eval-corpus 1
-expect eval-corpus.md 'unknown corpus "bogus": use planted, martian, pr38, or labeled' "$(stderr_of eval-corpus)" "eval-corpus"
-
-OPENROUTER_API_KEY=dummy cli --name eval-runs -- eval --model x --corpus pr38 --runs 0 --out "$VERIFY_SCRATCH/e"
-require_exit eval-runs 1
-expect eval-corpus.md '--runs must be at least 1' "$(stderr_of eval-runs)" "eval-runs"
-
-OPENROUTER_API_KEY=dummy cli --name eval-runs-corpus -- eval --model x --corpus planted --runs 3 --out "$VERIFY_SCRATCH/e"
-require_exit eval-runs-corpus 1
-expect eval-corpus.md '--runs applies to the pr38 and labeled corpora' "$(stderr_of eval-runs-corpus)" "eval-runs-corpus"
-
-env -u UNREAL_HARNESS_LLM_MODEL "$SCRIPTS/cli.sh" --name eval-runs-pr38 -- eval --corpus pr38 --runs 2 --out "$VERIFY_SCRATCH/e"
-require_exit eval-runs-pr38 1
-expect eval-corpus.md "set --model or UNREAL_HARNESS_LLM_MODEL" "$(stderr_of eval-runs-pr38)" "eval-runs-pr38"
-require_absent "$(stderr_of eval-runs-pr38)" "--runs applies to the pr38 and labeled corpora" "eval-runs-pr38"
-
-env -u UNREAL_HARNESS_LLM_MODEL "$SCRIPTS/cli.sh" --name eval-runs-labeled -- eval --corpus labeled --runs 2 --out "$VERIFY_SCRATCH/e"
-require_exit eval-runs-labeled 1
-expect eval-corpus.md "set --model or UNREAL_HARNESS_LLM_MODEL" "$(stderr_of eval-runs-labeled)" "eval-runs-labeled"
-require_absent "$(stderr_of eval-runs-labeled)" "--runs applies to the pr38 and labeled corpora" "eval-runs-labeled"
-
-OPENROUTER_API_KEY=dummy cli --name eval-cases -- eval --model x --cases nosuch --out "$VERIFY_SCRATCH/e"
-require_exit eval-cases 1
-expect eval-corpus.md 'unknown planted case "nosuch"' "$(stderr_of eval-cases)" "eval-cases"
 
 say "review git range"
 OPENROUTER_API_KEY=dummy cli --name range-empty -- run --model x --workspace "$VERIFY_FIXTURE" --from HEAD --to HEAD --out "$VERIFY_SCRATCH/empty.jsonl"

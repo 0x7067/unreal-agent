@@ -8,8 +8,7 @@ import (
 )
 
 var (
-	ErrAPIKey        = errors.New("set OPENROUTER_API_KEY")
-	ErrUnknownCorpus = errors.New("unknown corpus")
+	ErrAPIKey = errors.New("set OPENROUTER_API_KEY")
 )
 
 func main() {
@@ -35,8 +34,6 @@ func run(args []string) error {
 		return cmdRun(args[1:])
 	case "group":
 		return cmdGroup(args[1:])
-	case "eval":
-		return cmdEval(args[1:])
 	case "render":
 		return cmdRender(args[1:])
 	case "help", "-h", "--help":
@@ -60,10 +57,6 @@ Usage:
                     [--agent-log <path>] [paths...]
   unreal-review group [--workspace <dir>] [--from <rev> [--to <rev>] | --commit <rev> | --branch <name>]
                       [--exclude <glob>] [paths...]
-  unreal-review eval [--model <id>] [--out <dir>] [--json] [--corpus planted|martian|pr38|labeled]
-                     [--runs N] [--profile core|strict|all] [--parallel N] [--cases a,b] [--judge-model <id>]
-                     [--thinking-level low|medium|high|xhigh|max] [--strategy single|focused]
-                     [--decompose] [--timeout <duration>]
   unreal-review render github [--pr owner/repo#n] [--repo owner/repo] [--commit <sha>] [--dry-run] [findings.jsonl]
   unreal-review render markdown [--out <path>] [findings.jsonl]
 
@@ -83,20 +76,13 @@ Group prints related files; it does not start the agent. --pr narrows the
 range to the commits pushed since the newest commit carrying an
 unreal-review check run and names findings already posted so the agent
 does not restate them; render github then suppresses duplicates, tags comments with
-markers, and keeps a status comment with the cumulative cost. Eval
-runs a planted-issue corpus through the same pipeline as run and
-scores the findings file against the planted issues; --corpus martian
-reviews the Martian Code Review Bench pull requests and matches findings
-to golden comments with an LLM judge; --corpus pr38 reviews this
-repository's pull request #38 and scores real and weak labels from
-earlier runs of that range. --corpus labeled reviews that range plus
-other labeled pull requests of this repository and prints each case
-with a pooled score. --runs repeats the pr38 and labeled corpora. Eval calls the
-model and costs money. Render reads that document and produces a
-display-specific output. GitHub inline comments are a renderer, not
+markers, and keeps a status comment with the cumulative cost.
+Render reads that document and produces a display-specific output.
+GitHub inline comments are a renderer, not
 the review itself. GitHub posting requires a complete review.
 
 Environment:
+  UNREAL_REVIEW_PROVIDER         model provider (default openrouter)
   OPENROUTER_API_KEY             required for run
   UNREAL_HARNESS_LLM_MODEL       default --model
   GH_TOKEN                       required for --pr and to post a GitHub review

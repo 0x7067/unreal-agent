@@ -90,7 +90,7 @@ func cmdRun(args []string) (err error) {
 	defer stop()
 	reviewer, err := agent.ReviewPipeline(*f.strategy, agent.Harness{
 		APIKey: key, ThinkingLevel: level, Log: logWriter, Timeout: *f.timeout,
-		Provider: provider.Name, Getenv: reviewGetenv,
+		Provider: provider.Name, Getenv: reviewClientGetenv,
 	})
 	if err != nil {
 		return err
@@ -124,12 +124,22 @@ func cmdRun(args []string) (err error) {
 		}
 	}
 	if report.Run != nil {
-		fmt.Fprintf(os.Stderr, "cost: %s\n", report.Run.Cost.Format())
+		fmt.Fprintf(os.Stderr, "%s\n", formatRunCost(provider.Name, report.Run.Cost))
 		if report.Run.Status != "" && report.Run.Status != findings.StatusComplete {
 			fmt.Fprintf(os.Stderr, "status: %s\n", report.Run.Status)
 		}
 	}
 	return err
+}
+
+// formatRunCost prints a dollar amount only for OpenRouter. Other providers
+// leave amount_usd at 0 because they do not report a charge; the findings
+// schema is unchanged.
+func formatRunCost(providerName string, cost findings.Cost) string {
+	if providerName != defaultReviewProvider {
+		return fmt.Sprintf("cost: unknown (provider %s does not report cost)", providerName)
+	}
+	return "cost: " + cost.Format()
 }
 
 const defaultSessionDirRel = ".local/state/unreal-agent/sessions"
