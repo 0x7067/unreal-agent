@@ -50,32 +50,60 @@ func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
 	}
 }
 
-func TestRunAcceptsGenericHarnessKeyForOpenRouter(t *testing.T) {
+func TestRunOpenRouterIgnoresGenericHarnessKey(t *testing.T) {
 	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "generic-key")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_OPTIONAL_LOCKS", "0")
 	t.Setenv("GIT_TERMINAL_PROMPT", "0")
-	dir := gitRepo(t)
-	writeRepoFile(t, dir, "note.txt", "same\n")
-	gitRun(t, dir, "add", "note.txt")
-	gitRun(t, dir, "commit", "-q", "-m", "base")
-
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"} {
+		t.Setenv(name, "")
+	}
 	delete(secrets, "OPENROUTER_API_KEY")
 	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
-	t.Cleanup(func() { delete(secrets, "UNREAL_HARNESS_LLM_API_KEY") })
+	t.Cleanup(func() {
+		delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
+		delete(secrets, "OPENROUTER_API_KEY")
+	})
+
 	out := filepath.Join(t.TempDir(), "findings.jsonl")
-	if err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--out", out}); err != nil {
+	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", out})
+	if err == nil || err.Error() != "set OPENROUTER_API_KEY" {
+		t.Fatalf("generic key alone: %v", err)
+	}
+	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+		t.Fatalf("generic key wrote %s: %v", out, statErr)
+	}
+
+	dir := gitRepo(t)
+	writeRepoFile(t, dir, "note.txt", "before\n")
+	gitRun(t, dir, "add", "note.txt")
+	gitRun(t, dir, "commit", "-q", "-m", "base")
+	base := gitOutput(t, dir, "rev-parse", "HEAD")
+	writeRepoFile(t, dir, "note.txt", "after\n")
+	gitRun(t, dir, "add", "note.txt")
+	gitRun(t, dir, "commit", "-q", "-m", "change")
+	head := gitOutput(t, dir, "rev-parse", "HEAD")
+
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		cleanReviewHandler("No material issues: the assigned changes are safe.").ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("UNREAL_REVIEW_OPENROUTER_API", server.URL)
+	secrets["OPENROUTER_API_KEY"] = "openrouter-key"
+
+	out = filepath.Join(t.TempDir(), "findings.jsonl")
+	if err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--from", base, "--to", head, "--out", out}); err != nil {
 		t.Fatal(err)
 	}
-	report, err := findings.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.Summary != "No material issues: the selected range has no changes." {
-		t.Fatalf("summary=%q", report.Summary)
+	if gotAuth != "Bearer openrouter-key" {
+		t.Fatalf("authorization = %q", gotAuth)
 	}
 }
 

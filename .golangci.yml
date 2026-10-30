@@ -14,12 +14,12 @@ linters:
       rules:
         findings:
           files:
-            - "review/findings/**"
+            - "**/review/findings/**"
           allow:
             - $gostd
         reviewcore:
           files:
-            - "cmd/internal/review/core/**"
+            - "**/cmd/internal/review/core/**"
           allow:
             - $gostd
             - github.com/unreallabsai/unreal-agent/review/findings

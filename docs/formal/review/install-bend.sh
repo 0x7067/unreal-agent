@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install Bend 2.0.27 under ~/.bend for make prove and hooks/prove-stop.sh.
+# Install Bend 2.0.27 under ~/.bend for make review-prove.
 set -eu
 
 version=2.0.27

@@ -41,7 +41,6 @@ const (
 	defaultReviewProvider = "openrouter"
 	openRouterBaseURL     = "https://openrouter.ai/api/v1"
 	openRouterBaseEnv     = "UNREAL_REVIEW_OPENROUTER_API"
-	llmBaseURLEnvironment = "UNREAL_HARNESS_LLM_BASE_URL"
 	toolHeartbeatInterval = 10 * time.Minute
 	// compactionDisabled keeps the full session in the model request.
 	// The harness treats a zero threshold as "compact after every response".
@@ -148,14 +147,10 @@ func (h Harness) getenv(name string) string {
 }
 
 // modelBase keeps OpenRouter on the public API unless UNREAL_REVIEW_OPENROUTER_API
-// names a loopback stand-in. Other providers use UNREAL_HARNESS_LLM_BASE_URL
-// or the registry base URL.
+// names a loopback stand-in. Other providers use the registry base URL.
 func (h Harness) modelBase(selected providers.Provider, openRouterAPI string) (string, error) {
 	if selected.Name == defaultReviewProvider {
 		return OpenRouterBase(openRouterAPI)
-	}
-	if raw := strings.TrimSpace(h.getenv(llmBaseURLEnvironment)); raw != "" {
-		return raw, nil
 	}
 	if selected.BaseURL == "" {
 		return "", fmt.Errorf("provider %q has no base URL", selected.Name)

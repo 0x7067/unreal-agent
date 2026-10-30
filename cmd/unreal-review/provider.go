@@ -29,15 +29,17 @@ func reviewProvider() (providers.Provider, error) {
 	return providers.Find(providers.Default(), name)
 }
 
-// reviewAPIKey resolves the selected provider's credential. The default
-// OpenRouter path keeps the historical "set OPENROUTER_API_KEY" error when
-// neither that variable nor UNREAL_HARNESS_LLM_API_KEY is set.
+// reviewAPIKey resolves the selected provider's credential. OpenRouter reads
+// only OPENROUTER_API_KEY. UNREAL_HARNESS_LLM_API_KEY is the runner's generic
+// key and must not be sent to openrouter.ai.
 func reviewAPIKey(selected providers.Provider) (string, error) {
-	key, err := selected.APIKey(func(name string) string {
-		return strings.TrimSpace(reviewGetenv(name))
-	})
-	if err != nil && selected.Name == defaultReviewProvider {
+	if selected.Name == defaultReviewProvider {
+		if key := strings.TrimSpace(reviewGetenv("OPENROUTER_API_KEY")); key != "" {
+			return key, nil
+		}
 		return "", ErrAPIKey
 	}
-	return key, err
+	return selected.APIKey(func(name string) string {
+		return strings.TrimSpace(reviewGetenv(name))
+	})
 }
