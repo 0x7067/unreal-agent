@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 )
 
 const (
@@ -18,19 +20,24 @@ const (
 )
 
 // secretNames are stripped from the process environment before the review
-// starts, so a Bash tool cannot read them. Provider credentials follow the
-// registry: the generic harness key, each provider key, and the Codex token
-// pair. GitHub tokens stay isolated for --pr and render.
-var secretNames = []string{
-	"UNREAL_HARNESS_LLM_API_KEY",
-	"OPENROUTER_API_KEY",
-	"OPENAI_API_KEY",
-	"FIREWORKS_API_KEY",
-	"ANTHROPIC_API_KEY",
-	"OPENAI_CODEX_ACCESS_TOKEN",
-	"OPENAI_CODEX_ACCOUNT_ID",
-	"GH_TOKEN",
-	"GITHUB_TOKEN",
+// starts, so a Bash tool cannot read them. Provider keys are the non-empty
+// APIKeyEnvironment values in the registry. The generic harness key, the
+// Codex token pair, and the GitHub tokens are explicit extras.
+var secretNames = reviewSecretNames()
+
+func reviewSecretNames() []string {
+	names := []string{providers.APIKeyEnvironment}
+	for _, provider := range providers.Default() {
+		if provider.APIKeyEnvironment != "" {
+			names = append(names, provider.APIKeyEnvironment)
+		}
+	}
+	return append(names,
+		"OPENAI_CODEX_ACCESS_TOKEN",
+		"OPENAI_CODEX_ACCOUNT_ID",
+		"GH_TOKEN",
+		"GITHUB_TOKEN",
+	)
 }
 
 var secrets = map[string]string{}

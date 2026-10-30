@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 )
 
-// Dir returns docs/formal/review/spec by walking up from the working
-// directory to the module root (the directory containing go.mod).
-func Dir() (string, error) {
+// moduleRoot walks up from the working directory to the directory containing go.mod.
+func moduleRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("working directory: %w", err)
@@ -16,7 +15,7 @@ func Dir() (string, error) {
 	dir := wd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Join(dir, "docs", "formal", "review", "spec"), nil
+			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -24,6 +23,15 @@ func Dir() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// Dir returns docs/formal/review/spec under the module root.
+func Dir() (string, error) {
+	root, err := moduleRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "docs", "formal", "review", "spec"), nil
 }
 
 // File joins Dir with name.

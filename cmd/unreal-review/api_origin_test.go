@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
 )
 
@@ -97,5 +98,42 @@ func TestIsolateSecretsRemovesCredentialsFromChildEnvironment(t *testing.T) {
 	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("secret isolation subprocess: %v\n%s", err, output)
+	}
+}
+
+func TestRegistryCredentialsAreStrippedBeforeReexec(t *testing.T) {
+	const helper = "UNREAL_REVIEW_TEST_STRIP_REGISTRY_KEYS"
+	values := map[string]string{}
+	for _, provider := range providers.Default() {
+		if provider.APIKeyEnvironment == "" {
+			continue
+		}
+		values[provider.APIKeyEnvironment] = "secret-" + provider.Name
+	}
+	if len(values) == 0 {
+		t.Fatal("registry has no API key environment")
+	}
+	if os.Getenv(helper) == "1" {
+		if err := isolateSecrets(); err != nil {
+			t.Fatal(err)
+		}
+		for name, want := range values {
+			if _, ok := os.LookupEnv(name); ok {
+				t.Fatalf("%s remains in the child environment", name)
+			}
+			if got := secret(name); got != want {
+				t.Fatalf("secret(%q) = %q, want %q", name, got, want)
+			}
+		}
+		return
+	}
+
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestRegistryCredentialsAreStrippedBeforeReexec$")
+	cmd.Env = []string{helper + "=1"}
+	for name, value := range values {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("registry credential isolation: %v\n%s", err, output)
 	}
 }

@@ -111,24 +111,6 @@ func parseManifest(t *testing.T, path string) (map[string]string, []string) {
 	return witnessed, modelOnly
 }
 
-func moduleRoot() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	dir := wd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", os.ErrNotExist
-		}
-		dir = parent
-	}
-}
-
 func collectTestFuncs(t *testing.T, root string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
