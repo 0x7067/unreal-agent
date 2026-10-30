@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/spec"
+	specpath "github.com/unreallabsai/unreal-agent/cmd/internal/review/spec"
 )
 
 // spec/github.bend models the inline-comment cap this package enforces, and

@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 )
 
 type specFlags struct {

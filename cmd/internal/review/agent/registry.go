@@ -9,7 +9,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/tool"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 

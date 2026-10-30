@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 )
 
 // plannedMaxBashCalls bounds evidence gathering in each planned discovery or

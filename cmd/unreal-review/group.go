@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 )
 
 type groupFlags struct {

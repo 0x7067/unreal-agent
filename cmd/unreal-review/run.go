@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
