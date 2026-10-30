@@ -17,7 +17,21 @@ const (
 	maxSecretBytes = 4096
 )
 
-var secretNames = []string{"OPENROUTER_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"}
+// secretNames are stripped from the process environment before the review
+// starts, so a Bash tool cannot read them. Provider credentials follow the
+// registry: the generic harness key, each provider key, and the Codex token
+// pair. GitHub tokens stay isolated for --pr and render.
+var secretNames = []string{
+	"UNREAL_HARNESS_LLM_API_KEY",
+	"OPENROUTER_API_KEY",
+	"OPENAI_API_KEY",
+	"FIREWORKS_API_KEY",
+	"ANTHROPIC_API_KEY",
+	"OPENAI_CODEX_ACCESS_TOKEN",
+	"OPENAI_CODEX_ACCOUNT_ID",
+	"GH_TOKEN",
+	"GITHUB_TOKEN",
+}
 
 var secrets = map[string]string{}
 

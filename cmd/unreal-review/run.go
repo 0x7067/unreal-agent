@@ -56,9 +56,13 @@ func cmdRun(args []string) (err error) {
 	if *f.model == "" {
 		return fmt.Errorf("set --model or UNREAL_HARNESS_LLM_MODEL")
 	}
-	key := secret("OPENROUTER_API_KEY")
-	if strings.TrimSpace(key) == "" {
-		return ErrAPIKey
+	provider, err := reviewProvider()
+	if err != nil {
+		return err
+	}
+	key, err := reviewAPIKey(provider)
+	if err != nil {
+		return err
 	}
 	level, err := agent.SanitizeLevel(*f.thinking)
 	if err != nil {
@@ -86,6 +90,7 @@ func cmdRun(args []string) (err error) {
 	defer stop()
 	reviewer, err := agent.ReviewPipeline(*f.strategy, agent.Harness{
 		APIKey: key, ThinkingLevel: level, Log: logWriter, Timeout: *f.timeout,
+		Provider: provider.Name, Getenv: reviewGetenv,
 	})
 	if err != nil {
 		return err

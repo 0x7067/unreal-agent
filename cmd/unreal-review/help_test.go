@@ -159,11 +159,11 @@ func runSubcommandHelp(t *testing.T, args string) (string, string, error) {
 
 func subcommandHelpEnv(args string) []string {
 	drop := map[string]struct{}{
-		"OPENROUTER_API_KEY":            {},
-		"GH_TOKEN":                      {},
-		"GITHUB_TOKEN":                  {},
 		"UNREAL_REVIEW_SECRETS_FD":      {},
 		"UNREAL_REVIEW_SUBCOMMAND_HELP": {},
+	}
+	for _, name := range secretNames {
+		drop[name] = struct{}{}
 	}
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, entry := range os.Environ() {

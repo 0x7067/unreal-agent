@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
@@ -90,9 +89,13 @@ func cmdEval(args []string) error {
 	if *f.model == "" {
 		return fmt.Errorf("set --model or UNREAL_HARNESS_LLM_MODEL")
 	}
-	key := secret("OPENROUTER_API_KEY")
-	if strings.TrimSpace(key) == "" {
-		return ErrAPIKey
+	selected, err := reviewProvider()
+	if err != nil {
+		return err
+	}
+	key, err := reviewAPIKey(selected)
+	if err != nil {
+		return err
 	}
 	level, err := agent.SanitizeLevel(*f.thinking)
 	if err != nil {
@@ -102,7 +105,10 @@ func cmdEval(args []string) error {
 		return err
 	}
 	openRouterAPI := os.Getenv("UNREAL_REVIEW_OPENROUTER_API")
-	if _, err := agent.ReviewPipeline(*f.strategy, agent.Harness{APIKey: key, ThinkingLevel: level, Timeout: *f.timeout}); err != nil {
+	if _, err := agent.ReviewPipeline(*f.strategy, agent.Harness{
+		APIKey: key, ThinkingLevel: level, Timeout: *f.timeout,
+		Provider: selected.Name, Getenv: reviewGetenv,
+	}); err != nil {
 		return err
 	}
 	switch *f.corpus {

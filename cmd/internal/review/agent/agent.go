@@ -21,7 +21,6 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/coordinator"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter"
 	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
 	"github.com/unreallabsai/unreal-agent/harness/operation"
 	"github.com/unreallabsai/unreal-agent/harness/primitives"
@@ -32,14 +31,17 @@ import (
 	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
 	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
 const (
 	maxSummaryCorrections = 2
+	defaultReviewProvider = "openrouter"
 	openRouterBaseURL     = "https://openrouter.ai/api/v1"
 	openRouterBaseEnv     = "UNREAL_REVIEW_OPENROUTER_API"
+	llmBaseURLEnvironment = "UNREAL_HARNESS_LLM_BASE_URL"
 	toolHeartbeatInterval = 10 * time.Minute
 	// compactionDisabled keeps the full session in the model request.
 	// The harness treats a zero threshold as "compact after every response".
@@ -84,6 +86,10 @@ type Harness struct {
 	// MaxBashCalls limits Bash tool calls within one Run. Zero is unlimited;
 	// negative disables Bash for stages that must operate only on supplied data.
 	MaxBashCalls int
+	// Provider is a name from providers.Default. Empty selects openrouter.
+	Provider string
+	// Getenv reads process configuration for the client factory. Nil uses os.Getenv.
+	Getenv func(string) string
 }
 
 var _ review.Agent = Harness{}
@@ -103,13 +109,17 @@ func (h Harness) Run(ctx context.Context, req review.AgentRequest) (result revie
 		}
 	}
 
-	base, err := OpenRouterBase(req.OpenRouterAPI)
+	selected, err := h.provider()
 	if err != nil {
 		return review.AgentResult{}, err
 	}
-	adapter, closeAdapter, err := newModelAdapter(h.APIKey, base)
+	base, err := h.modelBase(selected, req.OpenRouterAPI)
 	if err != nil {
-		return review.AgentResult{}, fmt.Errorf("create openrouter client: %w", err)
+		return review.AgentResult{}, err
+	}
+	adapter, closeAdapter, err := h.newModelAdapter(selected, base)
+	if err != nil {
+		return review.AgentResult{}, fmt.Errorf("create %s client: %w", selected.Name, err)
 	}
 	defer func() {
 		closeErr := closeAdapter()
@@ -122,19 +132,52 @@ func (h Harness) Run(ctx context.Context, req review.AgentRequest) (result revie
 	return h.run(ctx, adapter, req)
 }
 
-func newModelAdapter(apiKey, base string) (llm.Adapter, func() error, error) {
+func (h Harness) provider() (providers.Provider, error) {
+	name := strings.TrimSpace(h.Provider)
+	if name == "" {
+		name = defaultReviewProvider
+	}
+	return providers.Find(providers.Default(), name)
+}
+
+func (h Harness) getenv(name string) string {
+	if h.Getenv != nil {
+		return h.Getenv(name)
+	}
+	return os.Getenv(name)
+}
+
+// modelBase keeps OpenRouter on the public API unless UNREAL_REVIEW_OPENROUTER_API
+// names a loopback stand-in. Other providers use UNREAL_HARNESS_LLM_BASE_URL
+// or the registry base URL.
+func (h Harness) modelBase(selected providers.Provider, openRouterAPI string) (string, error) {
+	if selected.Name == defaultReviewProvider {
+		return OpenRouterBase(openRouterAPI)
+	}
+	if raw := strings.TrimSpace(h.getenv(llmBaseURLEnvironment)); raw != "" {
+		return raw, nil
+	}
+	if selected.BaseURL == "" {
+		return "", fmt.Errorf("provider %q has no base URL", selected.Name)
+	}
+	return selected.BaseURL, nil
+}
+
+func (h Harness) newModelAdapter(selected providers.Provider, base string) (llm.Adapter, func() error, error) {
 	u, err := url.Parse(base)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !loopbackHost(u.Hostname()) {
-		client, err := openrouter.NewClient(openrouter.Config{APIKey: apiKey, BaseURL: base})
-		if err != nil {
-			return nil, nil, err
-		}
-		return client, client.Close, nil
+	// The registry client follows redirects. The canary stub and the loopback
+	// tests require a client that refuses to leave 127.0.0.1, ::1, or localhost.
+	if selected.Name == defaultReviewProvider && loopbackHost(u.Hostname()) {
+		return newLoopbackModelAdapter(h.APIKey, base)
 	}
-	return newLoopbackModelAdapter(apiKey, base)
+	client, err := selected.NewClient(h.APIKey, base, responsesapi.DefaultMaxAttempts, h.getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, client.Close, nil
 }
 
 func newLoopbackModelAdapter(apiKey, base string) (llm.Adapter, func() error, error) {

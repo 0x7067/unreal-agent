@@ -50,6 +50,48 @@ func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsGenericHarnessKeyForOpenRouter(t *testing.T) {
+	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_OPTIONAL_LOCKS", "0")
+	t.Setenv("GIT_TERMINAL_PROMPT", "0")
+	dir := gitRepo(t)
+	writeRepoFile(t, dir, "note.txt", "same\n")
+	gitRun(t, dir, "add", "note.txt")
+	gitRun(t, dir, "commit", "-q", "-m", "base")
+
+	delete(secrets, "OPENROUTER_API_KEY")
+	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
+	t.Cleanup(func() { delete(secrets, "UNREAL_HARNESS_LLM_API_KEY") })
+	out := filepath.Join(t.TempDir(), "findings.jsonl")
+	if err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--out", out}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := findings.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary != "No material issues: the selected range has no changes." {
+		t.Fatalf("summary=%q", report.Summary)
+	}
+}
+
+func TestRunOpenAIProviderRequiresItsOwnKey(t *testing.T) {
+	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "openai")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "")
+	delete(secrets, "OPENROUTER_API_KEY")
+	delete(secrets, "OPENAI_API_KEY")
+	delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
+	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", filepath.Join(t.TempDir(), "findings.jsonl")})
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") || err.Error() == "set OPENROUTER_API_KEY" {
+		t.Fatalf("error = %v, want the openai credential", err)
+	}
+}
+
 func TestRunAgentLog(t *testing.T) {
 	secrets["OPENROUTER_API_KEY"] = "test-key"
 	t.Cleanup(func() { delete(secrets, "OPENROUTER_API_KEY") })
