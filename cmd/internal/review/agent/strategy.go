@@ -57,7 +57,7 @@ func ReviewPipeline(strategy string, harness Harness) (review.Agent, error) {
 	}, nil
 }
 
-// A focused run and parallel eval cases may share one log. Keep each observer
+// Focused runs and parallel passes may share one log. Keep each observer
 // write intact rather than interleaving JSON lines from independent sessions.
 type serializedWriter struct {
 	mu     sync.Mutex

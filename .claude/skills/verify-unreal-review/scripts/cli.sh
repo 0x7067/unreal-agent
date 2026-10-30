@@ -64,9 +64,9 @@ bin=$VERIFY_BIN
 } >"$step/cmd.txt"
 
 set +e
-# Documented steps always hit the OpenRouter loopback stub. Drop the runner's
-# selector, generic key, and base URL, then pin OpenRouter. Recipes still
-# supply OPENROUTER_API_KEY.
+# Pin OpenRouter and drop the generic key and base URL. Recipes still supply
+# OPENROUTER_API_KEY. The loopback stub applies only under canary.sh or when
+# UNREAL_REVIEW_OPENROUTER_API is exported.
 # Every -u precedes the assignment: env treats a later -u as the command.
 review_env=(env)
 review_env+=(-u UNREAL_HARNESS_LLM_PROVIDER)
