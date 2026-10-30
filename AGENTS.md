@@ -32,7 +32,7 @@ The README glossary and components table define the core terms (Input, Inbox, Se
 
 - User preference: stay faithful to upstream (`upstream` remote, `unreallabsai/unreal-agent`). Keep the design rules in its README glossary and components table (e.g. translators and the context builder do no I/O; operations are dispatched only after they are committed). Compare against `upstream/main` before changing a shared interface or invariant, and raise any divergence with the user rather than making it silently.
 
-- Fork release config intentionally diverges: tags are `vX.Y.Z-fork.N` (workflow trigger `v*-fork.*` only). Goreleaser publishes GitHub releases to `0x7067/unreal-agent` with `release.prerelease: "false"`; TUI ldflags use `.Version`, which keeps the `-fork.N` suffix. Docker Hub and the upstream Homebrew tap stay disabled. See `docs/RELEASING.md`.
+- Fork release config intentionally diverges: tags are `vX.Y.Z-fork.N` (workflow trigger `v*-fork.*` only; first tag `v0.4.1-fork.1`). Goreleaser publishes GitHub releases to `0x7067/unreal-agent`. TUI ldflags use `.Version`, which keeps the `-fork.N` suffix. Docker Hub and the upstream Homebrew tap stay disabled. See `docs/RELEASING.md`.
 
 - User preference: after code changes, always rebuild and reinstall before finishing. In this environment, use `make build` and atomically replace both binaries in `~/.local/bin`; UI changes require a frontend restart.
 

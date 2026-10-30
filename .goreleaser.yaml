@@ -21,8 +21,8 @@ builds:
     flags: [-mod=readonly, -trimpath]
     ldflags:
       - -s -w
-      # .Version is the tag with one leading v removed, so v0.4.0-fork.1
-      # embeds 0.4.0-fork.1. .RawVersion would drop the -fork.N suffix.
+      # .Version is the tag with one leading v removed, so v0.4.1-fork.1
+      # embeds 0.4.1-fork.1. .RawVersion would drop the -fork.N suffix.
       - -X main.version={{ .Version }}
       - -X main.commit={{ .FullCommit }}
       - -X main.date={{ .CommitDate }}
@@ -63,9 +63,6 @@ release:
     owner: 0x7067
     name: unreal-agent
   name_template: '{{ .Tag }}'
-  # -fork.N is a semver prerelease. "false" keeps the GitHub release normal
-  # (the default is already not "auto"; set it so that does not change).
-  prerelease: "false"
 
 homebrew_casks:
   # Fork: generate the cask locally but do not push unreallabsai/homebrew-tap
