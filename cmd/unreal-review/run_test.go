@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,57 +11,27 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/review/findings"
 )
 
 func TestMain(m *testing.M) {
-	// Loopback stubs assume the default OpenRouter provider. A developer
-	// shell that exported UNREAL_REVIEW_PROVIDER must not redirect them.
-	if err := os.Unsetenv("UNREAL_REVIEW_PROVIDER"); err != nil {
+	// Loopback stubs assume OpenRouter. A developer shell that exported the
+	// runner selector, generic key, or base URL must not redirect them.
+	for _, name := range []string{
+		providers.ProviderEnvironment,
+		providers.APIKeyEnvironment,
+		providers.BaseURLEnvironment,
+		"UNREAL_REVIEW_OPENROUTER_API",
+	} {
+		if err := os.Unsetenv(name); err != nil {
+			panic(err)
+		}
+	}
+	if err := os.Setenv(providers.ProviderEnvironment, "openrouter"); err != nil {
 		panic(err)
 	}
 	os.Exit(m.Run())
-}
-
-func TestRunCodexRefusesAuthFile(t *testing.T) {
-	home := t.TempDir()
-	codexHome := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("CODEX_HOME", codexHome)
-	t.Setenv("UNREAL_REVIEW_PROVIDER", "openai-codex")
-	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "")
-	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "")
-	t.Setenv("OPENAI_CODEX_AUTH_FILE", "")
-	for _, name := range []string{"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_AUTH_FILE"} {
-		delete(secrets, name)
-	}
-	for _, dir := range []string{filepath.Join(home, ".codex"), codexHome} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		path := filepath.Join(dir, "auth.json")
-		body := []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"opaque","account_id":"from-file"}}`)
-		if err := os.WriteFile(path, body, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(path, 0); err != nil {
-			t.Fatal(err)
-		}
-	}
-	explicit := filepath.Join(t.TempDir(), "auth.json")
-	if err := os.WriteFile(explicit, []byte(`{"auth_mode":"chatgpt","tokens":{"access_token":"opaque","account_id":"from-file"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(explicit, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("OPENAI_CODEX_AUTH_FILE", explicit)
-
-	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", filepath.Join(t.TempDir(), "findings.jsonl")})
-	if !errors.Is(err, agent.ErrCodexCredentials) {
-		t.Fatalf("codex auth file: %v", err)
-	}
 }
 
 func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
@@ -77,11 +46,13 @@ func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
 	gitRun(t, dir, "add", "note.txt")
 	gitRun(t, dir, "commit", "-q", "-m", "base")
 
+	t.Setenv(providers.APIKeyEnvironment, "")
+	t.Setenv("OPENROUTER_API_KEY", "")
 	secrets["OPENROUTER_API_KEY"] = "   "
 	t.Cleanup(func() { delete(secrets, "OPENROUTER_API_KEY") })
 	out := filepath.Join(t.TempDir(), "findings.jsonl")
 	err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--out", out})
-	if err == nil || err.Error() != "set OPENROUTER_API_KEY" {
+	if err == nil || err.Error() != "UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set" {
 		t.Fatalf("blank key: %v", err)
 	}
 	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
@@ -101,10 +72,7 @@ func TestRunBlankOpenRouterKeyIsRejected(t *testing.T) {
 	}
 }
 
-func TestRunOpenRouterIgnoresGenericHarnessKey(t *testing.T) {
-	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
-	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "generic-key")
+func TestRunOpenRouterPrefersGenericHarnessKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
@@ -114,21 +82,12 @@ func TestRunOpenRouterIgnoresGenericHarnessKey(t *testing.T) {
 	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"} {
 		t.Setenv(name, "")
 	}
-	delete(secrets, "OPENROUTER_API_KEY")
-	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
+	secrets[providers.APIKeyEnvironment] = "generic-key"
+	secrets["OPENROUTER_API_KEY"] = "openrouter-key"
 	t.Cleanup(func() {
-		delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
+		delete(secrets, providers.APIKeyEnvironment)
 		delete(secrets, "OPENROUTER_API_KEY")
 	})
-
-	out := filepath.Join(t.TempDir(), "findings.jsonl")
-	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", out})
-	if err == nil || err.Error() != "set OPENROUTER_API_KEY" {
-		t.Fatalf("generic key alone: %v", err)
-	}
-	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
-		t.Fatalf("generic key wrote %s: %v", out, statErr)
-	}
 
 	dir := gitRepo(t)
 	writeRepoFile(t, dir, "note.txt", "before\n")
@@ -147,33 +106,48 @@ func TestRunOpenRouterIgnoresGenericHarnessKey(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv("UNREAL_REVIEW_OPENROUTER_API", server.URL)
-	secrets["OPENROUTER_API_KEY"] = "openrouter-key"
 
+	out := filepath.Join(t.TempDir(), "findings.jsonl")
+	if err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--from", base, "--to", head, "--out", out}); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer generic-key" {
+		t.Fatalf("authorization = %q", gotAuth)
+	}
+
+	delete(secrets, providers.APIKeyEnvironment)
+	t.Setenv(providers.APIKeyEnvironment, "")
+	gotAuth = ""
 	out = filepath.Join(t.TempDir(), "findings.jsonl")
 	if err := cmdRun([]string{"--model", "test-model", "--workspace", dir, "--from", base, "--to", head, "--out", out}); err != nil {
 		t.Fatal(err)
 	}
 	if gotAuth != "Bearer openrouter-key" {
-		t.Fatalf("authorization = %q", gotAuth)
+		t.Fatalf("vendor authorization = %q", gotAuth)
 	}
 }
 
-func TestHarnessProviderDoesNotSelectReviewProvider(t *testing.T) {
-	t.Setenv("UNREAL_HARNESS_LLM_PROVIDER", "openai")
-	t.Setenv("UNREAL_REVIEW_PROVIDER", "")
-	t.Setenv("OPENROUTER_API_KEY", "")
-	t.Setenv("OPENAI_API_KEY", "openai-key")
-	t.Setenv("UNREAL_HARNESS_LLM_API_KEY", "generic-key")
-	delete(secrets, "OPENROUTER_API_KEY")
-	secrets["OPENAI_API_KEY"] = "openai-key"
-	secrets["UNREAL_HARNESS_LLM_API_KEY"] = "generic-key"
-	t.Cleanup(func() {
-		delete(secrets, "OPENAI_API_KEY")
-		delete(secrets, "UNREAL_HARNESS_LLM_API_KEY")
-	})
+func TestRunDefaultProviderIsOpenAI(t *testing.T) {
+	t.Setenv(providers.ProviderEnvironment, "")
+	t.Setenv(providers.APIKeyEnvironment, "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "openrouter-key")
 	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", filepath.Join(t.TempDir(), "findings.jsonl")})
-	if err == nil || err.Error() != "set OPENROUTER_API_KEY" {
-		t.Fatalf("harness provider changed review: %v", err)
+	if err == nil || err.Error() != "UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set" {
+		t.Fatalf("default provider: %v", err)
+	}
+}
+
+func TestRunOpenRouterOverrideRequiresOpenRouter(t *testing.T) {
+	t.Setenv(providers.ProviderEnvironment, "ollama")
+	t.Setenv("UNREAL_REVIEW_OPENROUTER_API", "http://127.0.0.1:9/api/v1")
+	out := filepath.Join(t.TempDir(), "findings.jsonl")
+	err := cmdRun([]string{"--model", "test-model", "--workspace", t.TempDir(), "--out", out})
+	if err == nil || err.Error() != "UNREAL_REVIEW_OPENROUTER_API is set but the selected provider is ollama, not openrouter" {
+		t.Fatalf("override: %v", err)
+	}
+	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+		t.Fatalf("override wrote %s: %v", out, statErr)
 	}
 }
 

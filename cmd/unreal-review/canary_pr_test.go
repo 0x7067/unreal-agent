@@ -782,6 +782,7 @@ func cliEnv(api, token string) []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
+		"UNREAL_HARNESS_LLM_PROVIDER=openrouter",
 		"OPENROUTER_API_KEY=dummy",
 		"UNREAL_REVIEW_OPENROUTER_API=" + canaryOpenRouterAPI,
 	}

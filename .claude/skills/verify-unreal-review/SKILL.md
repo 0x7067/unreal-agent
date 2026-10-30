@@ -65,13 +65,13 @@ For `run`, create a disposable repo first:
 
 That prints `VERIFY_FIXTURE`, `BASE_SHA`, and `HEAD_SHA` and writes `$VERIFY_SCRATCH/fixture.env` (source it). Pass `--workspace "$VERIFY_FIXTURE"`. Do not use the product checkout as `--workspace` unless the recipe is reviewing this repo's own range.
 
-`run` requires `--model` or `UNREAL_HARNESS_LLM_MODEL`, and `OPENROUTER_API_KEY`. Dummy values are enough for paths that never start the agent (empty diff, complete-file refuse, SHA mismatch, mixed range flags, bad revision). A non-empty diff runs the embedded harness and calls the model directly; a dummy key reaches the model and fails on a `401`, so it never bills.
+`run` requires `--model` or `UNREAL_HARNESS_LLM_MODEL`, and a provider credential. `cli.sh` pins `UNREAL_HARNESS_LLM_PROVIDER=openrouter` and drops `UNREAL_HARNESS_LLM_API_KEY` and `UNREAL_HARNESS_LLM_BASE_URL` on every branch, so documented steps use `OPENROUTER_API_KEY` and the loopback stub. Dummy values are enough for paths that never start the agent (empty diff, complete-file refuse, SHA mismatch, mixed range flags, bad revision). A non-empty diff runs the embedded harness and calls the model directly; a dummy key reaches the model and fails on a `401`, so it never bills.
 
 Live review of a non-empty diff spends OpenRouter credit. Drive it only when the feature file's live sub-feature is in scope and `UNREAL_HARNESS_LLM_MODEL` is set. Otherwise record the unmet precondition and continue.
 
 Do not post a GitHub review unless the user names a disposable pull request. Default GitHub proof is `--dry-run`.
 
-Stable handles: subcommands `run`, `group`, `render markdown`, `render github`; flags `--from`, `--to`, `--commit`, `--branch`, `--exclude`, `--out`, `--fresh`, `--workspace`, `--dry-run`, `--pr`, `--repo`, `--model`, `--thinking-level`, `--strategy`, `--decompose`, `--timeout`, `--agent-log`; `UNREAL_REVIEW_PROVIDER` (default `openrouter`); positional pathspecs; `tools/review-canary/testdata/findings.jsonl`.
+Stable handles: subcommands `run`, `group`, `render markdown`, `render github`; flags `--from`, `--to`, `--commit`, `--branch`, `--exclude`, `--out`, `--fresh`, `--workspace`, `--dry-run`, `--pr`, `--repo`, `--model`, `--thinking-level`, `--strategy`, `--decompose`, `--timeout`, `--agent-log`; `UNREAL_HARNESS_LLM_PROVIDER` (runner default `openai`; `cli.sh` pins `openrouter`); positional pathspecs; `tools/review-canary/testdata/findings.jsonl`.
 
 ## Evidence
 

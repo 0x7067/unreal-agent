@@ -34,7 +34,9 @@ case $VERIFY_RUN_ID in
 	;;
 esac
 mkdir -p "$VERIFY_ROOT"
-unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL UNREAL_REVIEW_PROVIDER OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
+unset GH_TOKEN GITHUB_REPOSITORY UNREAL_HARNESS_LLM_MODEL UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL OPENROUTER_API_KEY UNREAL_REVIEW_GITHUB_API UNREAL_REVIEW_OPENROUTER_API || true
+# The stub is OpenRouter. Pin the runner selector after dropping an inherited one.
+export UNREAL_HARNESS_LLM_PROVIDER=openrouter
 
 # lib.sh keys off $0, so sourcing it from this script would point at tools/.
 # Launch still sources lib.sh itself; these are the same paths it derives.
@@ -416,7 +418,7 @@ expect cli-usage.md "unreal-review: set --model or UNREAL_HARNESS_LLM_MODEL" "$(
 
 env -u OPENROUTER_API_KEY "$SCRIPTS/cli.sh" --name run-key -- run --model x --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-key 1
-expect cli-usage.md "unreal-review: set OPENROUTER_API_KEY" "$(stderr_of run-key)" "run-key"
+expect cli-usage.md "unreal-review: UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set" "$(stderr_of run-key)" "run-key"
 
 OPENROUTER_API_KEY=dummy cli --name run-thinking -- run --model x --thinking-level nope --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-thinking 1

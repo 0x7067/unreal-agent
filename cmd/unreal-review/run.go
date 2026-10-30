@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/review/agent"
 	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
 	"github.com/unreallabsai/unreal-agent/review/findings"
@@ -38,7 +39,7 @@ func registerRunFlags(fs *flag.FlagSet) runFlags {
 	f.outPath = fs.String("out", "findings.jsonl", "findings JSONL path, or - for stdout")
 	f.fresh = fs.Bool("fresh", false, "start a new review even if --out already exists")
 	f.decompose = fs.Bool("decompose", false, "use bounded scopes and aggregate coverage even below the automatic large-diff threshold")
-	f.model = fs.String("model", os.Getenv("UNREAL_HARNESS_LLM_MODEL"), "model id for the selected provider (UNREAL_REVIEW_PROVIDER, default openrouter)")
+	f.model = fs.String("model", os.Getenv("UNREAL_HARNESS_LLM_MODEL"), "model id for the selected provider (UNREAL_HARNESS_LLM_PROVIDER, default openai)")
 	f.thinking = fs.String("thinking-level", "high", "low, medium, high, xhigh, or max")
 	f.strategy = fs.String("strategy", "single", "single or focused (four discovery passes plus verification)")
 	f.timeout = fs.Duration("timeout", 20*time.Minute, "timeout for the whole review")
@@ -56,18 +57,13 @@ func cmdRun(args []string) (err error) {
 	if *f.model == "" {
 		return fmt.Errorf("set --model or UNREAL_HARNESS_LLM_MODEL")
 	}
-	provider, err := reviewProvider()
+	selection, err := providers.Select(providers.Default(), reviewGetenv)
 	if err != nil {
 		return err
 	}
-	key, err := reviewAPIKey(provider)
-	if err != nil {
+	openRouterAPI := os.Getenv("UNREAL_REVIEW_OPENROUTER_API")
+	if err := agent.RejectOpenRouterOverride(selection.Provider.Name, openRouterAPI); err != nil {
 		return err
-	}
-	if provider.Name == "openai-codex" {
-		if _, _, err := agent.CodexCredentials(reviewClientGetenv); err != nil {
-			return err
-		}
 	}
 	level, err := agent.SanitizeLevel(*f.thinking)
 	if err != nil {
@@ -94,8 +90,8 @@ func cmdRun(args []string) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	reviewer, err := agent.ReviewPipeline(*f.strategy, agent.Harness{
-		APIKey: key, ThinkingLevel: level, Log: logWriter, Timeout: *f.timeout,
-		Provider: provider.Name, Getenv: reviewClientGetenv,
+		APIKey: selection.APIKey, ThinkingLevel: level, Log: logWriter, Timeout: *f.timeout,
+		Provider: selection.Provider.Name, BaseURL: selection.BaseURL, Getenv: reviewGetenv,
 	})
 	if err != nil {
 		return err
@@ -116,7 +112,7 @@ func cmdRun(args []string) (err error) {
 		Pull:          resolver,
 		Agent:         reviewer,
 		SessionDir:    sessionDir,
-		OpenRouterAPI: os.Getenv("UNREAL_REVIEW_OPENROUTER_API"),
+		OpenRouterAPI: openRouterAPI,
 	})
 	if (*f.outPath == "" || *f.outPath == "-") && report.Run != nil {
 		out, writeErr := openOut(*f.outPath)
@@ -129,7 +125,7 @@ func cmdRun(args []string) (err error) {
 		}
 	}
 	if report.Run != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", formatRunCost(provider.Name, report.Run.Cost))
+		fmt.Fprintf(os.Stderr, "%s\n", formatRunCost(selection.Provider.Name, report.Run.Cost))
 		if report.Run.Status != "" && report.Run.Status != findings.StatusComplete {
 			fmt.Fprintf(os.Stderr, "status: %s\n", report.Run.Status)
 		}
@@ -141,7 +137,7 @@ func cmdRun(args []string) (err error) {
 // leave amount_usd at 0 because they do not report a charge; the findings
 // schema is unchanged.
 func formatRunCost(providerName string, cost findings.Cost) string {
-	if providerName != defaultReviewProvider {
+	if providerName != "openrouter" {
 		return fmt.Sprintf("cost: unknown (provider %s does not report cost)", providerName)
 	}
 	return "cost: " + cost.Format()

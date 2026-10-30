@@ -6,7 +6,7 @@ An async-first agent harness from Unreal Labs.
 - [cmd/](cmd/) — executables that use the library.
   - [cmd/unreal-agent-runner](cmd/unreal-agent-runner) - cloud agent runner.
   - [cmd/unreal-agent-tui](cmd/unreal-agent-tui) - cozy TUI.
-  - [cmd/unreal-review](cmd/unreal-review) - fork-only review CLI (not in upstream `unreallabsai/unreal-agent`). It writes [findings-v1](docs/review/findings-v1.md). `UNREAL_REVIEW_PROVIDER` selects the model provider (default OpenRouter). `openai-codex` accepts only `OPENAI_CODEX_ACCESS_TOKEN` and `OPENAI_CODEX_ACCOUNT_ID`; the Codex auth file is refused.
+  - [cmd/unreal-review](cmd/unreal-review) - fork-only review CLI (not in upstream `unreallabsai/unreal-agent`). It writes [findings-v1](docs/review/findings-v1.md). Provider selection and credentials match the runner (`UNREAL_HARNESS_LLM_PROVIDER`, default `openai`, including the Codex auth file). Known gap: the review shell can read home-directory credentials; see findings-v1.
 - [benchmarks/](benchmarks/) — benchmark runners.
 
 Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)

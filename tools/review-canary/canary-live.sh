@@ -121,8 +121,10 @@ fi
 if [ -n "${UNREAL_REVIEW_OPENROUTER_API+x}" ]; then
 	fail "unset UNREAL_REVIEW_OPENROUTER_API (a blank value counts as set). This smoke calls https://openrouter.ai/api/v1 and will not use a loopback stand-in (tools/review-canary/openrouter-stub.py)."
 fi
-# This smoke is OpenRouter. Do not follow UNREAL_REVIEW_PROVIDER.
-unset UNREAL_REVIEW_PROVIDER || true
+# This smoke is OpenRouter. Pin the runner selector and drop a generic key or
+# base URL that would bypass OPENROUTER_API_KEY or the public API.
+unset UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_BASE_URL || true
+export UNREAL_HARNESS_LLM_PROVIDER=openrouter
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN="$ROOT/bin/unreal-review"

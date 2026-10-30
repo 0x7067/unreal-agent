@@ -24,7 +24,7 @@ Preconditions:
 
 - Launch and doctor have succeeded, and a fixture repo is available.
 - Dummy key/model values are sufficient for invalid-strategy and empty-range paths.
-- Real reviews require a real `OPENROUTER_API_KEY` and an explicitly selected model, and spend credit. Do not run them just to test flags. `UNREAL_REVIEW_PROVIDER` selects the provider (default `openrouter`).
+- Real reviews require a real `OPENROUTER_API_KEY` and an explicitly selected model, and spend credit. Do not run them just to test flags. `cli.sh` pins `UNREAL_HARNESS_LLM_PROVIDER=openrouter` and drops `UNREAL_HARNESS_LLM_API_KEY` and `UNREAL_HARNESS_LLM_BASE_URL`, so these steps hit the OpenRouter loopback stub.
 
 - **Invalid strategy.** Run `OPENROUTER_API_KEY=dummy scripts/cli.sh --name focused-invalid -- run --strategy nope --model x --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"`. Exit `1`, stderr contains `strategy "nope": want single or focused`, and there is no findings file.
 - **Empty range.** Run `OPENROUTER_API_KEY=dummy scripts/cli.sh --name focused-empty -- run --strategy focused --model x --workspace "$VERIFY_FIXTURE" --from HEAD --to HEAD --out "$VERIFY_SCRATCH/focused-empty.jsonl"`. Exit `0`, stderr contains `cost: USD 0.000000`. Copy the JSONL into evidence and confirm a complete run, the empty-diff SHA, and `No material issues: the selected range has no changes.`

@@ -16,7 +16,7 @@ Present on every `unreal-review run`. `cost` is required.
 
 `source.base` and `source.head` name the selected git range. Workspace mode stores `base=HEAD` and an empty `head`, with both SHAs equal to HEAD. `--from`/`--to` store those refs; omitted `--to` is the working tree (`head` empty, `head_sha` is HEAD). `--branch` stores the detected `main` or `master` as `base` and the branch as `head`. `--commit` stores `commit^` as `base` and the commit as `head` (empty `base` for a root commit). `--pr` stores the pull request base SHA (or the last reviewed head SHA when that commit is an ancestor of the pull request head) as `base` and the pull request head SHA as `head`, so `base_sha` and `head_sha` match those SHA strings. `source.base_sha` and `source.head_sha` are those git objects at review time. `source.diff_sha` is the SHA-256 of the exact unified diff that was reviewed after pathspecs and exclusions, so a dirty working tree cannot resume against a different patch that shares the same HEAD.
 
-`cost.amount_usd` is the amount charged for the review. Token fields are additive across model turns and resumes. OpenRouter is the only provider that reports a dollar charge. For every other `UNREAL_REVIEW_PROVIDER`, `cost.amount_usd` is 0 and the `run` command prints `cost: unknown (provider <name> does not report cost)` instead of a zero dollar amount. The `cost` object is unchanged.
+`cost.amount_usd` is the amount charged for the review. Token fields are additive across model turns and resumes. OpenRouter is the only provider that reports a dollar charge. For every other provider, `cost.amount_usd` is 0 and the `run` command prints `cost: unknown (provider <name> does not report cost)` instead of a zero dollar amount. The `cost` object is unchanged.
 
 ## `finding`
 
@@ -55,3 +55,7 @@ A summary that breaks the contract goes back to the agent for correction, up to 
 ## Renderers
 
 A renderer reads this file and produces a host-specific display. GitHub inline comments map `anchor=new` to `RIGHT` and `anchor=old` to `LEFT`, and drop findings whose lines are not in the pull request diff. The GitHub renderer tags each posted comment body with a marker derived from the finding `id`, lists each finding outside the diff in the review body with the same marker, suppresses a finding as already reported when its `id` names a posted finding, and posts a review only when at least one comment or drop is new, or when the findings file holds none. After posting it records the head as reviewed with an `unreal-review` check run, unless a finding was cut by the 50-comment cap. A finding outside the diff does not hold the receipt back. An empty findings file posts one review per head whose body is `LGTM` with the reviewed range; rendering the same head again does not post it twice. `id` is derived from path, line range, anchor, and body, so an unchanged issue keeps its identity across runs.
+
+## Known gap
+
+The review agent's shell runs as the user. When it reviews an untrusted diff, that shell can read home-directory credentials such as `~/.codex/auth.json` and `~/.config/gh`. A follow-up should confine the review shell (an empty temp HOME). That confinement is not implemented.

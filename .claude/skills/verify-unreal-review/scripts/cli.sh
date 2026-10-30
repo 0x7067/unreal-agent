@@ -64,18 +64,23 @@ bin=$VERIFY_BIN
 } >"$step/cmd.txt"
 
 set +e
+# Documented steps always hit the OpenRouter loopback stub. Drop the runner's
+# selector, generic key, and base URL, then pin OpenRouter. Recipes still
+# supply OPENROUTER_API_KEY.
+# Every -u precedes the assignment: env treats a later -u as the command.
+review_env=(env)
+review_env+=(-u UNREAL_HARNESS_LLM_PROVIDER)
+review_env+=(-u UNREAL_HARNESS_LLM_API_KEY)
+review_env+=(-u UNREAL_HARNESS_LLM_BASE_URL)
 if [ "$no_github" -eq 1 ]; then
-	if [ -n "$stdin_file" ]; then
-		env -u GH_TOKEN -u GITHUB_TOKEN -u UNREAL_REVIEW_PROVIDER "$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
-	else
-		env -u GH_TOKEN -u GITHUB_TOKEN -u UNREAL_REVIEW_PROVIDER "$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
-	fi
+	review_env+=(-u GH_TOKEN)
+	review_env+=(-u GITHUB_TOKEN)
+fi
+review_env+=(UNREAL_HARNESS_LLM_PROVIDER=openrouter)
+if [ -n "$stdin_file" ]; then
+	"${review_env[@]}" "$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
 else
-	if [ -n "$stdin_file" ]; then
-		"$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
-	else
-		"$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
-	fi
+	"${review_env[@]}" "$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
 fi
 status=$?
 set -e

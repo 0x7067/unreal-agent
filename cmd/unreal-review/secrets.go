@@ -23,8 +23,8 @@ const (
 // starts, so a Bash tool cannot read them. Provider keys are the non-empty
 // APIKeyEnvironment values in the registry. The generic harness key, the
 // Codex token pair, OPENAI_CODEX_AUTH_FILE, and the GitHub tokens are
-// explicit extras. The auth file path is stripped so the review shell
-// cannot open it.
+// explicit extras. OPENAI_CODEX_AUTH_FILE stays here so the shell cannot see
+// the path; reviewGetenv still returns it to the client.
 var secretNames = reviewSecretNames()
 
 func reviewSecretNames() []string {
