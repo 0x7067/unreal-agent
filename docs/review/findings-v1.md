@@ -1,0 +1,61 @@
+# findings.jsonl v1
+
+Canonical review output. One JSON object per line. `v` is `1`.
+
+## `run`
+
+Present on every `unreal-review run`. `cost` is required.
+
+```json
+{"v":1,"type":"run","id":"…","created_at":"2026-09-23T12:00:00Z","model":"anthropic/claude-sonnet-4.5","status":"complete","source":{"kind":"git","base":"main","head":"","base_sha":"abc","head_sha":"def","diff_sha":"…"},"cost":{"amount_usd":0.0123,"currency":"USD","input_tokens":12000,"output_tokens":800,"reasoning_tokens":400,"cached_input_tokens":1000,"requests":3}}
+```
+
+`id` is the review id. Resume uses the same `--out` file. `--fresh` starts over and does not resume from an existing checkpoint. An agent backend may use that id for its own continuation; the checkpoint does not. A `run` object may only contain the fields above.
+
+`status` is `running`, `complete`, or `failed`. A file written before this field existed is complete. GitHub posting requires `complete`.
+
+`source.base` and `source.head` name the selected git range. Workspace mode stores `base=HEAD` and an empty `head`, with both SHAs equal to HEAD. `--from`/`--to` store those refs; omitted `--to` is the working tree (`head` empty, `head_sha` is HEAD). `--branch` stores the detected `main` or `master` as `base` and the branch as `head`. `--commit` stores `commit^` as `base` and the commit as `head` (empty `base` for a root commit). `--pr` stores the pull request base SHA (or the last reviewed head SHA when that commit is an ancestor of the pull request head) as `base` and the pull request head SHA as `head`, so `base_sha` and `head_sha` match those SHA strings. `source.base_sha` and `source.head_sha` are those git objects at review time. `source.diff_sha` is the SHA-256 of the exact unified diff that was reviewed after pathspecs and exclusions, so a dirty working tree cannot resume against a different patch that shares the same HEAD.
+
+`cost.amount_usd` is the amount charged for the review. Token fields are additive across model turns and resumes. OpenRouter is the only provider that reports a dollar charge. For every other provider, `cost.amount_usd` is 0 and the `run` command prints `cost: unknown (provider <name> does not report cost)` instead of a zero dollar amount. The `cost` object is unchanged.
+
+## `finding`
+
+Every finding has `severity`. Allowed values: `error`, `warning`, `note`.
+
+```json
+{"v":1,"type":"finding","id":"a1b2c3d4e5f60708","path":"src/foo.go","start_line":12,"end_line":14,"anchor":"new","severity":"warning","body":"This map write races with the reader."}
+```
+
+| field | meaning |
+| --- | --- |
+| `path` | Repository-relative path |
+| `start_line`, `end_line` | Inclusive 1-based lines |
+| `anchor` | `new` (post-change file) or `old` (deleted lines) |
+| `severity` | `error`, `warning`, or `note` |
+| `body` | Markdown. The prompt asks for one checkable claim: the defect and its most important concrete consequence, then stop; code cannot check that reliably, so it is a request, not part of the contract |
+| `id` | Optional on input. A new finding omits it and gets one derived from path, line range, anchor, and body. A finding that restates one already reported on the pull request carries that finding's `id` |
+
+Severity is `error` when the code does the wrong thing: crash, hang, race, or corruption; a security compromise; a reported failure the caller can no longer classify, so error handling takes the wrong branch; or a transient fault made permanent with no recovery path. It is `warning` when the code works but weakly: diagnostics silently dropped while behavior stays correct, resources leaking toward exhaustion under sustained load, or capability lost for some inputs while the rest keeps working. Everything smaller is `note`.
+
+## `summary`
+
+```json
+{"v":1,"type":"summary","body":"The cache write races with the reader, so readers can see torn entries; the eviction change looks sound."}
+```
+
+`body` is the agent's final message. `findings.CheckSummary` enforces the summary contract before the summary is written:
+
+- One line of plain prose, at most 300 characters. Inline code is allowed; line breaks, headings, list items, quotes, tables, and code blocks are not.
+- The verdict matches the findings: it starts with `No material issues` exactly when the review recorded no findings.
+
+The prompt also asks for one to three sentences, a summary that opens with the most severe finding and what it breaks, and no count or list of findings, since renderers show those from the `finding` records. Code cannot check those reliably, so they are requests, not part of the contract.
+
+A summary that breaks the contract goes back to the agent for correction, up to two times; after that the run is `failed`. A review of an empty diff writes `No material issues: the selected range has no changes.` Files written before the contract existed are read as they are.
+
+## Renderers
+
+A renderer reads this file and produces a host-specific display. GitHub inline comments map `anchor=new` to `RIGHT` and `anchor=old` to `LEFT`, and drop findings whose lines are not in the pull request diff. The GitHub renderer tags each posted comment body with a marker derived from the finding `id`, lists each finding outside the diff in the review body with the same marker, suppresses a finding as already reported when its `id` names a posted finding, and posts a review only when at least one comment or drop is new, or when the findings file holds none. After posting it records the head as reviewed with an `unreal-review` check run, unless a finding was cut by the 50-comment cap. A finding outside the diff does not hold the receipt back. An empty findings file posts one review per head whose body is `LGTM` with the reviewed range; rendering the same head again does not post it twice. `id` is derived from path, line range, anchor, and body, so an unchanged issue keeps its identity across runs.
+
+## Known gap
+
+The review agent's shell runs as the user. When it reviews an untrusted diff, that shell can read home-directory credentials such as `~/.codex/auth.json` and `~/.config/gh`. A follow-up should confine the review shell (an empty temp HOME). That confinement is not implemented.

@@ -7,8 +7,9 @@ It is kept short on purpose - every line here is paid on every session.
 
 Two Go modules: the root (library, runner, `cmd/internal`) and `cmd/unreal-agent-tui` (own `go.mod`; use `go -C cmd/unreal-agent-tui ...`). `make test check build` is what CI runs.
 
-- `make build` -> `bin/unreal-agent-runner`, `bin/unreal-agent-tui`
-- `make test` (`-race`, both modules); `make check` (vet + gofmt on `cmd harness internal`)
+- `make build` -> `bin/unreal-agent-runner`, `bin/unreal-agent-tui`, and fork-only `bin/unreal-review`
+- `make test` (`-race`, both modules, including `cmd/internal/review`, `cmd/unreal-review`, and `review/findings`); `make check` (vet + gofmt on `cmd harness internal review`)
+- Review (fork-only, not upstream): `make review-canary` (loopback stub, no paid calls), `make review-prove` (Bend, `docs/formal/review/prove.sh`), `make review-lint` (golangci-lint on the review packages). `make review-canary-live` calls OpenRouter and is not a CI gate.
 - Single test: `go test ./harness/coordinator -run TestName -count=1`; in the TUI module: `go -C cmd/unreal-agent-tui test -run TestName .`
 - Fuzz targets CI runs are listed in `.github/workflows/ci.yml` (e.g. `go test ./harness/coordinator -run '^$' -fuzz '^FuzzCoordinatorFaults$' -fuzztime=30s`)
 - Wire types in `internal/openaiapi` and `internal/anthropicapi` are generated from `third_party/*-openapi` via `go generate` (`uv run --script generate.py`); don't hand-edit them.
@@ -26,7 +27,7 @@ The README glossary and components table define the core terms (Input, Inbox, Se
 - Translators run synchronously on the loop and must not do I/O. They only produce serializable `harness/operation` values. The session store records them atomically with the tool-call status, and only then does the coordinator dispatch them to the operation manager actor (shell, image, skill use, remote jobs; built on `harness/primitives`).
 - `harness/taskgraph` = a pure DAG reducer (`graph.go`) driven by a single-goroutine `Runtime` and exposed to the model as the TaskGraph tool. Checkpoints are re-validated with `Graph.Validate` on resume.
 - Compatibility: session-store items and operations are serializable and versioned. Resuming an unsupported version must fail explicitly. Preserve backward reads of old sessions.
-- Binaries: `cmd/unreal-agent-runner` -> `cmd/internal/agentrunner` (one-shot run, JSONL events on stdout). The TUI is a frontend that supervises a resident worker (the same binary run with `worker`): `workerhost` (frontend side, `/reload` via graceful `StopWhenIdle`) talks to `workerruntime` over the private `workerproto` pipe protocol. Subagents: `cmd/internal/subagent`. Providers/auth: `cmd/internal/providers`.
+- Binaries: `cmd/unreal-agent-runner` -> `cmd/internal/agentrunner` (one-shot run, JSONL events on stdout). The TUI is a frontend that supervises a resident worker (the same binary run with `worker`): `workerhost` (frontend side, `/reload` via graceful `StopWhenIdle`) talks to `workerruntime` over the private `workerproto` pipe protocol. Subagents: `cmd/internal/subagent`. Providers/auth: `cmd/internal/providers`. `cmd/unreal-review` is fork-only (not upstream): it reviews a git diff into findings-v1 (`docs/review/findings-v1.md`) with the runner's provider selection and registry credentials (`providers.Select`: `UNREAL_HARNESS_LLM_PROVIDER`, default `openai`, `UNREAL_HARNESS_LLM_API_KEY`, `UNREAL_HARNESS_LLM_BASE_URL`, and each provider's own variables, including the Codex auth file). Known gap: the review shell runs as the user and can read home-directory credentials such as `~/.codex/auth.json` and `~/.config/gh` when reviewing an untrusted diff; confine that shell with an empty temp HOME as a follow-up (`docs/review/findings-v1.md`).
 
 ## Learnings
 

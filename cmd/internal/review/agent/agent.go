@@ -1,0 +1,399 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"encoding/json/jsontext"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"math"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"uuid"
+
+	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
+	"github.com/unreallabsai/unreal-agent/harness/coordinator"
+	"github.com/unreallabsai/unreal-agent/harness/inbox"
+	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
+	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/unreallabsai/unreal-agent/harness/primitives"
+	"github.com/unreallabsai/unreal-agent/harness/session"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/unreallabsai/unreal-agent/harness/tool"
+	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
+	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
+
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	review "github.com/unreallabsai/unreal-agent/cmd/internal/review/core"
+	"github.com/unreallabsai/unreal-agent/review/findings"
+)
+
+const (
+	maxSummaryCorrections = 2
+	openRouterBaseURL     = "https://openrouter.ai/api/v1"
+	openRouterBaseEnv     = "UNREAL_REVIEW_OPENROUTER_API"
+	toolHeartbeatInterval = 10 * time.Minute
+	// compactionDisabled keeps the full session in the model request.
+	// The harness treats a zero threshold as "compact after every response".
+	compactionDisabled = math.MaxInt64
+)
+
+// ErrUnauthorized is a model HTTP 401. The provider text stays in front of it.
+var ErrUnauthorized = errors.New("status 401")
+
+type unauthorizedError struct {
+	error
+}
+
+func (e unauthorizedError) Unwrap() []error { return []error{e.error, ErrUnauthorized} }
+
+func withUnauthorized(err error) error {
+	var api *responsesapi.APIError
+	if errors.As(err, &api) && api.StatusCode == http.StatusUnauthorized {
+		return unauthorizedError{err}
+	}
+	return err
+}
+
+// OpenRouterBase resolves a raw UNREAL_REVIEW_OPENROUTER_API value.
+// An empty value selects the public API. The caller reads the environment.
+func OpenRouterBase(raw string) (string, error) {
+	base, err := LoopbackBaseURL(openRouterBaseEnv, raw)
+	if err != nil {
+		return "", err
+	}
+	if base == "" {
+		return openRouterBaseURL, nil
+	}
+	return base, nil
+}
+
+type Harness struct {
+	APIKey        string
+	ThinkingLevel string
+	Log           io.Writer
+	Timeout       time.Duration
+	// MaxBashCalls limits Bash tool calls within one Run. Zero is unlimited;
+	// negative disables Bash for stages that must operate only on supplied data.
+	MaxBashCalls int
+	// Provider is a name from providers.Default. The CLI sets it; empty is an error.
+	Provider string
+	// BaseURL is the runner base (UNREAL_HARNESS_LLM_BASE_URL or the registry).
+	// A non-empty UNREAL_REVIEW_OPENROUTER_API replaces it for openrouter only.
+	BaseURL string
+	// Getenv reads process configuration for the client factory. The CLI sets it.
+	Getenv func(string) string
+}
+
+var _ review.Agent = Harness{}
+
+func (h Harness) Run(ctx context.Context, req review.AgentRequest) (result review.AgentResult, err error) {
+	if req.Resuming {
+		dir, err := sessionRoot(req.SessionDir)
+		if err != nil {
+			return review.AgentResult{}, err
+		}
+		_, err = os.Stat(filepath.Join(dir, "focused", focusedHash(req.ReviewID), "manifest.json"))
+		if err == nil {
+			return review.AgentResult{}, fmt.Errorf("focused checkpoint: resume with --strategy focused or start with --fresh")
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return review.AgentResult{}, fmt.Errorf("read adapter state: %w", err)
+		}
+	}
+
+	selected, err := providers.Find(providers.Default(), strings.TrimSpace(h.Provider))
+	if err != nil {
+		return review.AgentResult{}, err
+	}
+	base, err := h.modelBase(selected, req.OpenRouterAPI)
+	if err != nil {
+		return review.AgentResult{}, err
+	}
+	adapter, closeAdapter, err := h.newModelAdapter(selected, base)
+	if err != nil {
+		return review.AgentResult{}, fmt.Errorf("create %s client: %w", selected.Name, err)
+	}
+	defer func() {
+		closeErr := closeAdapter()
+		if err != nil {
+			err = errors.Join(err, closeErr)
+			return
+		}
+		// Releasing the client must not fail a run that succeeded.
+	}()
+	return h.run(ctx, adapter, req)
+}
+
+// RejectOpenRouterOverride fails when the review loopback stand-in is set for
+// a provider other than openrouter. An empty or whitespace value is unset.
+func RejectOpenRouterOverride(providerName, openRouterAPI string) error {
+	if strings.TrimSpace(openRouterAPI) == "" || providerName == "openrouter" {
+		return nil
+	}
+	return fmt.Errorf("%s is set but the selected provider is %s, not openrouter", openRouterBaseEnv, providerName)
+}
+
+// modelBase uses the runner base URL. A non-empty UNREAL_REVIEW_OPENROUTER_API
+// replaces that base for openrouter and must be loopback. Any other provider
+// rejects the override.
+func (h Harness) modelBase(selected providers.Provider, openRouterAPI string) (string, error) {
+	if err := RejectOpenRouterOverride(selected.Name, openRouterAPI); err != nil {
+		return "", err
+	}
+	if selected.Name == "openrouter" && strings.TrimSpace(openRouterAPI) != "" {
+		return OpenRouterBase(openRouterAPI)
+	}
+	base := strings.TrimSpace(h.BaseURL)
+	if base == "" {
+		base = selected.BaseURL
+	}
+	if base == "" {
+		return "", fmt.Errorf("provider %q has no base URL", selected.Name)
+	}
+	return base, nil
+}
+
+func (h Harness) newModelAdapter(selected providers.Provider, base string) (llm.Adapter, func() error, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The registry client follows redirects. The canary stub and the loopback
+	// tests require a client that refuses to leave 127.0.0.1, ::1, or localhost.
+	if selected.Name == "openrouter" && loopbackHost(u.Hostname()) {
+		return newLoopbackModelAdapter(h.APIKey, base)
+	}
+	client, err := selected.NewClient(h.APIKey, base, responsesapi.DefaultMaxAttempts, h.Getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, client.Close, nil
+}
+
+func newLoopbackModelAdapter(apiKey, base string) (llm.Adapter, func() error, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(base), "/")
+	remote := primitives.NewRemoteClientWithHTTPClient(LoopbackHTTPClient())
+	adapter, err := responsesapi.NewAdapter(remote, responsesapi.Config{
+		Endpoint: baseURL + "/responses",
+		Headers: map[string][]string{
+			"Authorization": {"Bearer " + apiKey},
+			"Content-Type":  {"application/json"},
+		},
+		CacheKeyPlacement: responsesapi.CacheKeyPlacement{Header: "x-session-id"},
+		Extensions: map[string]jsontext.Value{
+			"cache_control": jsontext.Value(`{"type":"ephemeral","ttl":"1h"}`),
+		},
+	})
+	if err != nil {
+		return nil, nil, errors.Join(err, remote.Close())
+	}
+	return adapter, remote.Close, nil
+}
+
+func (h Harness) run(ctx context.Context, adapter llm.Adapter, req review.AgentRequest) (review.AgentResult, error) {
+	storeDirectory, err := sessionRoot(req.SessionDir)
+	if err != nil {
+		return review.AgentResult{}, fmt.Errorf("resolve session directory: %w", err)
+	}
+	store, err := localfile.New(storeDirectory)
+	if err != nil {
+		return review.AgentResult{}, fmt.Errorf("open session store: %w", err)
+	}
+
+	sessionID := session.ID(strings.TrimSpace(req.ReviewID))
+	if sessionID == "" {
+		return review.AgentResult{}, fmt.Errorf("review ID must be set")
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	operationDirectory := filepath.Join(storeDirectory, "operations", string(sessionID))
+	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
+		return review.AgentResult{}, fmt.Errorf("create operation directory: %w", err)
+	}
+	registry := newRecordRegistry(tool.NewRegistry(tool.StaticTranslators{
+		Bash: newBoundedBash(req.Workspace, h.MaxBashCalls, bash.New(bash.Config{
+			Shell:         "/bin/sh",
+			Directory:     req.Workspace,
+			BaseDirectory: operationDirectory,
+		})),
+		ViewImage: viewimage.New(viewimage.Config{Directory: req.Workspace}),
+	}, tool.BashName, tool.ViewImageName))
+
+	observer := newSessionObserver(sessionID, req.FindingsPath, h.Log, cancel)
+	observerID := store.AddObserver(observer.Observe)
+	defer store.RemoveObserver(observerID)
+
+	systemPrompt := bashBudgetSystemPrompt(req.SystemPrompt, h.MaxBashCalls)
+	s := harnessSession{
+		id:       sessionID,
+		store:    store,
+		llm:      adapter,
+		registry: registry,
+		model: llm.Model{
+			ID:                  req.Model,
+			CompactionThreshold: compactionDisabled,
+			ReasoningEffort:     llm.ReasoningEffort(h.ThinkingLevel),
+		},
+		systemPrompt: systemPrompt,
+	}
+	coordinatorErr := s.turn(runCtx, inbox.ID(sessionID), req.Prompt)
+	for attempt := 0; coordinatorErr == nil; attempt++ {
+		count, err := findingCount(req.FindingsPath)
+		if err != nil {
+			coordinatorErr = err
+			break
+		}
+		summary, err := findings.CheckSummary(observer.takeFinalText(), count)
+		if err == nil {
+			coordinatorErr = findings.AppendSummary(req.FindingsPath, summary)
+			break
+		}
+		if attempt == maxSummaryCorrections {
+			coordinatorErr = fmt.Errorf("summary breaks the contract: %w", err)
+			break
+		}
+		coordinatorErr = s.turn(runCtx, inbox.ID(uuid.New().String()), summaryCorrection(err))
+	}
+	if observerErr := observer.Err(); observerErr != nil {
+		coordinatorErr = observerErr
+	}
+
+	return review.AgentResult{Cost: observer.Cost()}, coordinatorErr
+}
+
+func bashBudgetSystemPrompt(systemPrompt string, maxCalls int) string {
+	if maxCalls == 0 {
+		return systemPrompt
+	}
+	if maxCalls < 0 {
+		return systemPrompt + `
+	Bash is unavailable for this run. Do not call Bash. Use the review-recording tools normally, work only from the supplied candidate data, and finalize directly.`
+	}
+	return systemPrompt + fmt.Sprintf(`
+This run has a strict budget of %d Bash tool calls. The supplied task prompt already contains the changed scope, so start from it. Do not rerun the whole diff, diff stat, or name-only listing unless a precise ambiguity requires it. First identify the few highest-risk candidate defects. Use Bash only to test a concrete premise in callers, configuration, schemas, tests, or the base revision. Batch related narrow reads and searches into one command, use exact source revisions, and issue at most four Bash calls per model turn. Treat roughly the first three quarters of the budget as triage and reserve the rest for confirming the strongest candidates and their anchors. Record a finding as soon as its evidence is sufficient. Stop exploring low-confidence branches and finalize once no high-value premise remains; a clean result is valid.`, maxCalls)
+}
+
+type harnessSession struct {
+	id           session.ID
+	store        *localfile.Store
+	llm          llm.Adapter
+	registry     tool.Registry
+	model        llm.Model
+	systemPrompt string
+}
+
+func (s harnessSession) turn(ctx context.Context, messageID inbox.ID, message string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	restored, err := openSession(ctx, s.store, s.id)
+	if err != nil {
+		return err
+	}
+	inputs, err := inbox.New(ctx, restored.InputIDs)
+	if err != nil {
+		return fmt.Errorf("open inbox: %w", err)
+	}
+	settings, err := json.Marshal(inbox.ControlMessage{
+		Mode:       inbox.UpdateSettings,
+		Parameters: inbox.Settings{ReasoningEffort: s.model.ReasoningEffort},
+	})
+	if err != nil {
+		return fmt.Errorf("encode settings: %w", err)
+	}
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("encode message: %w", err)
+	}
+	stop, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
+	if err != nil {
+		return fmt.Errorf("encode stop request: %w", err)
+	}
+	for _, input := range []inbox.Input{
+		{ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: settings},
+		{ID: messageID, Kind: inbox.InputExternal, Payload: payload},
+		{ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: stop},
+	} {
+		if err := inputs.Submit(ctx, input); err != nil {
+			return fmt.Errorf("submit input: %w", err)
+		}
+	}
+	builder := contextbuilder.NewBuilder()
+	builder.SetModel(s.model)
+	builder.SetSystemPrompt(s.systemPrompt)
+	for _, definition := range s.registry.StaticDefinitions() {
+		builder.AddTool(definition.Tool)
+	}
+	err = coordinator.New(coordinator.Dependencies{
+		ToolHeartbeatInterval: toolHeartbeatInterval,
+		SessionID:             s.id,
+		Inbox:                 inputs,
+		Restored:              restored,
+		Sessions:              s.store,
+		ContextBuilder:        builder,
+		LLM:                   s.llm,
+		Tools:                 s.registry,
+		Operations:            operation.NewLocalOperationManager(ctx),
+	}).Run(ctx)
+	if err != nil {
+		return fmt.Errorf("run coordinator: %w", withUnauthorized(err))
+	}
+	return nil
+}
+
+func findingCount(findingsPath string) (int, error) {
+	report, err := findings.ReadFile(findingsPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	return len(report.Findings), err
+}
+
+func summaryCorrection(err error) string {
+	return fmt.Sprintf("Your final message is the review summary, and it breaks the summary contract: %v. Reply with only the corrected summary.", err)
+}
+
+func openSession(ctx context.Context, store *localfile.Store, id session.ID) (sessionstore.ResumeState, error) {
+	restored, err := store.Resume(ctx, id)
+	if err == nil {
+		return restored, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return sessionstore.ResumeState{}, fmt.Errorf("open session %q: %w", id, err)
+	}
+	if _, err := store.Create(ctx, id); err != nil {
+		return sessionstore.ResumeState{}, fmt.Errorf("create session %q: %w", id, err)
+	}
+	return sessionstore.ResumeState{}, nil
+}
+
+func sessionRoot(dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", fmt.Errorf("session directory is required")
+	}
+	return dir, nil
+}
+
+func SanitizeLevel(level string) (string, error) {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		return "high", nil
+	}
+	switch level {
+	case "low", "medium", "high", "xhigh", "max":
+		return level, nil
+	default:
+		return "", fmt.Errorf("thinking level %q: want low, medium, high, xhigh, or max", level)
+	}
+}

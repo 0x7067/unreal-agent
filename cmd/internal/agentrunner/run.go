@@ -45,10 +45,9 @@ import (
 )
 
 const (
-	defaultProvider           = "openai"
-	llmBaseURLEnvironment     = "UNREAL_HARNESS_LLM_BASE_URL"
+	llmBaseURLEnvironment     = providers.BaseURLEnvironment
 	llmModelEnvironment       = "UNREAL_HARNESS_LLM_MODEL"
-	llmProviderEnvironment    = "UNREAL_HARNESS_LLM_PROVIDER"
+	llmProviderEnvironment    = providers.ProviderEnvironment
 	llmMaxAttemptsEnvironment = "UNREAL_HARNESS_LLM_MAX_ATTEMPTS"
 )
 
@@ -339,18 +338,13 @@ func Run(
 	if err := recoverygate.Validate(restored.Operations); err != nil {
 		return fmt.Errorf("refuse resume: operation has unresolved status: %w", err)
 	}
-	providerName := strings.TrimSpace(getenv(llmProviderEnvironment))
-	if providerName == "" {
-		providerName = defaultProvider
-	}
-	selected, err := providers.Find(config.Providers, providerName)
+	selection, err := providers.Select(config.Providers, getenv)
 	if err != nil {
 		return err
 	}
-	configuredBaseURL := strings.TrimSpace(getenv(llmBaseURLEnvironment))
-	if configuredBaseURL == "" {
-		configuredBaseURL = selected.BaseURL
-	}
+	selected := selection.Provider
+	configuredBaseURL := selection.BaseURL
+	apiKey := selection.APIKey
 
 	model := strings.TrimSpace(parsed.Model)
 	if model == "" {
@@ -361,10 +355,6 @@ func Run(
 	}
 	if model == "" {
 		return fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
-	}
-	apiKey, err := selected.APIKey(getenv)
-	if err != nil {
-		return err
 	}
 	client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
 	if err != nil {

@@ -1,0 +1,50 @@
+# CLI usage
+
+The CLI prints usage on stdout for `help` and on stderr when a command is missing or unknown. `run` refuses to start without a model, an API key, or a valid `--thinking-level`.
+
+## Sub-features
+
+- `usage-help` prints usage on stdout and exits 0.
+- `run-help` prints `run -h` flag usage once and exits 0.
+- `usage-required` prints usage on stderr and exits 1 when no command is given.
+- `usage-unknown` names the unknown command and exits 1.
+- `run-model` refuses `run` without `--model` or `UNREAL_HARNESS_LLM_MODEL`.
+- `run-key` refuses `run` without `OPENROUTER_API_KEY`.
+- `run-thinking` rejects a thinking level other than `low`, `medium`, `high`, `xhigh`, or `max`.
+- `run-exclude-empty` rejects an empty `--exclude`.
+- `render-unknown` rejects a render target other than `github` or `markdown`.
+- `render-required` rejects bare `render` with no target.
+
+## How to get to it (user POV)
+
+- Run `unreal-review` with no arguments.
+- Run `unreal-review help`, `-h`, or `--help`.
+- Run `unreal-review run -h` or `unreal-review render help`.
+- Run `unreal-review run` without model or key.
+- Run `unreal-review render` with no target.
+- Run `unreal-review render html`.
+
+## Driving it with verify-unreal-review
+
+Preconditions:
+
+- Launch and doctor have succeeded.
+- This recipe unsets `UNREAL_HARNESS_LLM_MODEL` where noted so the model gate is visible.
+
+- **Help.** Run `unreal-review help`. Run `scripts/cli.sh --name usage-help -- help`. Exit code `0`. `stdout.txt` contains `Usage:`, `unreal-review run`, and `unreal-review group`.
+- **Run help.** Run `scripts/cli.sh --name run-help -- run -h`. Exit code `0`. `stderr.txt` contains `Usage of run:` once and lacks `flag: help requested`.
+- **Missing command.** Run `unreal-review` with no args. Run `scripts/cli.sh --name usage-required --`. `exit.txt` is `1`. `stderr.txt` ends with `unreal-review: command required`.
+- **Unknown command.** Run `scripts/cli.sh --name usage-unknown -- frob`. Exit code `1`. `stderr.txt` contains `unreal-review: unknown command "frob"`.
+- **Missing model.** Run `env -u UNREAL_HARNESS_LLM_MODEL scripts/cli.sh --name run-model -- run --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"`. Exit code `1`. `stderr.txt` contains `unreal-review: set --model or UNREAL_HARNESS_LLM_MODEL`.
+- **Missing key.** Run `env -u OPENROUTER_API_KEY scripts/cli.sh --name run-key -- run --model x --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"`. Exit code `1`. `stderr.txt` contains `unreal-review: UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set`.
+- **Bad thinking level.** Run `OPENROUTER_API_KEY=dummy scripts/cli.sh --name run-thinking -- run --model x --thinking-level nope --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"`. Exit code `1`. `stderr.txt` contains `thinking level "nope": want low, medium, high, xhigh, or max`.
+- **Empty exclude.** Run `OPENROUTER_API_KEY=dummy scripts/cli.sh --name run-exclude-empty -- run --model x --exclude '' --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"`. Exit code `1`. `stderr.txt` contains `empty --exclude`.
+- **Unknown render target.** Run `scripts/cli.sh --name render-unknown -- render html`. Exit code `1`. `stderr.txt` contains `unreal-review: unknown render target "html"`.
+- **Missing render target.** Run `scripts/cli.sh --name render-required -- render`. Exit code `1`. `stderr.txt` contains `unreal-review: render target required: github or markdown`.
+- **Proof.** `usage-help/exit.txt` is `0` and `run-model/stderr.txt` contains the model error. Copy those four files under the evidence root; do not rely on the terminal scrollback.
+
+## Gotchas
+
+- `cli.sh --name usage-required --` invokes the binary with no command. `cli.sh` still exits 0; the CLI status is `exit.txt`.
+- `group -h`, `render markdown -h`, and `render github -h` print that command's flag usage once and exit 0. There is no `unreal-review: flag: help requested` line. Flag parsing still runs before the model check, so no model error appears even when `UNREAL_HARNESS_LLM_MODEL` is unset. Top-level `help`/`-h`/`--help` and `render help` / `render -h` / `render --help` exit 0; the render aliases print the same usage as top-level `help`.
+- Flag parse errors (empty `--exclude`) print Go `flag` usage on stderr in addition to `unreal-review: …`.

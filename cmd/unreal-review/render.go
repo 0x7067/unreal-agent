@@ -1,0 +1,238 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/unreallabsai/unreal-agent/cmd/internal/review/diffmap"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/review/github"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/review/render"
+	"github.com/unreallabsai/unreal-agent/review/findings"
+)
+
+func cmdRender(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("render target required: github or markdown")
+	}
+	switch args[0] {
+	case "github":
+		return renderGitHub(args[1:])
+	case "markdown":
+		return renderMarkdown(args[1:])
+	case "-h", "--help", "help":
+		return printUsage(os.Stdout)
+	default:
+		return fmt.Errorf("unknown render target %q", args[0])
+	}
+}
+
+func registerMarkdownFlags(fs *flag.FlagSet) *string {
+	return fs.String("out", "-", "output path, or - for stdout")
+}
+
+func renderMarkdown(args []string) (err error) {
+	fs := flag.NewFlagSet("render markdown", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	outPath := registerMarkdownFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return successOnHelp(err)
+	}
+	report, err := loadReport(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	out, err := openOut(*outPath)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, out.Close()) }()
+	return render.Markdown(out, report)
+}
+
+type githubFlags struct {
+	pr, repo, commit *string
+	dryRun           *bool
+}
+
+func registerGitHubFlags(fs *flag.FlagSet) githubFlags {
+	return githubFlags{
+		pr:     fs.String("pr", "", "pull request: owner/repo#n, a URL, or a number"),
+		repo:   fs.String("repo", os.Getenv("GITHUB_REPOSITORY"), "owner/repo when --pr is a number"),
+		commit: fs.String("commit", "", "commit SHA for inline comments (default: PR head)"),
+		dryRun: fs.Bool("dry-run", false, "print the review payload instead of posting"),
+	}
+}
+
+func renderGitHub(args []string) error {
+	fs := flag.NewFlagSet("render github", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	f := registerGitHubFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return successOnHelp(err)
+	}
+	report, err := loadReport(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if !*f.dryRun && !report.Complete() {
+		status := findings.StatusRunning
+		if report.Run != nil && report.Run.Status != "" {
+			status = report.Run.Status
+		}
+		return fmt.Errorf("findings are %s; resume the review before posting", status)
+	}
+	owner, name, number, err := resolvePR(*f.pr, *f.repo)
+	if err != nil {
+		return err
+	}
+	token := secret("GH_TOKEN")
+	client, err := githubClient(token)
+	if err != nil {
+		return err
+	}
+	opts := render.GitHubOptions{
+		Owner:      owner,
+		Repo:       name,
+		PullNumber: number,
+		CommitID:   *f.commit,
+	}
+	var (
+		state           github.PullState
+		priorStatus     github.Status
+		statusCommentID int64
+	)
+	if token != "" {
+		ctx := context.Background()
+		pullState, err := client.PullState(ctx, owner, name, number)
+		if err != nil {
+			return err
+		}
+		state = pullState
+		priorStatus, statusCommentID, err = client.LatestStatusComment(ctx, owner, name, number)
+		if err != nil {
+			return err
+		}
+		if opts.CommitID == "" {
+			opts.CommitID = state.HeadSHA
+		}
+		if report.Run != nil && report.Run.Source.HeadSHA != "" && opts.CommitID != report.Run.Source.HeadSHA {
+			return fmt.Errorf("findings review %s but the pull request head is %s; rerun the review before posting", report.Run.Source.HeadSHA, opts.CommitID)
+		}
+		files, err := client.ListPullFiles(ctx, owner, name, number)
+		if err != nil {
+			return err
+		}
+		lines := diffmap.New()
+		for _, file := range files {
+			if file.Patch == "" {
+				continue
+			}
+			if err := diffmap.MergePatch(lines, file.Path, file.Patch); err != nil {
+				return fmt.Errorf("parse patch for %s: %w", file.Path, err)
+			}
+		}
+		opts.Lines = lines
+		opts.HasLines = true
+		opts.History = render.HistoryOf(state)
+	}
+	result := render.GitHub(report, opts)
+	if *f.dryRun {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result.Payload)
+	}
+	if token == "" {
+		return fmt.Errorf("set GH_TOKEN to post a review")
+	}
+	ctx := context.Background()
+	if result.PostReview() {
+		if err := client.CreateReview(ctx, result.Payload); err != nil {
+			return err
+		}
+	}
+	cost := runCost(report)
+	status := render.StatusBody(render.RunSummary{
+		HeadSHA: opts.CommitID,
+		Runs:    priorStatus.Runs + 1,
+		Cost:    cost,
+		Total:   priorStatus.CostUSD + cost.AmountUSD,
+		Result:  result,
+		Summary: report.Summary,
+	})
+	if err := client.UpsertStatusComment(ctx, owner, name, number, statusCommentID, status); err != nil {
+		return err
+	}
+	receipted, err := client.HasSuccessfulCheck(ctx, owner, name, opts.CommitID, checkName)
+	if err != nil {
+		return err
+	}
+	if !receipted && result.Receipt() {
+		if err := client.CreateCheckRun(ctx, owner, name, opts.CommitID, checkName, "unreal-review", "Review posted."); err != nil {
+			return err
+		}
+	}
+	reportPosted(result, cost)
+	return nil
+}
+
+func runCost(report findings.Report) findings.Cost {
+	if report.Run == nil {
+		return findings.Cost{Currency: "USD"}
+	}
+	return report.Run.Cost
+}
+
+func reportPosted(result render.GitHubResult, cost findings.Cost) {
+	if len(result.Payload.Review.Comments) > 0 {
+		fmt.Fprintf(os.Stderr, "posted %d inline comment(s)", len(result.Payload.Review.Comments))
+	} else if result.LGTM && result.LGTMPosted {
+		fmt.Fprint(os.Stderr, "LGTM already posted")
+	} else if result.LGTM {
+		fmt.Fprint(os.Stderr, "posted LGTM")
+	} else {
+		fmt.Fprint(os.Stderr, "posted no review")
+	}
+	if len(result.Duplicates) > 0 {
+		fmt.Fprintf(os.Stderr, ", %d already reported", len(result.Duplicates))
+	}
+	if len(result.Dropped) > 0 {
+		fmt.Fprintf(os.Stderr, ", dropped %d", len(result.Dropped))
+	}
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "cost: %s\n", cost.Format())
+}
+
+func loadReport(path string) (report findings.Report, err error) {
+	var r io.ReadCloser
+	if path == "" || path == "-" {
+		r = io.NopCloser(os.Stdin)
+	} else {
+		r, err = os.Open(path)
+		if err != nil {
+			return findings.Report{}, fmt.Errorf("open %s: %w", path, err)
+		}
+	}
+	defer func() { _ = r.Close() }() //nolint:errcheck // closing the findings file must not fail a successful parse
+	return findings.Parse(r)
+}
+
+func resolvePR(spec, repo string) (string, string, int, error) {
+	defaultOwner, defaultRepo := "", ""
+	if repo != "" {
+		var err error
+		defaultOwner, defaultRepo, err = github.SplitRepo(repo)
+		if err != nil {
+			return "", "", 0, err
+		}
+	}
+	if spec == "" {
+		return "", "", 0, fmt.Errorf("set --pr")
+	}
+	return github.ParsePR(spec, defaultOwner, defaultRepo)
+}
