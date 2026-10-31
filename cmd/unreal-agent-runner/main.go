@@ -3,6 +3,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
@@ -10,6 +11,12 @@ import (
 )
 
 func main() {
+	// Dispatch before resident commands and agentrunner so review does not
+	// load workspace .env or parse a JSON request.
+	if len(os.Args) > 1 && os.Args[1] == "review" {
+		os.Exit(reviewCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, os.Environ(), os.Executable, exec.LookPath))
+	}
+
 	if residentcli.Handles(os.Args[1:]) {
 		os.Exit(residentcli.Main(os.Args[1:]))
 	}
@@ -23,5 +30,6 @@ func main() {
 		Name:         "unreal-agent-runner",
 		ParseRequest: parseRequest,
 		Providers:    providers.Default(),
+		UsageSuffix:  reviewUsage,
 	})
 }

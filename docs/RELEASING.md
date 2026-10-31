@@ -25,12 +25,24 @@ at `v0.4.0`. The release name is the full tag.
 
 ## GitHub release
 
-`.goreleaser.yaml` publishes to `0x7067/unreal-agent`.
+`.goreleaser.yaml` publishes to `0x7067/unreal-agent`. `release.header` is
+prepended to that GitHub release body: the archive includes `unreal-review`
+and the `unreal-agent-runner review` alias, and an empty
+`UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai` (OpenRouter-only setups
+set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`).
 
 The TUI build injects `main.version` from `{{ .Version }}`, which is the tag
 with one leading `v` removed (`v0.4.1-fork.1` becomes `0.4.1-fork.1`).
 `{{ .RawVersion }}` is only `X.Y.Z` and would drop the suffix. The runner
-binary has no version ldflags. Snapshot builds replace `.Version` via
+binary has no version ldflags. `unreal-review` is built the same way as the
+runner (linux and darwin, amd64 and arm64, `-mod=readonly`, `-trimpath`,
+`-s -w`) and is packed into the same archives and checksums. The Homebrew
+cask lists it in `binaries` and documents the `unreal-agent-runner review`
+alias, the openai provider default, and the missing-key message in
+`caveats`. `skip_upload` and the tap repository block stay as they are.
+User-facing notes: [release notes](release-notes.md).
+
+Snapshot builds replace `.Version` via
 `{{ incpatch .Version }}-snapshot`. `incpatch` on a `-fork.N` prerelease
 yields the plain `X.Y.Z` (so `v0.4.1-fork.1` snapshots as `0.4.1-snapshot`);
 that path is local only and is not a published release.

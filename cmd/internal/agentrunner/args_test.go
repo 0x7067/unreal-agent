@@ -99,6 +99,7 @@ func TestRunMainRequestSources(t *testing.T) {
 		{name: "positional messages", args: []string{`{"messages":[{"content":"first"},{"content":"second"}]}`}, want: []string{"first", "second"}},
 		{name: "positional after separator", args: []string{"--", `{"prompt":"after separator"}`}, want: []string{"after separator"}},
 		{name: "prompt", args: []string{"-p", "plain prompt"}, want: []string{"plain prompt"}},
+		{name: "prompt that looks like help", args: []string{"-p", "-h"}, want: []string{"-h"}},
 		{name: "prompt equals", args: []string{"-p=plain prompt"}, want: []string{"plain prompt"}},
 		{name: "empty prompt on stdin", stdin: `{"prompt":""}`, want: []string{""}},
 		{name: "empty positional prompt", args: []string{`{"prompt":""}`}, want: []string{""}},
@@ -249,6 +250,9 @@ func TestRunMainHelp(t *testing.T) {
 			}
 			if strings.Contains(stderr.String(), "mcp_servers") {
 				t.Fatal("common request schema includes MCP servers")
+			}
+			if strings.Contains(stderr.String(), "unreal-review") {
+				t.Fatal("shared usage advertises the review alias")
 			}
 		})
 	}

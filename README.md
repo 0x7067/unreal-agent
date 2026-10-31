@@ -9,6 +9,28 @@ An async-first agent harness from Unreal Labs.
   - [cmd/unreal-review](cmd/unreal-review) - fork-only review CLI (not in upstream `unreallabsai/unreal-agent`). It writes [findings-v1](docs/review/findings-v1.md). Provider selection and credentials match the runner (`UNREAL_HARNESS_LLM_PROVIDER`, default `openai`, including the Codex auth file). Known gap: the review shell can read home-directory credentials; see findings-v1.
 - [benchmarks/](benchmarks/) — benchmark runners.
 
+## Install
+
+A fork release archive (`unreal-agent_<version>_<os>_<arch>.tar.gz`) installs
+`unreal-agent-runner`, `unreal-agent-tui`, and `unreal-review`. From a
+checkout of this fork: `go install ./cmd/unreal-agent-runner ./cmd/unreal-review`.
+The Homebrew cask is generated locally (`skip_upload` stays set) and is not
+published. See [releasing](docs/RELEASING.md) and
+[release notes](docs/release-notes.md).
+
+`unreal-agent-runner review` runs `unreal-review` with the remaining arguments
+and returns that process's exit code. The runner uses the `unreal-review`
+binary in its own directory, then `unreal-review` on `PATH`.
+
+Review calls `providers.Select`, the same selection the runner uses. An empty
+`UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`. A setup that only has
+`OPENROUTER_API_KEY` must set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`. A
+missing key reports `UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set`
+for that default, or `UNREAL_HARNESS_LLM_API_KEY` and the selected provider's
+own variable. It no longer tells every user to set `OPENROUTER_API_KEY`.
+`ollama` needs no API key. `openai-codex` does not use that missing-key
+line; it reports its own credential errors.
+
 Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)
 (target and incremental roadmap; not a statement of current guarantees).
 Current simplifications and remaining work:
