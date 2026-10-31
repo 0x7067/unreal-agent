@@ -33,4 +33,5 @@ A missing credential is reported as `UNREAL_HARNESS_LLM_API_KEY or <provider var
 For the default provider that string is `UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set`.
 When the selected provider is openrouter it is `UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set`.
 The previous missing-key text, which told every run to set `OPENROUTER_API_KEY`,
-is gone.
+is gone. `ollama` needs no API key. `openai-codex` does not use that
+missing-key line; it reports its own credential errors.

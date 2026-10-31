@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 )
@@ -69,7 +70,33 @@ func runReviewProcess(bin string, args []string, stdin io.Reader, stdout, stderr
 	if env != nil {
 		cmd.Env = env
 	}
-	err := cmd.Run()
+	// Notify, not Ignore. An ignored signal stays ignored across exec, and
+	// unreal-review only installs handlers inside cmdRun and cmdGroup, so
+	// Ctrl-C during render or early setup would be ignored. Notify makes the
+	// runtime reset these signals to SIG_DFL in the child. A signal delivered
+	// only to this process, such as SIGTERM from timeout --kill-after, is
+	// forwarded. This process keeps waiting and returns the child's status.
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+	for {
+		select {
+		case sig := <-signals:
+			if cmd.Process != nil {
+				_ = cmd.Process.Signal(sig)
+			}
+		case err := <-wait:
+			return reviewExitCode(err)
+		}
+	}
+}
+
+func reviewExitCode(err error) (int, error) {
 	if err == nil {
 		return 0, nil
 	}

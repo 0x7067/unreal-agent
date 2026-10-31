@@ -26,6 +26,8 @@ Review calls `providers.Select`, the same selection the runner uses. An empty
 missing key reports `UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set`
 for that default, or `UNREAL_HARNESS_LLM_API_KEY` and the selected provider's
 own variable. It no longer tells every user to set `OPENROUTER_API_KEY`.
+`ollama` needs no API key. `openai-codex` does not use that missing-key
+line; it reports its own credential errors.
 
 Architectural direction: [a durable, reconnectable, replaceable harness](goal.md)
 (target and incremental roadmap; not a statement of current guarantees).

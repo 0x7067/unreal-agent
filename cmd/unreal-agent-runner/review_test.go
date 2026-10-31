@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestReviewCommandPrefersSiblingAndPassesExitCode(t *testing.T) {
@@ -104,6 +107,80 @@ func TestReviewCommandExecFailure(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unreal-agent-runner:") || strings.Contains(stderr.String(), "not found") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestReviewCommandForwardsSIGTERM(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	report := filepath.Join(dir, "report")
+	pidFile := filepath.Join(dir, "pid")
+	writeReviewScript(t, dir, "#!/bin/sh\ntrap 'printf caught-TERM > \"$REPORT\"; exit 0' TERM\nprintf %s \"$$\" > \"$PID\"\n: > \"$READY\"\nwhile :; do :; done\n")
+	t.Cleanup(func() {
+		raw, err := os.ReadFile(pidFile)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if err == nil && pid > 0 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- reviewCommand(nil, nil, &stdout, &stderr, []string{"READY=" + ready, "REPORT=" + report, "PID=" + pidFile},
+			func() (string, error) { return filepath.Join(dir, "unreal-agent-runner"), nil },
+			func(string) (string, error) { return "", exec.ErrNotFound })
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(ready); err != nil {
+		t.Fatal("child did not become ready")
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the child")
+	}
+	got, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "caught-TERM" {
+		t.Fatalf("report = %q", got)
+	}
+}
+
+func TestRunnerHelpNamesReviewAlias(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runRunnerHelp([]string{"-h"}, func(string) string {
+		t.Fatal("help reached environment setup")
+		return ""
+	}, func() []string { return nil }, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || stdout.Len() != 0 {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unreal-agent-runner [options] -p 'prompt'") {
+		t.Fatalf("missing runner usage:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), reviewUsage) {
+		t.Fatalf("missing alias usage:\n%s", stderr.String())
+	}
+	if strings.Count(stderr.String(), "unreal-agent-runner review [args...]") != 1 {
+		t.Fatalf("alias line count:\n%s", stderr.String())
 	}
 }
 

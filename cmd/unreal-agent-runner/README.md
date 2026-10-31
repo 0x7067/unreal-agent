@@ -9,18 +9,24 @@ Install the prebuilt runner and TUI with Homebrew:
 brew install unreallabsai/tap/unreal-agent
 ```
 
-Or install with Go 1.27+:
+Or install the runner with Go 1.27+:
 
 ```sh
 go install github.com/unreallabsai/unreal-agent/cmd/unreal-agent-runner@latest
-go install github.com/unreallabsai/unreal-agent/cmd/unreal-review@latest
 ```
 
-The fork release archive and the Homebrew cask also install `unreal-review`.
+`unreal-review` is not in the upstream module. Install it from a fork
+release archive or the fork Homebrew cask, which both place it next to
+the runner, or from a checkout of this fork:
+
+```sh
+go install ./cmd/unreal-review
+```
+
 `unreal-agent-runner review` runs that binary with the remaining arguments
 and returns its exit code. It looks next to `unreal-agent-runner`, then on
-`PATH`. `unreal-agent-runner review help` prints unreal-review's usage, and
-`unreal-agent-runner -h` names the alias.
+`PATH`. `unreal-agent-runner -h` names the alias. `unreal-agent-runner review help`
+prints unreal-review's usage.
 
 Review uses the runner's provider selection (`providers.Select`). With
 `UNREAL_HARNESS_LLM_PROVIDER` unset, the provider is `openai`. If the only
@@ -28,6 +34,8 @@ credential is `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`
 A missing key reports `UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set`
 for that default, or `UNREAL_HARNESS_LLM_API_KEY` and the selected provider's
 own variable. It no longer says only to set `OPENROUTER_API_KEY`.
+`ollama` needs no API key. `openai-codex` does not use that missing-key
+line; it reports its own credential errors.
 
 Set an OpenAI API key and run a prompt in the current directory:
 

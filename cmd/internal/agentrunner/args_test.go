@@ -237,7 +237,6 @@ func TestRunMainHelp(t *testing.T) {
 			}
 			for _, want := range []string{
 				"test-runner [options] < request.json", "test-runner [options] 'JSON request'", "test-runner [options] -p 'prompt'",
-				"test-runner review [args...]", "review runs unreal-review", "unreal-review on PATH", "test-runner review help",
 				"-p prompt", "-workspace", "-session-directory", "-log-directory", "-tool-heartbeat-interval",
 				"$XDG_STATE_HOME/unreal-agent/sessions", "$HOME/.local/state/unreal-agent/sessions",
 				"optional session JSONL log directory; unset writes only to stdout",
@@ -250,6 +249,9 @@ func TestRunMainHelp(t *testing.T) {
 			}
 			if strings.Contains(stderr.String(), "mcp_servers") {
 				t.Fatal("common request schema includes MCP servers")
+			}
+			if strings.Contains(stderr.String(), "unreal-review") {
+				t.Fatal("shared usage advertises the review alias")
 			}
 		})
 	}

@@ -40,19 +40,13 @@ Execution policy environment (runner policy, not an execution sandbox):
 `
 
 func writeUsage(flags *flag.FlagSet) error {
-	// Fork: the runner binary handles "review" before RunMain. The line is
-	// here so -h names the alias; RunMain itself does not implement it.
 	if _, err := fmt.Fprintf(flags.Output(), `Usage:
   %[1]s [options] < request.json
   %[1]s [options] 'JSON request'
   %[1]s [options] -p 'prompt'
-  %[1]s review [args...]
 
 Reads one JSON request from stdin unless a positional request or -p is supplied.
 Place options before the positional request. -p and a positional request are mutually exclusive.
-review runs unreal-review with the remaining arguments and passes its exit code through.
-unreal-review is the binary next to this executable, or unreal-review on PATH.
-Run %[1]s review help for unreal-review's usage.
 
 Options:
 `, flags.Name()); err != nil {

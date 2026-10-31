@@ -87,6 +87,7 @@ homebrew_casks:
       If you only have OPENROUTER_API_KEY, set UNREAL_HARNESS_LLM_PROVIDER=openrouter.
       A missing key says "UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set" for that default,
       or UNREAL_HARNESS_LLM_API_KEY and the selected provider's own variable.
+      ollama needs no API key. openai-codex reports its own credential errors.
     # Install the TUI aliases and clear quarantine only for this unsigned package.
     custom_block: |
       binary "unreal-agent-tui", target: "unreal-agent"
