@@ -364,9 +364,10 @@ func TestM21OwnedProcessLossAndRestart(t *testing.T) {
 				t.Fatal("recovered inputs not journal acknowledged")
 			}
 			firstCalls := calls.Load()
-			// Inbox batching may combine the two inputs into one model turn, or
-			// the first request may precede second-input admission. Both are
-			// legitimate; the persisted inputs themselves must be FIFO once.
+			// The launch fence admits the durable backlog before the first provider
+			// call, so a cancelled prefix (a request with no stored response) is a
+			// bug. One batched call, or two calls that are both stored, is fine.
+			// The persisted inputs themselves must be FIFO once.
 			responseCount := 0
 			for _, item := range recovered {
 				if item.Kind == sessionstore.ItemModelResponse {

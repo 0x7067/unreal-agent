@@ -58,6 +58,13 @@ type Bootstrap struct {
 	SystemPrompt          string
 	Budget                executionbudget.Policy
 	MaxOperations         int
+	// StartupInputCount is the number of durable ingress inputs already pending
+	// when this worker is launched. After ready, the host writes exactly that
+	// many input frames, in admission order, before any later input. Zero
+	// preserves the previous wire shape. The worker submits those frames before
+	// the coordinator starts, so a restored turn cannot call the provider for a
+	// prefix of the queue and then supersede that call when the rest arrives.
+	StartupInputCount int `json:",omitzero"`
 }
 
 type Request struct {

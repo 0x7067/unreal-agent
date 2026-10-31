@@ -144,12 +144,24 @@ func TestRuntimeAcceptedDependencyLaunchesWhileSiblingRuns(t *testing.T) {
 }
 func TestRuntimeFreshnessBeforeAcceptance(t *testing.T) {
 	dir := t.TempDir()
+	base := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := New(ctx, Config{Workspace: dir, BaseDirectory: t.TempDir(), Shell: "/bin/sh", AllowBash: true})
+	r, err := New(ctx, Config{Workspace: dir, BaseDirectory: base, Shell: "/bin/sh", AllowBash: true})
 	if err != nil {
+		cancel()
 		t.Fatal(err)
 	}
+	// Invalidate restarts the task, which creates shell capture files under
+	// base. Those writers share the runtime, not the test goroutine. Join them
+	// before TempDir removal; cancel alone does not wait for the creates.
+	t.Cleanup(func() {
+		cancel()
+		waitCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		if err := r.Wait(waitCtx); err != nil {
+			t.Errorf("runtime shutdown: %v", err)
+		}
+	})
 	m := operation.NewLocalOperationManager(ctx, r.Handlers()...)
 	m.Add(runtimeOperation(t, "run", RunPlanType, RunPlan{Name: "g", Tasks: []Task{{ID: "a", Command: "printf original > a", Reads: []string{}, Writes: []string{"a"}, Acceptance: "original"}}}))
 	runtimeWait(t, m, func(op operation.Operation) bool { g := runtimeGraph(t, op); return g.Find("a").Status == Completed })

@@ -25,6 +25,7 @@ import (
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/harness/inbox"
 	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
 	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
 	"github.com/unreallabsai/unreal-agent/internal/testtmp"
 )
@@ -243,13 +244,36 @@ func TestAttachedUIHeadlessTurnAndLateToolOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The session file is durable before the host publishes the item.
+			// Record the stored head that contains the answer, then wait only
+			// until the attach snapshot's head reaches it. The UI on that
+			// snapshot is asserted once.
+			var committed sessionstore.Sequence
 			for {
-				page, err := store.Items(ctx, "attached", 0, 100)
-				if err != nil {
-					t.Fatal(err)
+				var after sessionstore.Sequence
+				var high sessionstore.Sequence
+				sawAnswer := false
+				for {
+					page, err := store.Items(ctx, "attached", after, 100)
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, _ := json.Marshal(page.Items)
+					if bytes.Contains(data, []byte(answer)) {
+						sawAnswer = true
+					}
+					for _, item := range page.Items {
+						if item.Sequence > high {
+							high = item.Sequence
+						}
+					}
+					if !page.More {
+						break
+					}
+					after = page.NextAfter
 				}
-				data, _ := json.Marshal(page.Items)
-				if bytes.Contains(data, []byte(answer)) {
+				if sawAnswer {
+					committed = high
 					break
 				}
 				select {
@@ -258,21 +282,40 @@ func TestAttachedUIHeadlessTurnAndLateToolOutput(t *testing.T) {
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
-			last := dial()
-			defer last.Close()
-			final := last.Snapshot()
-			fresh := newAttachedModel(ctx, last, final, opts)
-			if final.Hello.Incarnation != snap.Hello.Incarnation || final.Header.Status.Generation != snap.Header.Status.Generation || fresh.responding {
-				t.Fatal("fresh UI replaced worker or did not converge")
+			var final attachclient.Snapshot
+			var kept *attachclient.Client
+			for {
+				last := dial()
+				final = last.Snapshot()
+				if final.Header.Status == nil || final.Hello.Incarnation != snap.Hello.Incarnation || final.Header.Status.Generation != snap.Header.Status.Generation {
+					gotGen := uint64(0)
+					if final.Header.Status != nil {
+						gotGen = final.Header.Status.Generation
+					}
+					_ = last.Close()
+					t.Fatalf("fresh UI replaced worker: incarnation %s -> %s generation %d -> %d", snap.Hello.Incarnation, final.Hello.Incarnation, snap.Header.Status.Generation, gotGen)
+				}
+				if final.Header.Head >= committed {
+					kept = last
+					break
+				}
+				_ = last.Close()
+				select {
+				case <-ctx.Done():
+					t.Fatalf("publisher head %d did not reach stored sequence %d", final.Header.Head, committed)
+				case <-time.After(10 * time.Millisecond):
+				}
 			}
+			fresh := newAttachedModel(ctx, kept, final, opts)
+			_ = kept.Close()
 			count := 0
 			for _, line := range fresh.lines {
 				if line.text == answer {
 					count++
 				}
 			}
-			if count != 1 {
-				t.Fatal("answer missing/duplicated", fresh.lines)
+			if fresh.responding || count != 1 {
+				t.Fatalf("fresh UI did not converge: responding=%v answers=%d head=%d stored=%d", fresh.responding, count, final.Header.Head, committed)
 			}
 			expected := int64(1)
 			if withTool {
