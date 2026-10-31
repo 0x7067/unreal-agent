@@ -172,6 +172,12 @@ func canonicalDirectory(path string) (string, error) {
 	}
 }
 
+// requestProtocolOK accepts an omitted protocol and this worker's version.
+// A non-zero foreign version is rejected on every frame, including the startup backlog.
+func requestProtocolOK(protocol int) bool {
+	return protocol == 0 || protocol == workerproto.Version
+}
+
 func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Writer, getenv func(string) string, b workerproto.Bootstrap, startID string, available []providers.Provider) (drained bool, responseID string, result error) {
 	// A direct private caller may omit the scope; mint fresh execution identity.
 	// Resident hosts always supply their exact incarnation/generation scope.
@@ -401,6 +407,9 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 		if err != nil {
 			return false, responseID, err
 		}
+		if !requestProtocolOK(request.Protocol) {
+			return false, responseID, fmt.Errorf("%w: invalid request envelope", ErrProtocol)
+		}
 		if request.Type != "input" || request.Input == nil || request.Bootstrap != nil {
 			return false, responseID, fmt.Errorf("%w: startup backlog requires an input frame", ErrProtocol)
 		}
@@ -448,7 +457,7 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 			return false, responseID, err
 		}
 		responseID = request.ID
-		if request.Bootstrap != nil || request.Protocol != 0 && request.Protocol != workerproto.Version {
+		if request.Bootstrap != nil || !requestProtocolOK(request.Protocol) {
 			return false, responseID, fmt.Errorf("%w: invalid request envelope", ErrProtocol)
 		}
 		switch request.Type {

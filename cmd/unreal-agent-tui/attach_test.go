@@ -283,28 +283,31 @@ func TestAttachedUIHeadlessTurnAndLateToolOutput(t *testing.T) {
 				}
 			}
 			var final attachclient.Snapshot
-			var fresh model
+			var kept *attachclient.Client
 			for {
 				last := dial()
 				final = last.Snapshot()
-				fresh = newAttachedModel(ctx, last, final, opts)
-				_ = last.Close()
 				if final.Header.Status == nil || final.Hello.Incarnation != snap.Hello.Incarnation || final.Header.Status.Generation != snap.Header.Status.Generation {
 					gotGen := uint64(0)
 					if final.Header.Status != nil {
 						gotGen = final.Header.Status.Generation
 					}
+					_ = last.Close()
 					t.Fatalf("fresh UI replaced worker: incarnation %s -> %s generation %d -> %d", snap.Hello.Incarnation, final.Hello.Incarnation, snap.Header.Status.Generation, gotGen)
 				}
 				if final.Header.Head >= committed {
+					kept = last
 					break
 				}
+				_ = last.Close()
 				select {
 				case <-ctx.Done():
 					t.Fatalf("publisher head %d did not reach stored sequence %d", final.Header.Head, committed)
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
+			fresh := newAttachedModel(ctx, kept, final, opts)
+			_ = kept.Close()
 			count := 0
 			for _, line := range fresh.lines {
 				if line.text == answer {
