@@ -99,6 +99,7 @@ func TestRunMainRequestSources(t *testing.T) {
 		{name: "positional messages", args: []string{`{"messages":[{"content":"first"},{"content":"second"}]}`}, want: []string{"first", "second"}},
 		{name: "positional after separator", args: []string{"--", `{"prompt":"after separator"}`}, want: []string{"after separator"}},
 		{name: "prompt", args: []string{"-p", "plain prompt"}, want: []string{"plain prompt"}},
+		{name: "prompt that looks like help", args: []string{"-p", "-h"}, want: []string{"-h"}},
 		{name: "prompt equals", args: []string{"-p=plain prompt"}, want: []string{"plain prompt"}},
 		{name: "empty prompt on stdin", stdin: `{"prompt":""}`, want: []string{""}},
 		{name: "empty positional prompt", args: []string{`{"prompt":""}`}, want: []string{""}},

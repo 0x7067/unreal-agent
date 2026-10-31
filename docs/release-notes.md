@@ -1,6 +1,14 @@
 # Release notes
 
 Fork release notes. Tags and publish rules are in [RELEASING.md](RELEASING.md).
+The GitHub release page for the next fork tag starts with this note
+(`.goreleaser.yaml` `release.header`):
+
+The release archive includes `unreal-review` next to `unreal-agent-runner` and `unreal-agent-tui`.
+`unreal-agent-runner review` runs that binary and returns its exit code.
+
+Review uses the runner's provider selection. An empty `UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`.
+If you only have `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`.
 
 ## unreal-review ships with the fork release
 

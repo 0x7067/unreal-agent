@@ -11,9 +11,11 @@ An async-first agent harness from Unreal Labs.
 
 ## Install
 
-Fork release archives and the Homebrew cask install `unreal-agent-runner`,
-`unreal-agent-tui`, and `unreal-review`. The cask is still generated locally
-(`skip_upload` stays set); see [releasing](docs/RELEASING.md) and
+A fork release archive (`unreal-agent_<version>_<os>_<arch>.tar.gz`) installs
+`unreal-agent-runner`, `unreal-agent-tui`, and `unreal-review`. From a
+checkout of this fork: `go install ./cmd/unreal-agent-runner ./cmd/unreal-review`.
+The Homebrew cask is generated locally (`skip_upload` stays set) and is not
+published. See [releasing](docs/RELEASING.md) and
 [release notes](docs/release-notes.md).
 
 `unreal-agent-runner review` runs `unreal-review` with the remaining arguments

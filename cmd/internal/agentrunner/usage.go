@@ -39,7 +39,7 @@ Execution policy environment (runner policy, not an execution sandbox):
     remote-process internals or all OS processes. Management admission is separate.
 `
 
-func writeUsage(flags *flag.FlagSet) error {
+func writeUsage(flags *flag.FlagSet, suffix string) error {
 	if _, err := fmt.Fprintf(flags.Output(), `Usage:
   %[1]s [options] < request.json
   %[1]s [options] 'JSON request'
@@ -55,6 +55,12 @@ Options:
 	flags.PrintDefaults()
 	if _, err := fmt.Fprint(flags.Output(), requestHelp); err != nil {
 		return fmt.Errorf("write request schema: %w", err)
+	}
+	if suffix == "" {
+		return nil
+	}
+	if _, err := fmt.Fprintf(flags.Output(), "\n%s", suffix); err != nil {
+		return fmt.Errorf("write usage suffix: %w", err)
 	}
 	return nil
 }

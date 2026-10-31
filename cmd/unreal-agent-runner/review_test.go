@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 )
 
 func TestReviewCommandPrefersSiblingAndPassesExitCode(t *testing.T) {
@@ -166,10 +171,17 @@ func TestReviewCommandForwardsSIGTERM(t *testing.T) {
 
 func TestRunnerHelpNamesReviewAlias(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := runRunnerHelp([]string{"-h"}, func(string) string {
+	code := agentrunner.RunMain(context.Background(), []string{"-h"}, func(string) string {
 		t.Fatal("help reached environment setup")
 		return ""
-	}, func() []string { return nil }, strings.NewReader(""), &stdout, &stderr)
+	}, func() []string { return nil }, strings.NewReader(""), &stdout, &stderr, agentrunner.Config{
+		Name: "unreal-agent-runner",
+		ParseRequest: func(io.Reader) (agentrunner.Request, agentrunner.ToolFactory, error) {
+			return agentrunner.Request{}, nil, nil
+		},
+		Providers:   providers.Default(),
+		UsageSuffix: reviewUsage,
+	})
 	if code != 0 || stdout.Len() != 0 {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}

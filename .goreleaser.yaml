@@ -70,6 +70,13 @@ release:
     owner: 0x7067
     name: unreal-agent
   name_template: '{{ .Tag }}'
+  # Prepended to the GitHub release body for the next fork tag.
+  header: |
+    The release archive includes `unreal-review` next to `unreal-agent-runner` and `unreal-agent-tui`.
+    `unreal-agent-runner review` runs that binary and returns its exit code.
+
+    Review uses the runner's provider selection. An empty `UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`.
+    If you only have `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`.
 
 homebrew_casks:
   # Fork: generate the cask locally but do not push unreallabsai/homebrew-tap

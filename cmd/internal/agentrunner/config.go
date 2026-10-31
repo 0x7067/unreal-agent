@@ -25,6 +25,10 @@ type Config struct {
 	// process internals are not claimed to be counted by this live account.
 	ResourceAccount *executionbudget.Account
 	Budget          executionbudget.Policy
+	// UsageSuffix is appended to -h when set. The fork runner names its
+	// review alias here. Callers that share this usage, including the TUI
+	// agent-runner, leave it empty.
+	UsageSuffix string
 }
 
 type ToolConfig struct {

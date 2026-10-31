@@ -163,7 +163,7 @@ func Run(
 	flags.SetOutput(flagOutput)
 	var usageErr error
 	flags.Usage = func() {
-		usageErr = writeUsage(flags)
+		usageErr = writeUsage(flags, config.UsageSuffix)
 	}
 	var prompt *string
 	flags.Func("p", "send a request with the given `prompt` without reading stdin", func(value string) error {

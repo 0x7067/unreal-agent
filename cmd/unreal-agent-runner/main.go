@@ -2,9 +2,6 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 
@@ -29,37 +26,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "agent-runner" {
 		os.Args = append(os.Args[:1], os.Args[2:]...)
 	}
-	if isRunnerHelp(os.Args[1:]) {
-		os.Exit(runRunnerHelp(os.Args[1:], os.Getenv, os.Environ, os.Stdin, os.Stdout, os.Stderr))
-	}
-	agentrunner.Main(runnerConfig())
-}
-
-func runnerConfig() agentrunner.Config {
-	return agentrunner.Config{
+	agentrunner.Main(agentrunner.Config{
 		Name:         "unreal-agent-runner",
 		ParseRequest: parseRequest,
 		Providers:    providers.Default(),
-	}
-}
-
-// isRunnerHelp reports flags that make this binary print its own usage.
-// The review alias is named there, not in agentrunner's shared usage, so
-// unreal-agent-tui agent-runner -h does not advertise it.
-func isRunnerHelp(args []string) bool {
-	for _, arg := range args {
-		switch arg {
-		case "-h", "-help", "--help", "--h":
-			return true
-		}
-	}
-	return false
-}
-
-func runRunnerHelp(args []string, getenv func(string) string, environ func() []string, input io.Reader, output, stderr io.Writer) int {
-	code := agentrunner.RunMain(context.Background(), args, getenv, environ, input, output, stderr, runnerConfig())
-	if code == 0 {
-		fmt.Fprint(stderr, "\n"+reviewUsage)
-	}
-	return code
+		UsageSuffix:  reviewUsage,
+	})
 }

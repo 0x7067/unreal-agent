@@ -3,25 +3,25 @@
 Run an AI agent from a prompt or JSON request. It writes events to stdout as
 JSONL and exits when the task finishes.
 
-Install the prebuilt runner and TUI with Homebrew:
+These commands install the upstream runner from `unreallabsai/unreal-agent`.
+That binary has no `review` dispatch:
 
 ```sh
 brew install unreallabsai/tap/unreal-agent
-```
-
-Or install the runner with Go 1.27+:
-
-```sh
 go install github.com/unreallabsai/unreal-agent/cmd/unreal-agent-runner@latest
 ```
 
-`unreal-review` is not in the upstream module. Install it from a fork
-release archive or the fork Homebrew cask, which both place it next to
-the runner, or from a checkout of this fork:
+The `unreal-agent-runner review` alias and `unreal-review` come from a fork
+release archive (`unreal-agent_<version>_<os>_<arch>.tar.gz` on
+`0x7067/unreal-agent`), which places `unreal-review` next to the runner, or
+from a checkout of this fork:
 
 ```sh
-go install ./cmd/unreal-review
+go install ./cmd/unreal-agent-runner ./cmd/unreal-review
 ```
+
+The Homebrew cask is generated locally (`skip_upload` stays set) and is not
+published. See the [root install notes](../../README.md#install).
 
 `unreal-agent-runner review` runs that binary with the remaining arguments
 and returns its exit code. It looks next to `unreal-agent-runner`, then on

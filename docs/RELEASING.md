@@ -25,7 +25,11 @@ at `v0.4.0`. The release name is the full tag.
 
 ## GitHub release
 
-`.goreleaser.yaml` publishes to `0x7067/unreal-agent`.
+`.goreleaser.yaml` publishes to `0x7067/unreal-agent`. `release.header` is
+prepended to that GitHub release body: the archive includes `unreal-review`
+and the `unreal-agent-runner review` alias, and an empty
+`UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai` (OpenRouter-only setups
+set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`).
 
 The TUI build injects `main.version` from `{{ .Version }}`, which is the tag
 with one leading `v` removed (`v0.4.1-fork.1` becomes `0.4.1-fork.1`).
