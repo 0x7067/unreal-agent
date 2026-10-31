@@ -258,21 +258,41 @@ func TestAttachedUIHeadlessTurnAndLateToolOutput(t *testing.T) {
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
-			last := dial()
-			defer last.Close()
-			final := last.Snapshot()
-			fresh := newAttachedModel(ctx, last, final, opts)
-			if final.Hello.Incarnation != snap.Hello.Incarnation || final.Header.Status.Generation != snap.Header.Status.Generation || fresh.responding {
-				t.Fatal("fresh UI replaced worker or did not converge")
-			}
-			count := 0
-			for _, line := range fresh.lines {
-				if line.text == answer {
-					count++
+			// The session file is visible before the host publishes the item.
+			// A single dial in that window reconstructs the open turn and looks
+			// like the worker was replaced or the turn never finished.
+			var final attachclient.Snapshot
+			var fresh model
+			for {
+				last := dial()
+				final = last.Snapshot()
+				fresh = newAttachedModel(ctx, last, final, opts)
+				_ = last.Close()
+				if final.Header.Status == nil || final.Hello.Incarnation != snap.Hello.Incarnation || final.Header.Status.Generation != snap.Header.Status.Generation {
+					gotGen := uint64(0)
+					if final.Header.Status != nil {
+						gotGen = final.Header.Status.Generation
+					}
+					t.Fatalf("fresh UI replaced worker: incarnation %s -> %s generation %d -> %d", snap.Hello.Incarnation, final.Hello.Incarnation, snap.Header.Status.Generation, gotGen)
 				}
-			}
-			if count != 1 {
-				t.Fatal("answer missing/duplicated", fresh.lines)
+				count := 0
+				for _, line := range fresh.lines {
+					if line.text == answer {
+						count++
+					}
+				}
+				if count > 1 {
+					t.Fatal("answer duplicated", fresh.lines)
+				}
+				toolReady := !withTool || len(fresh.tools) == 1 && strings.Contains(fresh.tools[0].output, "HEADLESS_FINAL_OUTPUT")
+				if !fresh.responding && count == 1 && toolReady {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatalf("fresh UI did not converge: responding=%v answers=%d head=%d tools=%+v", fresh.responding, count, final.Header.Head, fresh.tools)
+				case <-time.After(10 * time.Millisecond):
+				}
 			}
 			expected := int64(1)
 			if withTool {
