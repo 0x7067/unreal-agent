@@ -12,6 +12,13 @@ builds:
     goarch: [amd64, arm64]
     flags: [-mod=readonly, -trimpath]
     ldflags: [-s -w]
+  - id: review
+    main: ./cmd/unreal-review
+    binary: unreal-review
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-mod=readonly, -trimpath]
+    ldflags: [-s -w]
   - id: tui
     dir: cmd/unreal-agent-tui
     main: .
@@ -29,7 +36,7 @@ builds:
 
 archives:
   - id: unreal-agent
-    ids: [runner, tui]
+    ids: [runner, tui, review]
     formats: [tar.gz]
     name_template: unreal-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files: [LICENSE]
@@ -70,9 +77,16 @@ homebrew_casks:
   - name: unreal-agent
     skip_upload: true
     ids: [unreal-agent]
-    binaries: [unreal-agent-runner, unreal-agent-tui]
+    binaries: [unreal-agent-runner, unreal-agent-tui, unreal-review]
     homepage: https://github.com/unreallabsai/unreal-agent
-    description: Unreal Agent terminal interface and headless runner
+    description: Unreal Agent terminal interface, headless runner, and review CLI
+    caveats: |
+      This cask installs unreal-agent-runner, unreal-agent-tui, and unreal-review.
+      unreal-agent-runner review runs unreal-review with the remaining arguments and returns its exit code.
+      Review uses the runner's provider selection. An empty UNREAL_HARNESS_LLM_PROVIDER defaults to openai.
+      If you only have OPENROUTER_API_KEY, set UNREAL_HARNESS_LLM_PROVIDER=openrouter.
+      A missing key says "UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set" for that default,
+      or UNREAL_HARNESS_LLM_API_KEY and the selected provider's own variable.
     # Install the TUI aliases and clear quarantine only for this unsigned package.
     custom_block: |
       binary "unreal-agent-tui", target: "unreal-agent"
