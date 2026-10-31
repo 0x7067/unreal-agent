@@ -118,6 +118,9 @@ func validateBootstrap(b workerproto.Bootstrap) error {
 	if b.MaxOperations < 0 {
 		return fmt.Errorf("%w: operation limit must not be negative", ErrProtocol)
 	}
+	if b.StartupInputCount < 0 {
+		return fmt.Errorf("%w: startup input count must not be negative", ErrProtocol)
+	}
 	if b.SessionID == "" {
 		return fmt.Errorf("%w: session ID required", ErrProtocol)
 	}
@@ -389,6 +392,21 @@ func serve(ctx context.Context, reader *inputPump, events *emitter, stderr io.Wr
 		SessionID: b.SessionID, Restored: restored, Sessions: committedCheckpointStore{Store: store, owners: owners}, Inbox: inputs, Operations: operations, Tools: registry, ContextBuilder: builder, LLM: calls, ToolHeartbeatInterval: 10 * time.Minute, ActivitySummary: owners.summary, PendingWork: owners.pendingWork, WorkChanged: owners.workChanged})
 	if err := events.write(workerproto.Event{Type: "ready", ID: startID}); err != nil {
 		return false, responseID, err
+	}
+	// The host writes the launch-time ingress backlog only after ready. Submit
+	// it before Run: the coordinator would otherwise call the provider for a
+	// restored prefix and then supersede that call when these inputs arrive.
+	for range b.StartupInputCount {
+		request, err := reader.next(ctx, nil)
+		if err != nil {
+			return false, responseID, err
+		}
+		if request.Type != "input" || request.Input == nil || request.Bootstrap != nil {
+			return false, responseID, fmt.Errorf("%w: startup backlog requires an input frame", ErrProtocol)
+		}
+		if err := inputs.Submit(ctx, *request.Input); err != nil {
+			return false, responseID, err
+		}
 	}
 	// Atomically hand cancellation responsibility from partial setup to the
 	// running coordinator. A cancellation that already claimed setup cannot

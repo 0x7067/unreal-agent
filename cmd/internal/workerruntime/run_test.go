@@ -444,6 +444,59 @@ func TestShutdownCancelsAndJoinsModelBeforeReleasingLease(t *testing.T) {
 	}
 }
 
+func TestStartupBacklogAdmittedBeforeModelCall(t *testing.T) {
+	b := bootstrap(t)
+	b.StartupInputCount = 2
+	client := newFakeClient()
+	w := startWorker(t, b, client, nil)
+	w.event(t, "ready")
+	if client.entered.Load() != 0 {
+		t.Fatalf("provider entered before startup backlog: %d", client.entered.Load())
+	}
+	for _, text := range []string{"alpha-backlog", "beta-backlog"} {
+		payload, err := json.Marshal(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.send(t, workerproto.Request{Type: "input", Input: &inbox.Input{ID: inbox.ID(text), Kind: inbox.InputExternal, Payload: payload}})
+	}
+	var request llm.Request
+	select {
+	case request = <-client.calls:
+	case <-time.After(10 * time.Second):
+		t.Fatal("provider was not called with the startup backlog")
+	}
+	var texts []string
+	for _, item := range request.Input {
+		message, ok := item.Data.(llm.Message)
+		if item.Type == llm.ItemMessage && ok {
+			texts = append(texts, message.Text)
+		}
+	}
+	joined := strings.Join(texts, "\n")
+	if !strings.Contains(joined, "alpha-backlog") || !strings.Contains(joined, "beta-backlog") {
+		t.Fatalf("provider saw a prefix of the startup backlog: %q", joined)
+	}
+	if calls := client.entered.Load(); calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", calls)
+	}
+	client.responses <- llm.Response{Stop: llm.StopComplete, ID: "both", Output: []llm.Item{{
+		Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "ok"},
+	}}}
+	w.cancel()
+	select {
+	case err := <-w.done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not join")
+	}
+	if calls := client.entered.Load(); calls != 1 {
+		t.Fatalf("provider calls after response = %d, want 1", calls)
+	}
+}
+
 func TestResumeRefusesUnknownOperationBeforeProviderSetup(t *testing.T) {
 	b := bootstrap(t)
 	store, err := localfile.New(b.Directory)

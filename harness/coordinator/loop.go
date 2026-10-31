@@ -189,6 +189,12 @@ func (current *coordinator) Run(ctx context.Context) error {
 				continue
 			}
 		} else if callModel {
+			// A short slurp can miss input the inbox actor has already accepted.
+			// Calling the provider for that prefix supersedes the call as soon as
+			// the actor delivers, which spends a request and commits no response.
+			if current.dependencies.Inbox.HasPending() {
+				continue
+			}
 			if err := current.requestModelResponse(modelContext, modelResponses); err != nil {
 				return err
 			}

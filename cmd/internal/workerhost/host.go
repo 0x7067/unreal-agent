@@ -435,15 +435,32 @@ func (h *Host) launch(ctx context.Context, stage staged) (*process, error) {
 	// A candidate launches descendants from its staged executable, never from an
 	// old frontend's path, and it must include embedded runner dispatch.
 	bootstrap.SubagentCommand = []string{stage.command[0], "agent-runner"}
+	// Snapshot before the worker can replay and acknowledge. These frames are
+	// written, in this order, immediately after ready and before dispatch.
+	startup := h.journal.Pending()
+	bootstrap.StartupInputCount = len(startup)
 	if err = workerproto.Write(input, workerproto.Request{Type: "start", Protocol: workerproto.Version, Bootstrap: &bootstrap}); err != nil {
 		return p, err
 	}
 	if err = p.await(ctx, p.ready); err != nil {
 		return p, err
 	}
-	// h.current is published before the handshake; inputs journaled meanwhile
-	// were skipped by dispatch and are delivered now.
+	// Hold delivery so dispatch cannot interleave pipe writes. accepting stays
+	// false until the launch snapshot is on the pipe; inputs admitted during
+	// handshake are still delivered by the wake below.
+	if err = h.lockDelivery(ctx); err != nil {
+		return p, err
+	}
+	for i := range startup {
+		in := startup[i]
+		p.sent[in.ID] = true
+		if err = workerproto.Write(input, workerproto.Request{Type: "input", Protocol: workerproto.Version, Input: &in}); err != nil {
+			h.unlockDelivery()
+			return p, err
+		}
+	}
 	p.accepting.Store(true)
+	h.unlockDelivery()
 	h.wake()
 	h.status(Status{Generation: p.generation, Build: p.build, Message: "Worker ready"})
 	return p, nil
