@@ -1,10 +1,10 @@
 # unreal-review verification map
 
-This directory is the maintained source for verifying the user-facing behavior of the unreal-review CLI. Read the index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying the user-facing behavior of the `unreal-agent-runner review` command. Read the index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
-- `scripts/launch.sh` has built `$VERIFY_REPO/bin/unreal-review`.
+- `scripts/launch.sh` has built `$VERIFY_REPO/bin/unreal-agent-runner`.
 - `scripts/doctor.sh` printed `doctor: ok`.
 - Evidence and scratch live under `$VERIFY_ROOT` (`/tmp/verify-unreal-review` by default).
 - Paths named `scripts/…` are relative to `.claude/skills/verify-unreal-review/`.

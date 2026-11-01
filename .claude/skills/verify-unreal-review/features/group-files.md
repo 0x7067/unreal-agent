@@ -1,6 +1,6 @@
 # Group related files
 
-`unreal-review group` prints related file groups with a copy-paste `run` command for each. It does not start the agent and does not need a model or API key.
+`unreal-agent-runner review group` prints related file groups with a copy-paste `run` command for each. It does not start the agent and does not need a model or API key.
 
 ## Sub-features
 
@@ -12,16 +12,16 @@
 - `group-lock` puts `go.mod` with `go.sum`.
 - `group-imports` puts a Go file with the unique package it imports across directories.
 - `group-exclude` omits `--exclude` globs.
-- `group-run-line` prints `unreal-review run` with the same range flags the user passed, `--out findings-<slug>.jsonl`, and the group's pathspecs.
+- `group-run-line` prints `unreal-agent-runner review run` with the same range flags the user passed, `--out findings-<slug>.jsonl`, and the group's pathspecs.
 - `group-workspace` with no range flags groups dirty and untracked files against `HEAD`.
 - `group-missing-from` errors when `--branch` is set and no default branch name exists.
 
 ## How to get to it (user POV)
 
-- `unreal-review group` from a git checkout (staged, unstaged, and untracked vs `HEAD`).
-- `unreal-review group --from <rev> --to <rev>`.
-- `unreal-review group --commit <rev>` or `--branch <name>`.
-- `unreal-review group --exclude '*.lock' -- cmd/`.
+- `unreal-agent-runner review group` from a git checkout (staged, unstaged, and untracked vs `HEAD`).
+- `unreal-agent-runner review group --from <rev> --to <rev>`.
+- `unreal-agent-runner review group --commit <rev>` or `--branch <name>`.
+- `unreal-agent-runner review group --exclude '*.lock' -- cmd/`.
 
 ## Driving it with verify-unreal-review
 

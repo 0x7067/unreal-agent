@@ -12,7 +12,7 @@
 
 ## How to get to it (user POV)
 
-- Re-run `unreal-review run` with the same `--out findings.jsonl`.
+- Re-run `unreal-agent-runner review run` with the same `--out findings.jsonl`.
 - Interrupt a review and run the same command to continue.
 - Pass `--fresh` to replace a complete file.
 - Change the git range or working tree and reuse `--out`.

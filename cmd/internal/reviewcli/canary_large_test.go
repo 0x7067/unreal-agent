@@ -1,6 +1,6 @@
 //go:build canary
 
-package main
+package reviewcli
 
 import (
 	"encoding/json"

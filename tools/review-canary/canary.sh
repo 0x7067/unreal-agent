@@ -324,7 +324,7 @@ run_line_ends() {
 import sys
 text = open(sys.argv[1]).read()
 suffix, label = sys.argv[2], sys.argv[3]
-runs = [line.strip() for line in text.splitlines() if "unreal-review run" in line]
+runs = [line.strip() for line in text.splitlines() if "unreal-agent-runner review run" in line]
 if not any(line.endswith(suffix) for line in runs):
     sys.exit(label + " missing run line ending " + suffix + "\n" + "\n".join(runs))
 PY
@@ -336,7 +336,7 @@ run_line_has_both() {
 import sys
 text = open(sys.argv[1]).read()
 a, b, label = sys.argv[2], sys.argv[3], sys.argv[4]
-runs = [line for line in text.splitlines() if "unreal-review run" in line]
+runs = [line for line in text.splitlines() if "unreal-agent-runner review run" in line]
 if not any(a in line and b in line for line in runs):
     sys.exit(label + " has no run line with both files\n" + "\n".join(runs))
 PY
@@ -347,7 +347,7 @@ workspace_run_lines() {
 	python3 - "$file" <<'PY'
 import sys
 text = open(sys.argv[1]).read()
-runs = [line for line in text.splitlines() if "unreal-review run" in line]
+runs = [line for line in text.splitlines() if "unreal-agent-runner review run" in line]
 if not runs:
     sys.exit("no run line")
 for line in runs:
@@ -393,8 +393,8 @@ feature_has cli-usage.md "Usage:"
 cli --name usage-help -- help
 require_exit usage-help 0
 expect cli-usage.md "Usage:" "$(stdout_of usage-help)" "usage-help"
-expect cli-usage.md "unreal-review run" "$(stdout_of usage-help)" "usage-help"
-expect cli-usage.md "unreal-review group" "$(stdout_of usage-help)" "usage-help"
+expect cli-usage.md "unreal-agent-runner review run" "$(stdout_of usage-help)" "usage-help"
+expect cli-usage.md "unreal-agent-runner review group" "$(stdout_of usage-help)" "usage-help"
 
 cli --name run-help -- run -h
 require_exit run-help 0
@@ -405,20 +405,20 @@ require_absent "$(stderr_of run-help)" "flag: help requested" "run-help"
 
 cli --name usage-required --
 require_exit usage-required 1
-feature_has cli-usage.md 'unreal-review: command required'
-require_last_line "$(stderr_of usage-required)" "unreal-review: command required" "usage-required"
+feature_has cli-usage.md 'unreal-agent-runner review: command required'
+require_last_line "$(stderr_of usage-required)" "unreal-agent-runner review: command required" "usage-required"
 
 cli --name usage-unknown -- frob
 require_exit usage-unknown 1
-expect cli-usage.md 'unreal-review: unknown command "frob"' "$(stderr_of usage-unknown)" "usage-unknown"
+expect cli-usage.md 'unreal-agent-runner review: unknown command "frob"' "$(stderr_of usage-unknown)" "usage-unknown"
 
 env -u UNREAL_HARNESS_LLM_MODEL "$SCRIPTS/cli.sh" --name run-model -- run --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-model 1
-expect cli-usage.md "unreal-review: set --model or UNREAL_HARNESS_LLM_MODEL" "$(stderr_of run-model)" "run-model"
+expect cli-usage.md "unreal-agent-runner review: set --model or UNREAL_HARNESS_LLM_MODEL" "$(stderr_of run-model)" "run-model"
 
 env -u OPENROUTER_API_KEY "$SCRIPTS/cli.sh" --name run-key -- run --model x --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-key 1
-expect cli-usage.md "unreal-review: UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set" "$(stderr_of run-key)" "run-key"
+expect cli-usage.md "unreal-agent-runner review: UNREAL_HARNESS_LLM_API_KEY or OPENROUTER_API_KEY must be set" "$(stderr_of run-key)" "run-key"
 
 OPENROUTER_API_KEY=dummy cli --name run-thinking -- run --model x --thinking-level nope --workspace "$VERIFY_SCRATCH" --out "$VERIFY_SCRATCH/unused.jsonl"
 require_exit run-thinking 1
@@ -434,11 +434,11 @@ expect cli-usage.md "empty --exclude" "$(stderr_of run-exclude-empty)" "run-excl
 
 cli --name render-unknown -- render html
 require_exit render-unknown 1
-expect cli-usage.md 'unreal-review: unknown render target "html"' "$(stderr_of render-unknown)" "render-unknown"
+expect cli-usage.md 'unreal-agent-runner review: unknown render target "html"' "$(stderr_of render-unknown)" "render-unknown"
 
 cli --name render-required -- render
 require_exit render-required 1
-expect cli-usage.md "unreal-review: render target required: github or markdown" "$(stderr_of render-required)" "render-required"
+expect cli-usage.md "unreal-agent-runner review: render target required: github or markdown" "$(stderr_of render-required)" "render-required"
 
 say "review git range"
 OPENROUTER_API_KEY=dummy cli --name range-empty -- run --model x --workspace "$VERIFY_FIXTURE" --from HEAD --to HEAD --out "$VERIFY_SCRATCH/empty.jsonl"
@@ -710,7 +710,7 @@ require_eq_file "$(stdout_of md-empty)" "$VERIFY_SCRATCH/md-empty-want.txt" "md-
 
 cli --name md-missing -- render markdown "$VERIFY_SCRATCH/does-not-exist.jsonl"
 require_exit md-missing 1
-expect render-markdown.md "unreal-review: open" "$(stderr_of md-missing)" "md-missing"
+expect render-markdown.md "unreal-agent-runner review: open" "$(stderr_of md-missing)" "md-missing"
 expect render-markdown.md "does-not-exist.jsonl" "$(stderr_of md-missing)" "md-missing"
 
 "$SCRIPTS/sample-findings.sh" running "$VERIFY_SCRATCH/running.jsonl"
@@ -747,7 +747,7 @@ expect render-github.md "pull request number 9 needs owner/repo" "$(stderr_of gh
 
 cli --name gh-pr-required --no-github-auth -- render github --dry-run "$VERIFY_EXAMPLE"
 require_exit gh-pr-required 1
-expect render-github.md "unreal-review: set --pr" "$(stderr_of gh-pr-required)" "gh-pr-required"
+expect render-github.md "unreal-agent-runner review: set --pr" "$(stderr_of gh-pr-required)" "gh-pr-required"
 
 cli --name gh-incomplete --no-github-auth -- render github --pr owner/repo#1 "$VERIFY_SCRATCH/running.jsonl"
 require_exit gh-incomplete 1

@@ -4,31 +4,20 @@ Fork release notes. Tags and publish rules are in [RELEASING.md](RELEASING.md).
 The GitHub release page for the next fork tag starts with this note
 (`.goreleaser.yaml` `release.header`):
 
-The release archive includes `unreal-review` next to `unreal-agent-runner` and `unreal-agent-tui`.
-`unreal-agent-runner review` runs that binary and returns its exit code.
+`unreal-agent-runner review` is the review command. The separate `unreal-review` binary is gone.
 
 Review uses the runner's provider selection. An empty `UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`.
 If you only have `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`.
 
-## unreal-review ships with the fork release
+## Review is a runner command
 
-The existing per-platform archive keeps its name,
-`unreal-agent_<version>_<os>_<arch>.tar.gz`, where `<version>` is the tag
-with one leading `v` removed. That archive now also contains `unreal-review`
-beside `unreal-agent-runner` and `unreal-agent-tui`. There is no separate
-review archive. Checksums stay in `SHA256SUMS`. A published tag is
-downloaded from
-`https://github.com/0x7067/unreal-agent/releases/download/<tag>/unreal-agent_<version>_<os>_<arch>.tar.gz`.
-The Homebrew cask installs `unreal-review` as well. `skip_upload` is still
-set, so the cask is written under `dist/homebrew` and is not pushed to
-`unreallabsai/homebrew-tap`.
-
-`unreal-agent-runner review` runs `unreal-review` with the remaining
-arguments and returns that process's exit code. The runner looks for
-`unreal-review` in the same directory as itself, then on `PATH`. If neither
-is present it exits 1 and says `unreal-review not found next to unreal-agent-runner or on PATH`.
-`unreal-agent-runner -h` names the alias. `unreal-agent-runner review help`
-prints unreal-review's own usage.
+The review code now runs inside `unreal-agent-runner`. The release archive and
+the Homebrew cask no longer contain `unreal-review`. Replace `unreal-review <args>`
+with `unreal-agent-runner review <args>`; the arguments, findings.jsonl and
+exit codes are unchanged. Error lines now start with
+`unreal-agent-runner review:` instead of `unreal-review:`. The GitHub check run
+and comment markers keep the `unreal-review` name, so `run --pr` continues
+from reviews posted by earlier releases.
 
 ## Provider default
 

@@ -3,18 +3,23 @@ package main
 
 import (
 	"os"
-	"os/exec"
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/residentcli"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/reviewcli"
 )
 
+const reviewUsage = `Usage: unreal-agent-runner review run|group|render|help [args...]
+Reviews a git diff into findings.jsonl and renders it.
+Run "unreal-agent-runner review help" for its usage.
+`
+
 func main() {
-	// Dispatch before resident commands and agentrunner so review does not
-	// load workspace .env or parse a JSON request.
+	// Dispatch first: review does not load workspace .env or parse a JSON
+	// request, and it re-execs this binary with the same arguments.
 	if len(os.Args) > 1 && os.Args[1] == "review" {
-		os.Exit(reviewCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, os.Environ(), os.Executable, exec.LookPath))
+		os.Exit(reviewcli.Main(os.Args[2:]))
 	}
 
 	if residentcli.Handles(os.Args[1:]) {

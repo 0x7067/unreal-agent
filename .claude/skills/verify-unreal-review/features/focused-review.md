@@ -14,9 +14,9 @@
 
 ## How to get to it (user POV)
 
-- `unreal-review run --strategy focused --out findings.jsonl`.
+- `unreal-agent-runner review run --strategy focused --out findings.jsonl`.
 - Resume with the same `--strategy focused`, model, thinking level, workspace, source selection, and output file.
-- `unreal-review run --strategy focused --fresh --out findings.jsonl` starts over.
+- `unreal-agent-runner review run --strategy focused --fresh --out findings.jsonl` starts over.
 
 ## Driving it with verify-unreal-review
 

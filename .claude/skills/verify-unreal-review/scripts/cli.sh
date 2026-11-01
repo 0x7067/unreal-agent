@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
 		break
 		;;
 	-*)
-		echo "usage: cli.sh --name <step> [--no-github-auth] [--stdin file] -- <unreal-review args>" >&2
+		echo "usage: cli.sh --name <step> [--no-github-auth] [--stdin file] -- <review args>" >&2
 		exit 2
 		;;
 	*)
@@ -59,7 +59,7 @@ bin=$VERIFY_BIN
 		echo "stdin=$stdin_file"
 	fi
 	printf 'args='
-	printf '%q ' "$bin" "$@"
+	printf '%q ' "$bin" review "$@"
 	echo
 } >"$step/cmd.txt"
 
@@ -78,9 +78,9 @@ if [ "$no_github" -eq 1 ]; then
 fi
 review_env+=(UNREAL_HARNESS_LLM_PROVIDER=openrouter)
 if [ -n "$stdin_file" ]; then
-	"${review_env[@]}" "$bin" "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
+	"${review_env[@]}" "$bin" review "$@" <"$stdin_file" >"$step/stdout.txt" 2>"$step/stderr.txt"
 else
-	"${review_env[@]}" "$bin" "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
+	"${review_env[@]}" "$bin" review "$@" >"$step/stdout.txt" 2>"$step/stderr.txt"
 fi
 status=$?
 set -e
