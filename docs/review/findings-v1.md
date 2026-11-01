@@ -59,3 +59,4 @@ A renderer reads this file and produces a host-specific display. GitHub inline c
 ## Known gap
 
 The review agent's shell runs as the user. When it reviews an untrusted diff, that shell can read home-directory credentials such as `~/.codex/auth.json` and `~/.config/gh`. A follow-up should confine the review shell (an empty temp HOME). That confinement is not implemented.
+
