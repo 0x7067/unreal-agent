@@ -132,6 +132,10 @@ Sending reveals the latest message; background acknowledgments preserve manual
 scroll. `/compact` requests manual compaction and uses the same submission
 acknowledgment states.
 
+Typing `/` opens a Commands list of the slash commands available in the
+current mode, filtered as you type. ↑/↓ select, Tab completes the command so
+you can add arguments, Enter runs it, and Esc closes the list.
+
 ## Review
 
 `/review` reviews the workspace's uncommitted changes against `HEAD` with

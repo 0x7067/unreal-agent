@@ -123,6 +123,7 @@ func (m *model) closeFilePicker() {
 }
 
 func (m *model) syncFilePicker() tea.Cmd {
+	m.syncCommandPicker()
 	if m.attached {
 		return nil
 	}
@@ -222,8 +223,10 @@ func (m *model) filePickerKey(msg tea.KeyPressMsg) bool {
 	return true
 }
 
-func (m model) filePickerHeight() int {
-	if !m.files.open {
+func (m model) filePickerHeight() int { return m.pickerHeight(m.files.open, len(m.files.matches)) }
+
+func (m model) pickerHeight(open bool, matches int) int {
+	if !open {
 		return 0
 	}
 	_, y := m.padding()
@@ -231,7 +234,7 @@ func (m model) filePickerHeight() int {
 	if m.theme.Delimiter != "" {
 		padding, overhead = 2, 2
 	}
-	rows := max(1, len(m.files.matches))
+	rows := max(1, matches)
 	height := min(rows+overhead, max(0, m.height-m.composer.Height()-5-padding))
 	if height <= overhead {
 		return 0
@@ -240,33 +243,20 @@ func (m model) filePickerHeight() int {
 }
 
 func (m model) filePickerView(width int) string {
-	height := m.filePickerHeight()
-	if height == 0 {
-		return ""
-	}
-	overhead := 1
-	if m.theme.Delimiter != "" {
-		overhead = 2
-	}
-	rows := height - overhead
-	innerWidth := width
-	if overhead == 2 {
-		innerWidth -= 2
-	}
 	hint := fmt.Sprintf("%d results", len(m.files.matches))
 	if m.files.err != nil {
 		hint = "Some paths unavailable"
 	}
-	start := max(0, min(m.files.selected-rows+1, len(m.files.matches)-rows))
-	content := make([]string, 0, rows)
-	for i := start; i < min(start+rows, len(m.files.matches)); i++ {
+	status := "No matching files"
+	if m.files.scanning {
+		status = "Scanning workspace…"
+	} else if m.files.searching {
+		status = "Searching…"
+	}
+	return m.pickerPane("Files", hint, status, m.filePickerHeight(), width, len(m.files.matches), m.files.selected, func(i int, selected bool, labelWidth int) string {
 		match := m.files.matches[i]
-		style := textStyle(m.theme.SurfaceForeground).Background(lipgloss.Color(m.theme.Surface))
-		label, marker := match.Path, "  "
-		if i == m.files.selected {
-			marker = "› "
-			style = style.Foreground(lipgloss.Color(m.theme.SelectionForeground)).Background(lipgloss.Color(m.theme.Selection))
-		} else {
+		label := match.Path
+		if !selected {
 			var highlighted strings.Builder
 			for j, r := range []rune(match.Path) {
 				if slices.Contains(match.Positions, j) {
@@ -277,28 +267,44 @@ func (m model) filePickerView(width int) string {
 			}
 			label = highlighted.String()
 		}
-		pathWidth := max(1, innerWidth-4)
-		if width := ansi.StringWidth(label); width > pathWidth {
-			label = ansi.TruncateLeft(label, width-pathWidth+1, "…")
+		if width := ansi.StringWidth(label); width > labelWidth {
+			label = ansi.TruncateLeft(label, width-labelWidth+1, "…")
 		}
-		label = marker + label
-		content = append(content, renderSurface(style.Width(innerWidth).Padding(0, 1), label))
+		return label
+	})
+}
+
+// pickerPane renders the window of rows around the selection above the
+// composer. label renders row i in at most labelWidth cells.
+func (m model) pickerPane(title, hint, empty string, height, width, count, selected int, label func(i int, selected bool, labelWidth int) string) string {
+	if height == 0 {
+		return ""
+	}
+	overhead, innerWidth := 1, width
+	if m.theme.Delimiter != "" {
+		overhead, innerWidth = 2, width-2
+	}
+	rows := height - overhead
+	start := max(0, min(selected-rows+1, count-rows))
+	content := make([]string, 0, rows)
+	for i := start; i < min(start+rows, count); i++ {
+		style := textStyle(m.theme.SurfaceForeground).Background(lipgloss.Color(m.theme.Surface))
+		marker := "  "
+		if i == selected {
+			marker = "› "
+			style = style.Foreground(lipgloss.Color(m.theme.SelectionForeground)).Background(lipgloss.Color(m.theme.Selection))
+		}
+		content = append(content, renderSurface(style.Width(innerWidth).Padding(0, 1), marker+label(i, i == selected, max(1, innerWidth-4))))
 	}
 	if len(content) == 0 {
-		status := "No matching files"
-		if m.files.scanning {
-			status = "Scanning workspace…"
-		} else if m.files.searching {
-			status = "Searching…"
-		}
 		content = append(content, renderSurface(textStyle(m.theme.SurfaceMuted).Background(lipgloss.Color(m.theme.Surface)).
-			Width(innerWidth).Padding(0, 1), ansi.Truncate(status, max(1, innerWidth-2), "…")))
+			Width(innerWidth).Padding(0, 1), ansi.Truncate(empty, max(1, innerWidth-2), "…")))
 	}
 	for len(content) < rows {
 		content = append(content, strings.Repeat(" ", innerWidth))
 	}
 	if overhead == 2 {
-		return m.framedPane("Files", hint, strings.Join(content, "\n"), m.theme.Surface, width)
+		return m.framedPane(title, hint, strings.Join(content, "\n"), m.theme.Surface, width)
 	}
-	return m.heading("Files", hint, m.theme.Surface, m.theme.SurfaceAccent, m.theme.SurfaceHint, width) + "\n" + strings.Join(content, "\n")
+	return m.heading(title, hint, m.theme.Surface, m.theme.SurfaceAccent, m.theme.SurfaceHint, width) + "\n" + strings.Join(content, "\n")
 }
