@@ -24,7 +24,8 @@ func confinedShell(dir string) (string, error) {
 		"export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME\n" +
 		"unset CODEX_HOME GH_CONFIG_DIR GNUPGHOME SSH_AUTH_SOCK GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS\n" +
 		"GIT_SSH_COMMAND='ssh -F /dev/null -o IdentityFile=none -o IdentitiesOnly=yes'\n" +
-		"export GIT_SSH_COMMAND\n" +
+		"GIT_CONFIG_NOSYSTEM=1\n" +
+		"export GIT_SSH_COMMAND GIT_CONFIG_NOSYSTEM\n" +
 		`exec /bin/sh "$@"` + "\n"
 	path := filepath.Join(dir, "sh")
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
