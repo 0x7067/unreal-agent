@@ -22,7 +22,7 @@ func confinedShell(dir string) (string, error) {
 		"HOME='" + strings.ReplaceAll(home, "'", `'\''`) + "'\n" +
 		`XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state" XDG_CACHE_HOME="$HOME/.cache"` + "\n" +
 		"export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME\n" +
-		"unset CODEX_HOME GH_CONFIG_DIR GNUPGHOME SSH_AUTH_SOCK GIT_CONFIG_GLOBAL GIT_ASKPASS SSH_ASKPASS\n" +
+		"unset CODEX_HOME GH_CONFIG_DIR GNUPGHOME SSH_AUTH_SOCK GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS\n" +
 		"GIT_SSH_COMMAND='ssh -F /dev/null -o IdentityFile=none -o IdentitiesOnly=yes'\n" +
 		"export GIT_SSH_COMMAND\n" +
 		`exec /bin/sh "$@"` + "\n"
