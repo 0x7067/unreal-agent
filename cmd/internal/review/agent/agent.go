@@ -221,9 +221,13 @@ func (h Harness) run(ctx context.Context, adapter llm.Adapter, req review.AgentR
 	if err := os.MkdirAll(operationDirectory, 0o700); err != nil {
 		return review.AgentResult{}, fmt.Errorf("create operation directory: %w", err)
 	}
+	shell, err := confinedShell(operationDirectory)
+	if err != nil {
+		return review.AgentResult{}, err
+	}
 	registry := newRecordRegistry(tool.NewRegistry(tool.StaticTranslators{
 		Bash: newBoundedBash(req.Workspace, h.MaxBashCalls, bash.New(bash.Config{
-			Shell:         "/bin/sh",
+			Shell:         shell,
 			Directory:     req.Workspace,
 			BaseDirectory: operationDirectory,
 		})),
