@@ -6,18 +6,20 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Main runs the review command with the arguments after "review". It may
 // re-exec os.Executable with os.Args to drop credentials from the
 // environment, so the caller must dispatch "review" before anything else.
 func Main(args []string) int {
+	prefix := filepath.Base(os.Args[0]) + " review"
 	if err := isolateSecrets(); err != nil {
-		fmt.Fprintf(os.Stderr, "unreal-agent-runner review: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
 		return 1
 	}
 	if err := run(args); err != nil {
-		fmt.Fprintf(os.Stderr, "unreal-agent-runner review: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
 		return 1
 	}
 	return 0
