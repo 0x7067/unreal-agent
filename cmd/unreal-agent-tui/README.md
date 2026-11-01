@@ -132,6 +132,24 @@ Sending reveals the latest message; background acknowledgments preserve manual
 scroll. `/compact` requests manual compaction and uses the same submission
 acknowledgment states.
 
+## Review
+
+`/review` reviews the workspace's uncommitted changes against `HEAD` with
+`unreal-agent-tui review run`, the same command as `unreal-agent-runner review run`.
+It runs in the background with the TUI's provider, model and reasoning effort;
+arguments after `/review` go to `review run` and override them, for example
+`/review --branch main` or `/review --commit HEAD --model gpt-6.1-sol`.
+When it finishes, the findings are rendered as markdown and sent to the agent
+as one message. Failures and errors appear in the transcript instead.
+
+The checkpoint is `operations/<session ID>/review.jsonl` in the session directory.
+`/review cancel` pauses the review, and the next `/review` continues it; a
+complete review starts over. A range that differs from a paused checkpoint is
+refused; add `--fresh` to start over. In attach mode the review runs in this
+frontend's process with its environment's credentials, not on the host; before
+the host's first turn the model is unknown, so pass `--model` or set
+`UNREAL_HARNESS_LLM_MODEL`.
+
 ## Explicit worker reload
 
 The terminal UI stays in place while a resident worker owns session/model/tool

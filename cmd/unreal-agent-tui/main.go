@@ -12,12 +12,17 @@ import (
 
 	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/providers"
+	"github.com/unreallabsai/unreal-agent/cmd/internal/reviewcli"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerproto"
 	"github.com/unreallabsai/unreal-agent/cmd/internal/workerruntime"
 	"github.com/unreallabsai/unreal-agent/cmd/unreal-agent-tui/internal/terminaltext"
 )
 
 func main() {
+	// Dispatch first: review re-execs this binary with the same arguments.
+	if len(os.Args) > 1 && os.Args[1] == "review" {
+		os.Exit(reviewcli.Main(os.Args[2:]))
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	if handled, err := runWorkerCommand(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv); handled {
 		stop()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -129,6 +130,8 @@ type model struct {
 	attachSavedHash                                   [32]byte
 	attachSaveError                                   string
 	attachRestore                                     *attachLocalState
+	review                                            reviewSetup
+	reviewing                                         *exec.Cmd
 }
 
 func newModel(ctx context.Context, inputs inbox.Writer, registry tool.Registry, workspace, directory string, opts options) model {
@@ -302,6 +305,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case buildsFinished:
 		m.finishBuildInspection(msg)
+	case reviewFinished:
+		return m, m.finishReview(msg)
 	case reloadFinished:
 		m.reloading = false
 		m.reloadError = ""
@@ -861,6 +866,9 @@ func (m model) View() tea.View {
 		if m.workerStatusError {
 			color = m.theme.StatusError
 		}
+	}
+	if m.reviewing != nil && !pending && !m.responding && !m.sending {
+		status, color = "Reviewing · /review cancel", m.theme.StatusAccent
 	}
 	if m.reloading {
 		status, color = "Reload pending · finishing current work; new messages queued", m.theme.StatusAccent
