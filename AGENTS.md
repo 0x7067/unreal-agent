@@ -35,7 +35,9 @@ The README glossary and components table define the core terms (Input, Inbox, Se
 
 - Fork release config intentionally diverges: tags are `vX.Y.Z-fork.N` (workflow trigger `v*-fork.*` only; first tag `v0.4.1-fork.1`). Goreleaser publishes GitHub releases to `0x7067/unreal-agent`. TUI ldflags use `.Version`, which keeps the `-fork.N` suffix. Docker Hub and the upstream Homebrew tap stay disabled. See `docs/RELEASING.md`.
 
-- User preference: after code changes, always rebuild and reinstall before finishing. In this environment, use `make build` and atomically replace both binaries in `~/.local/bin`; UI changes require a frontend restart.
+- User preference: after code changes, always rebuild and reinstall on every machine before finishing, without asking. UI changes require a frontend restart.
+  - admin: `make build`, then atomically replace both binaries in `~/.local/bin`.
+  - Macs (Homebrew cask from the local tap `0x7067/local`): build once on admin with `mise exec goreleaser@latest -- goreleaser release --snapshot --clean --skip=docker`. Serve the `darwin_arm64` tarball and `dist/homebrew/Casks/unreal-agent.rb` with `python3 -m http.server --bind ::`. On each Mac, download both and write the cask into the tap with its release URL rewritten to `file://<download dir>/`. Then run `brew reinstall --cask 0x7067/local/unreal-agent` with `HOMEBREW_NO_AUTO_UPDATE=1`. brew can hang after the install finishes, so run it in the background and check `unreal-agent-tui -version`.
 
 ## Maintaining this file
 

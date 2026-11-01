@@ -43,6 +43,20 @@ func (s submissionState) status() string {
 	}
 }
 
+// runtimeControls reports whether /builds and /reload can run.
+func (m *model) runtimeControls() bool {
+	w, ok := m.inputs.(*attachedRuntimeWriter)
+	return !m.attached || ok && w.enabled && m.attachConnected
+}
+
+// interventionsAvailable reports whether /agents and /graph can run.
+func (m *model) interventionsAvailable() bool {
+	if w, ok := m.inputs.(*attachedRuntimeWriter); ok {
+		return m.attachConnected && w.interventionsEnabled
+	}
+	return !m.attached
+}
+
 func (m *model) startSubmission(text string) tea.Cmd {
 	if rest, ok := strings.CutPrefix(strings.TrimSpace(text), "/review"); ok && (rest == "" || rest[0] == ' ') {
 		return m.startReview(strings.TrimSpace(rest))
@@ -54,7 +68,7 @@ func (m *model) startSubmission(text string) tea.Cmd {
 		if strings.TrimSpace(text) == "/cancel-upgrade" {
 			return m.startAttachedUpgrade(true)
 		}
-		if writer, ok := m.inputs.(*attachedRuntimeWriter); ok && writer.enabled && m.attachConnected {
+		if m.runtimeControls() {
 			switch strings.TrimSpace(text) {
 			case "/builds":
 				return m.startBuildInspection()
@@ -73,11 +87,7 @@ func (m *model) startSubmission(text string) tea.Cmd {
 		}
 	}
 	trimmed := strings.TrimSpace(text)
-	interventionsAvailable := !m.attached
-	if w, ok := m.inputs.(*attachedRuntimeWriter); ok {
-		interventionsAvailable = m.attachConnected && w.interventionsEnabled
-	}
-	if interventionsAvailable {
+	if m.interventionsAvailable() {
 		if trimmed == "/agents" || strings.HasPrefix(trimmed, "/agents ") {
 			return m.startAgentCommand(trimmed)
 		}

@@ -84,6 +84,7 @@ type model struct {
 	pendingSubmissions                                map[inbox.ID]struct{}
 	composer                                          textarea.Model
 	files                                             filePicker
+	commands                                          commandPicker
 	conversation                                      viewport.Model
 	details                                           viewport.Model
 	detailsOpen                                       bool
@@ -363,6 +364,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.filePickerKey(msg) {
+			return m, nil
+		}
+		if m.commandPickerKey(msg) {
 			return m, nil
 		}
 		if key.Matches(msg, reasoningKey) {
@@ -762,7 +766,7 @@ func (m *model) resize() {
 		m.conversation.SetWidth(chatWidth)
 		m.renderConversation()
 	}
-	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-inputPadding-m.filePickerHeight()))
+	m.conversation.SetHeight(max(0, m.height-m.composer.Height()-4-inputPadding-m.filePickerHeight()-m.commandPickerHeight()))
 	detailWidth := width - 1
 	if m.theme.Delimiter != "" {
 		detailWidth--
@@ -925,6 +929,9 @@ func (m model) View() tea.View {
 	if picker := m.filePickerView(width); picker != "" {
 		parts = append(parts, leftInset.Render(picker))
 	}
+	if picker := m.commandPickerView(width); picker != "" {
+		parts = append(parts, leftInset.Render(picker))
+	}
 	input := renderSurface(textStyle(m.theme.SurfaceForeground).Background(lipgloss.Color(m.theme.Surface)).Width(m.width).Padding(y, 2), m.composer.View())
 	if m.theme.Delimiter != "" {
 		input = leftInset.Render(m.framedPane("Message", "", renderSurface(textStyle(m.theme.SurfaceForeground).
@@ -966,6 +973,13 @@ func (m model) helpView(width int) string {
 		accept := key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("Enter/Tab", "insert"))
 		cancel := key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel"))
 		bindings = []key.Binding{selectFile, accept, cancel, quit}
+	}
+	if m.commandPickerHeight() > 0 {
+		selectCommand := key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "commands"))
+		run := key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "run"))
+		complete := key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "complete"))
+		cancel := key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel"))
+		bindings = []key.Binding{selectCommand, run, complete, cancel, quit}
 	}
 	if m.toolsFocused {
 		enter.SetHelp("Enter", "view")
