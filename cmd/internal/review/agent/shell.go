@@ -8,10 +8,11 @@ import (
 )
 
 // confinedShell writes a /bin/sh wrapper in dir that gives the review shell an
-// empty HOME and XDG directories under dir, and drops CODEX_HOME,
-// GH_CONFIG_DIR, GNUPGHOME and SSH_AUTH_SOCK. Tools such as gh, git, ssh and
-// codex then find none of the user's credentials. This is not a sandbox: the
-// shell still runs as the user and can read absolute paths.
+// empty HOME and XDG directories under dir, and drops the variables that point
+// tools at credentials. git's ssh loads no keys, because ssh finds them through
+// the passwd home, not HOME. gh, git and codex then find none of the user's
+// credentials. This is not a sandbox: the shell still runs as the user, a
+// direct ssh still loads the user's keys, and absolute paths stay readable.
 func confinedShell(dir string) (string, error) {
 	home := filepath.Join(dir, "home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
@@ -21,7 +22,9 @@ func confinedShell(dir string) (string, error) {
 		"HOME='" + strings.ReplaceAll(home, "'", `'\''`) + "'\n" +
 		`XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state" XDG_CACHE_HOME="$HOME/.cache"` + "\n" +
 		"export HOME XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME\n" +
-		"unset CODEX_HOME GH_CONFIG_DIR GNUPGHOME SSH_AUTH_SOCK\n" +
+		"unset CODEX_HOME GH_CONFIG_DIR GNUPGHOME SSH_AUTH_SOCK GIT_CONFIG_GLOBAL GIT_ASKPASS SSH_ASKPASS\n" +
+		"GIT_SSH_COMMAND='ssh -F /dev/null -o IdentityFile=none -o IdentitiesOnly=yes'\n" +
+		"export GIT_SSH_COMMAND\n" +
 		`exec /bin/sh "$@"` + "\n"
 	path := filepath.Join(dir, "sh")
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
