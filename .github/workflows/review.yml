@@ -1,7 +1,10 @@
 name: Review
 
+# pull_request_target runs this file from the base branch, so a pull request
+# cannot edit the workflow that holds OPENROUTER_API_KEY. The head is checked
+# out only as files to review; nothing from it is built here.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}
@@ -51,8 +54,10 @@ jobs:
           UNREAL_HARNESS_LLM_MODEL: ${{ vars.UNREAL_HARNESS_LLM_MODEL }}
           GH_TOKEN: ${{ github.token }}
           PULL_REQUEST: ${{ github.repository }}#${{ github.event.pull_request.number }}
+        # exec replaces the step shell, whose environment holds the key, so the
+        # review shell cannot read the key from that shell's /proc/<pid>/environ.
         run: |
-          unreal-review run --pr "$PULL_REQUEST" --out "$RUNNER_TEMP/findings.jsonl"
+          exec unreal-review run --pr "$PULL_REQUEST" --out "$RUNNER_TEMP/findings.jsonl"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: unreal-review-findings
