@@ -4,7 +4,7 @@ Canonical review output. One JSON object per line. `v` is `1`.
 
 ## `run`
 
-Present on every `unreal-review run`. `cost` is required.
+Present on every `unreal-agent-runner review run`. `cost` is required.
 
 ```json
 {"v":1,"type":"run","id":"…","created_at":"2026-09-23T12:00:00Z","model":"anthropic/claude-sonnet-4.5","status":"complete","source":{"kind":"git","base":"main","head":"","base_sha":"abc","head_sha":"def","diff_sha":"…"},"cost":{"amount_usd":0.0123,"currency":"USD","input_tokens":12000,"output_tokens":800,"reasoning_tokens":400,"cached_input_tokens":1000,"requests":3}}

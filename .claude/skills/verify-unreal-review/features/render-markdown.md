@@ -1,6 +1,6 @@
 # Render markdown
 
-`unreal-review render markdown` reads a findings file (or stdin) and prints a markdown report: cost, summary, per-path headings, and severity bullets. Incomplete runs get a `Status:` line first. Empty input prints `No findings.`
+`unreal-agent-runner review render markdown` reads a findings file (or stdin) and prints a markdown report: cost, summary, per-path headings, and severity bullets. Incomplete runs get a `Status:` line first. Empty input prints `No findings.`
 
 ## Sub-features
 
@@ -13,10 +13,10 @@
 
 ## How to get to it (user POV)
 
-- `unreal-review render markdown findings.jsonl`
-- `unreal-review render markdown --out report.md findings.jsonl`
-- `unreal-review render markdown - < findings.jsonl`
-- `unreal-review render markdown` with stdin as the default file (`-`)
+- `unreal-agent-runner review render markdown findings.jsonl`
+- `unreal-agent-runner review render markdown --out report.md findings.jsonl`
+- `unreal-agent-runner review render markdown - < findings.jsonl`
+- `unreal-agent-runner review render markdown` with stdin as the default file (`-`)
 
 ## Driving it with verify-unreal-review
 
@@ -42,7 +42,7 @@ Concurrent writes to the shared cache map can corrupt it or crash the process; t
 - **--out file.** Run `scripts/cli.sh --name md-out -- render markdown --out "$VERIFY_SCRATCH/report.md" "$VERIFY_EXAMPLE"`. Exit code `0`. `stdout.txt` is empty. `$VERIFY_SCRATCH/report.md` matches the example stdout. Copy `report.md` into the step directory.
 - **Stdin.** Run `scripts/cli.sh --name md-stdin --stdin "$VERIFY_EXAMPLE" -- render markdown -`. Exit code `0`. `stdout.txt` matches `md-example`.
 - **Empty file.** Run `scripts/sample-findings.sh empty "$VERIFY_SCRATCH/empty.jsonl"` then `scripts/cli.sh --name md-empty -- render markdown "$VERIFY_SCRATCH/empty.jsonl"`. Exit code `0`. `stdout.txt` is `No findings.` plus a newline.
-- **Missing file.** Run `scripts/cli.sh --name md-missing -- render markdown "$VERIFY_SCRATCH/does-not-exist.jsonl"`. Exit code `1`. `stderr.txt` contains `unreal-review: open` and `does-not-exist.jsonl`.
+- **Missing file.** Run `scripts/cli.sh --name md-missing -- render markdown "$VERIFY_SCRATCH/does-not-exist.jsonl"`. Exit code `1`. `stderr.txt` contains `unreal-agent-runner review: open` and `does-not-exist.jsonl`.
 - **Running status.** Run `scripts/sample-findings.sh running "$VERIFY_SCRATCH/running.jsonl"` then `scripts/cli.sh --name md-running -- render markdown "$VERIFY_SCRATCH/running.jsonl"`. Exit code `0`. `stdout.txt` starts with `Status: running` then a cost line, then `## \`internal/cache/cache.go\``.
 - **Proof.** Keep `md-example/stdout.txt` and the copied `md-out/report.md`. They match each other and name `internal/cache/cache.go`.
 

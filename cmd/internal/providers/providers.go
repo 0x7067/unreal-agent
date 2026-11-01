@@ -37,7 +37,7 @@ const (
 )
 
 // Selection is the provider, credential, and base URL resolved from the
-// process environment. agentrunner and unreal-review both call Select.
+// process environment. agentrunner and reviewcli both call Select.
 type Selection struct {
 	Provider Provider
 	APIKey   string

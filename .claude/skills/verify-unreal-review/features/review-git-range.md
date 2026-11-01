@@ -1,6 +1,6 @@
 # Review a git range
 
-`unreal-review run` reviews a git diff in `--workspace` and writes `findings.jsonl`. With no range flags it reviews staged, unstaged, and untracked changes against `HEAD`. `--from`/`--to` is `git diff --merge-base`. `--commit` is that commit against its first parent. `--branch` is merge-base of `main` or `master`. An empty diff completes immediately with summary `No material issues: the selected range has no changes.` Pathspecs and `--exclude` omit files. A non-empty diff starts the agent.
+`unreal-agent-runner review run` reviews a git diff in `--workspace` and writes `findings.jsonl`. With no range flags it reviews staged, unstaged, and untracked changes against `HEAD`. `--from`/`--to` is `git diff --merge-base`. `--commit` is that commit against its first parent. `--branch` is merge-base of `main` or `master`. An empty diff completes immediately with summary `No material issues: the selected range has no changes.` Pathspecs and `--exclude` omit files. A non-empty diff starts the agent.
 
 ## Sub-features
 
@@ -20,13 +20,13 @@
 
 ## How to get to it (user POV)
 
-- `unreal-review run --out findings.jsonl` from a git checkout (staged, unstaged, and untracked vs `HEAD`).
-- `unreal-review run --from <rev> --to <rev> --out findings.jsonl`.
-- `unreal-review run --from <rev> --out findings.jsonl` (working tree vs merge-base of that ref).
-- `unreal-review run --commit <rev> --out findings.jsonl`.
-- `unreal-review run --branch <name> --out findings.jsonl`.
-- `unreal-review run --pr owner/repo#12 --out findings.jsonl` (narrowed to commits since the last posted review; renders with `render github --pr`).
-- `unreal-review run --exclude '*.lock' -- cmd/`.
+- `unreal-agent-runner review run --out findings.jsonl` from a git checkout (staged, unstaged, and untracked vs `HEAD`).
+- `unreal-agent-runner review run --from <rev> --to <rev> --out findings.jsonl`.
+- `unreal-agent-runner review run --from <rev> --out findings.jsonl` (working tree vs merge-base of that ref).
+- `unreal-agent-runner review run --commit <rev> --out findings.jsonl`.
+- `unreal-agent-runner review run --branch <name> --out findings.jsonl`.
+- `unreal-agent-runner review run --pr owner/repo#12 --out findings.jsonl` (narrowed to commits since the last posted review; renders with `render github --pr`).
+- `unreal-agent-runner review run --exclude '*.lock' -- cmd/`.
 - GitHub Actions: `--pr "$PULL_REQUEST"` (commits since the last posted review; falls back to the full base range).
 
 ## Driving it with verify-unreal-review

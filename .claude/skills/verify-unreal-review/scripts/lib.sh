@@ -15,7 +15,7 @@ print("yes" if path == repo or path.startswith(repo + os.sep) else "no")
 
 VERIFY_SKILL_DIR=$(cd "$(dirname "$0")/.." && pwd)
 VERIFY_REPO=$(abs_path "$VERIFY_SKILL_DIR/../../..")
-VERIFY_BIN=${VERIFY_BIN:-"$VERIFY_REPO/bin/unreal-review"}
+VERIFY_BIN=${VERIFY_BIN:-"$VERIFY_REPO/bin/unreal-agent-runner"}
 VERIFY_BIN=$(abs_path "$VERIFY_BIN")
 VERIFY_ROOT=${VERIFY_ROOT:-/tmp/verify-unreal-review}
 VERIFY_ROOT=$(abs_path "$VERIFY_ROOT")

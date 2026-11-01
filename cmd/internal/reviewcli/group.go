@@ -1,4 +1,4 @@
-package main
+package reviewcli
 
 import (
 	"context"
@@ -99,7 +99,7 @@ func groupHeader(result review.GroupResult, files, lines int) string {
 
 func formatRunCommand(workspace string, spec review.Spec, out string, exclude, pathspecs []string) string {
 	var b strings.Builder
-	b.WriteString("unreal-review run")
+	b.WriteString("unreal-agent-runner review run")
 	if workspace != "" && workspace != "." {
 		fmt.Fprintf(&b, " --workspace %s", workspace)
 	}

@@ -1,21 +1,28 @@
-package main
+// Package reviewcli is the unreal-agent-runner review command (fork-only).
+package reviewcli
 
 import (
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
-func main() {
+// Main runs the review command with the arguments after "review". It may
+// re-exec os.Executable with os.Args to drop credentials from the
+// environment, so the caller must dispatch "review" before anything else.
+func Main(args []string) int {
+	prefix := filepath.Base(os.Args[0]) + " review"
 	if err := isolateSecrets(); err != nil {
-		fmt.Fprintf(os.Stderr, "unreal-review: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
+		return 1
 	}
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "unreal-review: %v\n", err)
-		os.Exit(1)
+	if err := run(args); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
+		return 1
 	}
+	return 0
 }
 
 func run(args []string) error {
@@ -47,14 +54,14 @@ func printUsage(w *os.File) error {
 Render that file for GitHub inline comments, markdown, or another host.
 
 Usage:
-  unreal-review run [--workspace <dir>] [--from <rev> [--to <rev>] | --commit <rev> | --branch <name> | --pr owner/repo#n]
-                    [--repo owner/repo] [--exclude <glob>] [--out <path>] [--fresh] [--model <id>] [--strategy single|focused]
-                    [--decompose] [--timeout <duration>] [--thinking-level low|medium|high|xhigh|max]
-                    [--agent-log <path>] [paths...]
-  unreal-review group [--workspace <dir>] [--from <rev> [--to <rev>] | --commit <rev> | --branch <name>]
-                      [--exclude <glob>] [paths...]
-  unreal-review render github [--pr owner/repo#n] [--repo owner/repo] [--commit <sha>] [--dry-run] [findings.jsonl]
-  unreal-review render markdown [--out <path>] [findings.jsonl]
+  unreal-agent-runner review run [--workspace <dir>] [--from <rev> [--to <rev>] | --commit <rev> | --branch <name> | --pr owner/repo#n]
+                                 [--repo owner/repo] [--exclude <glob>] [--out <path>] [--fresh] [--model <id>] [--strategy single|focused]
+                                 [--decompose] [--timeout <duration>] [--thinking-level low|medium|high|xhigh|max]
+                                 [--agent-log <path>] [paths...]
+  unreal-agent-runner review group [--workspace <dir>] [--from <rev> [--to <rev>] | --commit <rev> | --branch <name>]
+                                   [--exclude <glob>] [paths...]
+  unreal-agent-runner review render github [--pr owner/repo#n] [--repo owner/repo] [--commit <sha>] [--dry-run] [findings.jsonl]
+  unreal-agent-runner review render markdown [--out <path>] [findings.jsonl]
 
 Run writes a findings JSONL document. That file is the review and the
 checkpoint: it records status and the reviewed commit SHAs. With no

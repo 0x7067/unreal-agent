@@ -1,6 +1,6 @@
 //go:build canary
 
-package main
+package reviewcli
 
 import (
 	"bytes"
@@ -695,7 +695,7 @@ func canaryBinary(t *testing.T) string {
 	t.Helper()
 	bin := os.Getenv("UNREAL_REVIEW_BIN")
 	if bin == "" {
-		t.Fatal("UNREAL_REVIEW_BIN must be bin/unreal-review built from this checkout")
+		t.Fatal("UNREAL_REVIEW_BIN must be bin/unreal-agent-runner built from this checkout")
 	}
 	info, err := os.Stat(bin)
 	if err != nil {
@@ -709,7 +709,8 @@ func canaryBinary(t *testing.T) string {
 	// than walking unrelated benchmark worktrees and dependency checkouts,
 	// which can consume the entire canary timeout without checking more code.
 	for _, tree := range []string{
-		filepath.Join("cmd", "unreal-review"),
+		filepath.Join("cmd", "internal", "reviewcli"),
+		filepath.Join("cmd", "unreal-agent-runner"),
 		filepath.Join("cmd", "internal", "review"),
 		filepath.Join("review", "findings"),
 	} {
@@ -736,7 +737,7 @@ func canaryBinary(t *testing.T) string {
 				return err
 			}
 			if st.ModTime().After(info.ModTime()) {
-				return fmt.Errorf("%s is newer than %s; rebuild bin/unreal-review from this checkout", rel, bin)
+				return fmt.Errorf("%s is newer than %s; rebuild bin/unreal-agent-runner from this checkout", rel, bin)
 			}
 			return nil
 		})
@@ -801,7 +802,7 @@ func cliEnv(api, token string) []string {
 func runCLI(t *testing.T, bin string, env []string, args ...string) (string, string, int) {
 	t.Helper()
 	requireLocalOpenRouter(t, env)
-	cmd := exec.CommandContext(context.Background(), bin, args...)
+	cmd := exec.CommandContext(context.Background(), bin, append([]string{"review"}, args...)...)
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

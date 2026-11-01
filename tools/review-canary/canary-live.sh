@@ -21,7 +21,7 @@ usage() {
 	cat <<EOF
 usage: canary-live.sh
 
-Live OpenRouter review smoke for bin/unreal-review.
+Live OpenRouter review smoke for bin/unreal-agent-runner.
 
 Reviews one committed one-line change in a temporary git repository
 (run --commit HEAD, --thinking-level low) and requires a complete
@@ -127,7 +127,7 @@ unset UNREAL_HARNESS_LLM_PROVIDER UNREAL_HARNESS_LLM_API_KEY UNREAL_HARNESS_LLM_
 export UNREAL_HARNESS_LLM_PROVIDER=openrouter
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-BIN="$ROOT/bin/unreal-review"
+BIN="$ROOT/bin/unreal-agent-runner"
 if [ ! -x "$BIN" ]; then
 	fail "missing $BIN. Run make review-canary-live (or make build) from the repo root."
 fi
@@ -165,7 +165,7 @@ home="$work/home"
 mkdir -p "$home"
 
 set +e
-env HOME="$home" "$BIN" run \
+env HOME="$home" "$BIN" review run \
 	--workspace "$repo" \
 	--commit HEAD \
 	--model "$UNREAL_HARNESS_LLM_MODEL" \

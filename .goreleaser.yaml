@@ -12,13 +12,6 @@ builds:
     goarch: [amd64, arm64]
     flags: [-mod=readonly, -trimpath]
     ldflags: [-s -w]
-  - id: review
-    main: ./cmd/unreal-review
-    binary: unreal-review
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    flags: [-mod=readonly, -trimpath]
-    ldflags: [-s -w]
   - id: tui
     dir: cmd/unreal-agent-tui
     main: .
@@ -36,7 +29,7 @@ builds:
 
 archives:
   - id: unreal-agent
-    ids: [runner, tui, review]
+    ids: [runner, tui]
     formats: [tar.gz]
     name_template: unreal-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     files: [LICENSE]
@@ -72,8 +65,7 @@ release:
   name_template: '{{ .Tag }}'
   # Prepended to the GitHub release body for the next fork tag.
   header: |
-    The release archive includes `unreal-review` next to `unreal-agent-runner` and `unreal-agent-tui`.
-    `unreal-agent-runner review` runs that binary and returns its exit code.
+    `unreal-agent-runner review` is the review command. The separate `unreal-review` binary is gone.
 
     Review uses the runner's provider selection. An empty `UNREAL_HARNESS_LLM_PROVIDER` defaults to `openai`.
     If you only have `OPENROUTER_API_KEY`, set `UNREAL_HARNESS_LLM_PROVIDER=openrouter`.
@@ -84,12 +76,12 @@ homebrew_casks:
   - name: unreal-agent
     skip_upload: true
     ids: [unreal-agent]
-    binaries: [unreal-agent-runner, unreal-agent-tui, unreal-review]
+    binaries: [unreal-agent-runner, unreal-agent-tui]
     homepage: https://github.com/unreallabsai/unreal-agent
-    description: Unreal Agent terminal interface, headless runner, and review CLI
+    description: Unreal Agent terminal interface and headless runner with a review command
     caveats: |
-      This cask installs unreal-agent-runner, unreal-agent-tui, and unreal-review.
-      unreal-agent-runner review runs unreal-review with the remaining arguments and returns its exit code.
+      This cask installs unreal-agent-runner and unreal-agent-tui.
+      unreal-agent-runner review reviews a git diff; run unreal-agent-runner review help.
       Review uses the runner's provider selection. An empty UNREAL_HARNESS_LLM_PROVIDER defaults to openai.
       If you only have OPENROUTER_API_KEY, set UNREAL_HARNESS_LLM_PROVIDER=openrouter.
       A missing key says "UNREAL_HARNESS_LLM_API_KEY or OPENAI_API_KEY must be set" for that default,

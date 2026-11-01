@@ -26,19 +26,19 @@ check() {
 note "VERIFY_BIN=$VERIFY_BIN"
 note "git_head=$(git -C "$VERIFY_REPO" rev-parse HEAD)"
 
-check "binary is repo bin/unreal-review" \
-	[ "$(cd "$(dirname "$VERIFY_BIN")" && pwd)/$(basename "$VERIFY_BIN")" = "$VERIFY_REPO/bin/unreal-review" ]
+check "binary is repo bin/unreal-agent-runner" \
+	[ "$(cd "$(dirname "$VERIFY_BIN")" && pwd)/$(basename "$VERIFY_BIN")" = "$VERIFY_REPO/bin/unreal-agent-runner" ]
 check "binary is executable" [ -x "$VERIFY_BIN" ]
-check "help exits 0" sh -c '"$VERIFY_BIN" help >/dev/null'
-check "help names run" sh -c '"$VERIFY_BIN" help | grep -q "unreal-review run"'
-check "help names group" sh -c '"$VERIFY_BIN" help | grep -q "unreal-review group"'
+check "help exits 0" sh -c '"$VERIFY_BIN" review help >/dev/null'
+check "help names run" sh -c '"$VERIFY_BIN" review help | grep -q "unreal-agent-runner review run"'
+check "help names group" sh -c '"$VERIFY_BIN" review help | grep -q "unreal-agent-runner review group"'
 check "go is on PATH" sh -c 'command -v go >/dev/null'
 check "git is on PATH" sh -c 'command -v git >/dev/null'
 check "scratch is outside the repo" [ "$(under_repo "$VERIFY_SCRATCH")" = no ]
 check "evidence is outside the repo" [ "$(under_repo "$VERIFY_EVIDENCE")" = no ]
 
 newer=0
-for src in "$VERIFY_REPO"/cmd/unreal-review/*.go "$VERIFY_REPO"/cmd/internal/review/*/*.go "$VERIFY_REPO"/review/findings/*.go; do
+for src in "$VERIFY_REPO"/cmd/internal/reviewcli/*.go "$VERIFY_REPO"/cmd/internal/review/*/*.go "$VERIFY_REPO"/review/findings/*.go; do
 	[ -f "$src" ] || continue
 	if [ "$src" -nt "$VERIFY_BIN" ]; then
 		newer=1

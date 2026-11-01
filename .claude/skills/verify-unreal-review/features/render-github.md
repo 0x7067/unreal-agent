@@ -1,6 +1,6 @@
 # Render GitHub
 
-`unreal-review render github` turns a findings file into a pull-request review payload. `--dry-run` prints the payload. Posting requires a complete review and a token. `anchor: new` maps to `RIGHT`; `anchor: old` maps to `LEFT`.
+`unreal-agent-runner review render github` turns a findings file into a pull-request review payload. `--dry-run` prints the payload. Posting requires a complete review and a token. `anchor: new` maps to `RIGHT`; `anchor: old` maps to `LEFT`.
 
 ## Sub-features
 
@@ -17,11 +17,11 @@
 
 ## How to get to it (user POV)
 
-- `unreal-review render github --dry-run --pr owner/repo#12 findings.jsonl`
-- `GH_TOKEN=<token> unreal-review render github --dry-run --pr owner/repo#12 findings.jsonl`
-- `unreal-review render github --pr owner/repo#12 findings.jsonl`
-- `unreal-review render github --pr https://github.com/owner/repo/pull/12 findings.jsonl`
-- `unreal-review render github --pr 12 --repo owner/repo findings.jsonl`
+- `unreal-agent-runner review render github --dry-run --pr owner/repo#12 findings.jsonl`
+- `GH_TOKEN=<token> unreal-agent-runner review render github --dry-run --pr owner/repo#12 findings.jsonl`
+- `unreal-agent-runner review render github --pr owner/repo#12 findings.jsonl`
+- `unreal-agent-runner review render github --pr https://github.com/owner/repo/pull/12 findings.jsonl`
+- `unreal-agent-runner review render github --pr 12 --repo owner/repo findings.jsonl`
 
 ## Driving it with verify-unreal-review
 
@@ -35,7 +35,7 @@ Preconditions:
 - **Dry-run payload.** Run `scripts/cli.sh --name gh-dry-run --no-github-auth -- render github --dry-run --pr owner/repo#12 "$VERIFY_EXAMPLE"`. Exit code `0`. `stdout.txt` is JSON with `"owner": "owner"`, `"repo": "repo"`, `"pull_number": 12`, `"event": "COMMENT"`, two comments on `internal/cache/cache.go` with `"side": "RIGHT"`, the error comment `"start_line": 40` / `"line": 42`, the warning comment `"line": 88` and no `start_line`, and a body that contains `Concurrent writes to the shared cache map can corrupt it or crash the process; the TTL check also mixes milliseconds and seconds.` and `Cost: USD 0.004200`.
 - **PR URL.** Run `scripts/cli.sh --name gh-pr-url --no-github-auth -- render github --dry-run --pr https://github.com/acme/widgets/pull/9 "$VERIFY_EXAMPLE"`. Exit code `0`. JSON has `"owner": "acme"`, `"repo": "widgets"`, `"pull_number": 9`.
 - **PR number.** Run `scripts/cli.sh --name gh-pr-number --no-github-auth -- render github --dry-run --pr 9 --repo acme/widgets "$VERIFY_EXAMPLE"`. Exit code `0`. Same owner/repo/number as the URL step. Run `scripts/cli.sh --name gh-pr-number-bare --no-github-auth -- render github --dry-run --pr 9 "$VERIFY_EXAMPLE"`. Exit code `1`. `stderr.txt` contains `pull request number 9 needs owner/repo`.
-- **Missing --pr.** Run `scripts/cli.sh --name gh-pr-required --no-github-auth -- render github --dry-run "$VERIFY_EXAMPLE"`. Exit code `1`. `stderr.txt` contains `unreal-review: set --pr`.
+- **Missing --pr.** Run `scripts/cli.sh --name gh-pr-required --no-github-auth -- render github --dry-run "$VERIFY_EXAMPLE"`. Exit code `1`. `stderr.txt` contains `unreal-agent-runner review: set --pr`.
 - **Incomplete post.** Run `scripts/sample-findings.sh running "$VERIFY_SCRATCH/running.jsonl"` then `scripts/cli.sh --name gh-incomplete --no-github-auth -- render github --pr owner/repo#1 "$VERIFY_SCRATCH/running.jsonl"`. Exit code `1`. `stderr.txt` contains `findings are running; resume the review before posting`. Repeat with `sample-findings.sh failed` as `gh-incomplete-failed`. `stderr.txt` contains `findings are failed`.
 - **Incomplete dry-run.** Run `scripts/cli.sh --name gh-dry-incomplete --no-github-auth -- render github --dry-run --pr owner/repo#1 "$VERIFY_SCRATCH/running.jsonl"`. Exit code `0`. JSON `"event": "COMMENT"` and a body that contains `Cost:`.
 - **Legacy missing status.** Run `scripts/sample-findings.sh legacy "$VERIFY_SCRATCH/legacy.jsonl"` then `scripts/cli.sh --name gh-legacy --no-github-auth -- render github --dry-run --pr owner/repo#3 "$VERIFY_SCRATCH/legacy.jsonl"`. Exit code `0`. The comment has `"side": "LEFT"` and `"path": "a.go"`. The body contains `legacy`.

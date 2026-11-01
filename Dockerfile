@@ -5,6 +5,7 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY harness/ harness/
 COPY internal/ internal/
+COPY review/ review/
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/unreal-agent-runner ./cmd/unreal-agent-runner
 
 # Debian 13.7 (trixie), image build 2026-09-18.

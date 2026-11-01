@@ -1,4 +1,4 @@
-package main
+package reviewcli
 
 import (
 	"bytes"
@@ -12,9 +12,7 @@ import (
 
 func TestSubcommandHelp(t *testing.T) {
 	if args := os.Getenv("UNREAL_REVIEW_SUBCOMMAND_HELP"); args != "" {
-		os.Args = append([]string{"unreal-review"}, strings.Fields(args)...)
-		main()
-		os.Exit(0)
+		os.Exit(Main(strings.Fields(args)))
 	}
 
 	cases := []struct {
@@ -31,7 +29,7 @@ func TestSubcommandHelp(t *testing.T) {
 			args:  "render -h",
 			onOut: true,
 			once:  "Usage:\n",
-			need:  []string{"unreal-review render github", "unreal-review render markdown", "unreal-review group"},
+			need:  []string{"unreal-agent-runner review render github", "unreal-agent-runner review render markdown", "unreal-agent-runner review group"},
 		},
 	}
 	for _, tc := range cases {
@@ -57,7 +55,7 @@ func TestSubcommandHelp(t *testing.T) {
 					t.Fatalf("missing %q\n%s", line, got)
 				}
 			}
-			if strings.Contains(got, "flag: help requested") || strings.Contains(got, "unreal-review:") {
+			if strings.Contains(got, "flag: help requested") || strings.Contains(got, "unreal-agent-runner review:") {
 				t.Fatalf("help error\n%s", got)
 			}
 		})
@@ -126,8 +124,7 @@ func commandSynopsis(usage, command string) string {
 	on := false
 	for _, line := range strings.Split(usage, "\n") {
 		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "unreal-review ") {
-			rest := strings.TrimPrefix(trim, "unreal-review ")
+		if rest, ok := strings.CutPrefix(trim, "unreal-agent-runner review "); ok {
 			on = rest == command || strings.HasPrefix(rest, command+" ")
 		}
 		if on {

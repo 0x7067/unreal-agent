@@ -11,22 +11,20 @@ brew install unreallabsai/tap/unreal-agent
 go install github.com/unreallabsai/unreal-agent/cmd/unreal-agent-runner@latest
 ```
 
-The `unreal-agent-runner review` alias and `unreal-review` come from a fork
-release archive (`unreal-agent_<version>_<os>_<arch>.tar.gz` on
-`0x7067/unreal-agent`), which places `unreal-review` next to the runner, or
+`unreal-agent-runner review` comes from a fork release archive
+(`unreal-agent_<version>_<os>_<arch>.tar.gz` on `0x7067/unreal-agent`), or
 from a checkout of this fork:
 
 ```sh
-go install ./cmd/unreal-agent-runner ./cmd/unreal-review
+go install ./cmd/unreal-agent-runner
 ```
 
 The Homebrew cask is generated locally (`skip_upload` stays set) and is not
 published. See the [root install notes](../../README.md#install).
 
-`unreal-agent-runner review` runs that binary with the remaining arguments
-and returns its exit code. It looks next to `unreal-agent-runner`, then on
-`PATH`. `unreal-agent-runner -h` names the alias. `unreal-agent-runner review help`
-prints unreal-review's usage.
+`unreal-agent-runner review` reviews a git diff into findings.jsonl and
+renders it. `unreal-agent-runner -h` names it. `unreal-agent-runner review help`
+prints its usage.
 
 Review uses the runner's provider selection (`providers.Select`). With
 `UNREAL_HARNESS_LLM_PROVIDER` unset, the provider is `openai`. If the only

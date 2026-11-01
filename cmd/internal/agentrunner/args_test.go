@@ -251,9 +251,6 @@ func TestRunMainHelp(t *testing.T) {
 			if strings.Contains(stderr.String(), "mcp_servers") {
 				t.Fatal("common request schema includes MCP servers")
 			}
-			if strings.Contains(stderr.String(), "unreal-review") {
-				t.Fatal("shared usage advertises the review alias")
-			}
 		})
 	}
 }
