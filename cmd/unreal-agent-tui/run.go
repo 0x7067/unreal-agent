@@ -326,6 +326,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		err = errors.Join(err, shutdown(host, submissions.Wait, signals, os.Stderr, defaultShutdownTiming))
 	}()
 	ui := newModel(runCtx, host, registry, workspace, directory, opts)
+	ui.review = newReviewSetup(opts, directory, append(os.Environ(), "UNREAL_HARNESS_LLM_PROVIDER="+opts.provider, "UNREAL_HARNESS_LLM_BASE_URL="+opts.baseURL))
 	ui.submissionQueue = submissions
 	ui.workerEvents = events
 	for _, err := range skillErrors {

@@ -239,7 +239,11 @@ func runAttached(ctx context.Context, args []string, getenv func(string) string,
 		defer cancel()
 		result = errors.Join(result, submissions.Wait(wait))
 	}()
-	ui := newAttachedModel(ctx, client, client.Snapshot(), opts.ui)
+	snapshot := client.Snapshot()
+	ui := newAttachedModel(ctx, client, snapshot, opts.ui)
+	host := opts.ui // reviews use the host's model, as newAttachedModel does
+	host.model, host.effort = snapshot.Header.Model.ID, string(snapshot.Header.Model.ReasoningEffort)
+	ui.review = newReviewSetup(host, opts.state, nil)
 	ui.attachNamespace = namespace
 	life := ui.attachedLifecycle()
 	life.directory, life.sessionID = opts.state, session.ID(opts.ui.sessionID)

@@ -44,6 +44,9 @@ func (s submissionState) status() string {
 }
 
 func (m *model) startSubmission(text string) tea.Cmd {
+	if rest, ok := strings.CutPrefix(strings.TrimSpace(text), "/review"); ok && (rest == "" || rest[0] == ' ') {
+		return m.startReview(strings.TrimSpace(rest))
+	}
 	if m.attached {
 		if strings.TrimSpace(text) == "/upgrade" {
 			return m.startAttachedUpgrade(false)
