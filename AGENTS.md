@@ -16,7 +16,7 @@ Two Go modules: the root (library, runner, `cmd/internal`) and `cmd/unreal-agent
 - TLA+ checkpoint specs: `docs/formal/taskgraph/check.sh` (needs `TLA2TOOLS_JAR`).
 - Harbor benchmark: `make -C benchmarks/harbor test check build smoke BUNDLE=../../bin/harbor/ci`.
 
-Project skills to use when relevant: `taskgraph-reducer-safety` (edits to `harness/taskgraph/graph.go`), `inbox-admission-safety` (edits to `harness/inbox`), `verify-unreal-agent-tui` (prove TUI changes in tmux against a fake model).
+Project skills to use when relevant: `taskgraph-reducer-safety` (edits to `harness/taskgraph/graph.go`), `inbox-admission-safety` (edits to `harness/inbox`), `coordinator-dispatch-safety` (coordinator dispatch/recovery or session-store resume), `verify-unreal-agent-tui` (prove TUI changes in tmux against a fake model).
 
 ## Architecture
 
