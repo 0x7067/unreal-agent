@@ -36,6 +36,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install pinned proof checker and verify laws before release
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          make install-bend
+          echo "$HOME/.bend/bin" >> "$GITHUB_PATH"
+          make proof-test prove proof-regressions proof-report BEND="$HOME/.bend/bin/bend"
       - run: make test check
       # Fork releases do not publish Docker images. These steps need
       # DOCKERHUB_USERNAME / DOCKERHUB_TOKEN, which this fork does not have.

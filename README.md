@@ -188,3 +188,17 @@ require a frontend restart. See [reload lifecycle and limits](docs/plans/hot-rel
 [Bounded durable regular-model request recovery (M2.3), incomplete-tool fencing and installed verification](docs/verification/durable-model-request-m23-20261028.md). Compaction and later capabilities have their own classified evidence.
 
 Classified recovery and replacement checkpoints: [M2.7 classified command graph recovery](docs/verification/durable-graph-m27-20261028.md). [Opt-in contract and limits](docs/plans/durable-graph-recovery.md). [Frontend upgrade proof](docs/verification/durable-frontend-upgrade-m31-20261028.md). [Idle runtime replacement](docs/verification/durable-runtime-upgrade-m32-20261028.md). [Natural-drain upgrade](docs/verification/durable-runtime-drain-m33-20261028.md). [Candidate failure and compatibility](docs/verification/durable-candidate-failure-m34-20261028.md). [Controlled host replacement](docs/verification/durable-host-replacement-m35-20261028.md). [Trusted extensions, independent jobs, durable timers and verified-TLS remote work](docs/plans/durable-workloads.md). [Final M4 validation, real worker/client/private-tmux evidence and installed pair](docs/verification/durable-workloads-m4-20261028.md). [Roadmap](goal.md): **27/27 defined slices accepted**. Unknown ownership/versions remain refused; this is not arbitrary plugin replay, a sandbox, power-loss certification or exactly-once third-party delivery.
+
+
+## Formal verification policy (fork)
+
+Bend 2 is the authoritative proof language: laws are indexed in
+[`LAWS.bend`](LAWS.bend), implementations in [`PROOF.bend`](PROOF.bend), checked
+with `make prove`. Unsafe proof exceptions are not allowed. Existing Go tests
+and supplemental Lean/TLA evidence remain in place.
+
+**The codebase is not completely proved.** The gate checks protocol model
+laws plus 487 actual Go predicate bodies under a trusted restricted frontend;
+it does not prove the whole Go implementation refines those protocols. See the
+[proof policy, coverage ledger, migration gaps and enforcement setup](docs/formal/README.md)
+for the exact guarantees and remaining work.

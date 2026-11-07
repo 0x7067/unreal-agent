@@ -107,7 +107,7 @@ jobs:
       - name: Offline review canary
         run: make review-canary
 
-  review-prove:
+  bend-prove:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -116,14 +116,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: Install Bend 2.0.27
         env:
           BEND_NO_TELEMETRY: "1"
         run: |
           sh docs/formal/review/install-bend.sh
           echo "$HOME/.bend/bin" >> "$GITHUB_PATH"
-      - name: Prove review laws
-        run: make review-prove
+      - name: Check proof policy and prove all indexed Bend laws
+        run: make proof-test prove proof-regressions proof-report
         env:
           BEND_NO_TELEMETRY: "1"
 

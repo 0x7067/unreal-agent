@@ -706,19 +706,29 @@ def snocFile(chunk: List<&2, ChangedFile>, h: ChangedFile) -> List<&2, ChangedFi
 def snocGroup(acc: List<&2, Group>, chunk: List<&2, ChangedFile>) -> List<&2, Group>:
   List.append(&2, Group, acc, [Group{chunk}])
 
-@unsafe def pack(rest: List<&2, ChangedFile>, chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>) -> List<&2, Group>:
+# Compute the next head's flush decision before the recursive call. Keeping it
+# as a parameter lets packGo match it without mutually recursive dispatch.
+def headNeed(+nf: Nat, +nl: Nat, rest: List<&2, ChangedFile>) -> Bool:
+  match rest:
+    case Nil{}:
+      False{}
+    case h <> t:
+      needFlush(nf, nl, fileLines(h))
+
+# rest is the decreasing argument, before all evolving packing state.
+def packGo(rest: List<&2, ChangedFile>, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, +acc: List<&2, Group>, need: Bool) -> List<&2, Group>:
   match rest:
     case Nil{}:
       flushEnd(chunk, acc)
-    case +h <> t:
-      packNeed(t, h, chunk, nf, nl, acc, needFlush(nf, nl, fileLines(h)))
+    case +h <> +t:
+      match need:
+        case True{}:
+          packGo(t, [h], 1n, fileLines(h), snocGroup(acc, chunk), headNeed(1n, fileLines(h), t))
+        case False{}:
+          packGo(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc, headNeed(1n+nf, Nat.add(nl, fileLines(h)), t))
 
-def packNeed(t: List<&2, ChangedFile>, +h: ChangedFile, chunk: List<&2, ChangedFile>, nf: Nat, nl: Nat, acc: List<&2, Group>, need: Bool) -> List<&2, Group>:
-  match need:
-    case True{}:
-      pack(t, [h], 1n, fileLines(h), snocGroup(acc, chunk))
-    case False{}:
-      pack(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc)
+def pack(+rest: List<&2, ChangedFile>, chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>) -> List<&2, Group>:
+  packGo(rest, chunk, nf, nl, acc, headNeed(nf, nl, rest))
 
 def oversized(g: Group) -> Bool:
   match g:
@@ -1046,22 +1056,22 @@ def packCountFalse(+id: Nat, t: List<&2, ChangedFile>, h: ChangedFile, +chunk: L
     case File{+fid, dir, stem, ext, kind, lines}:
       packCountFalseF(id, t, fid, dir, stem, ext, kind, lines, chunk, acc)
 
-@unsafe def packCount(+id: Nat, rest: List<&2, ChangedFile>, chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>) -> {countIdGroups(id, pack(rest, chunk, nf, nl, acc)) == Nat.add(countId(id, rest), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}:
+def packCountGo(+id: Nat, rest: List<&2, ChangedFile>, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, +acc: List<&2, Group>, need: Bool) -> {countIdGroups(id, packGo(rest, chunk, nf, nl, acc, need)) == Nat.add(countId(id, rest), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}:
   match rest:
     case Nil{}:
       %Equal.sym(Nat, countIdGroups(id, flushEnd(chunk, acc)), Nat.add(countId(id, chunk), countIdGroups(id, acc)), flushCount(id, chunk, acc)) : {_ == Nat.add(countId(id, chunk), countIdGroups(id, acc)) : Nat}
       {==}
     case +h <> +t:
-      packCountNeed(id, t, h, chunk, nf, nl, acc, needFlush(nf, nl, fileLines(h)))
+      match need:
+        case True{}:
+          %Equal.sym(Nat, countIdGroups(id, pack(t, [h], 1n, fileLines(h), snocGroup(acc, chunk))), Nat.add(countId(id, t), Nat.add(countId(id, [h]), countIdGroups(id, snocGroup(acc, chunk)))), packCountGo(id, t, [h], 1n, fileLines(h), snocGroup(acc, chunk), headNeed(1n, fileLines(h), t))) : {_ == Nat.add(countId(id, h <> t), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}
+          packCountTrue(id, t, h, chunk, acc)
+        case False{}:
+          %Equal.sym(Nat, countIdGroups(id, pack(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc)), Nat.add(countId(id, t), Nat.add(countId(id, snocFile(chunk, h)), countIdGroups(id, acc))), packCountGo(id, t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc, headNeed(1n+nf, Nat.add(nl, fileLines(h)), t))) : {_ == Nat.add(countId(id, h <> t), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}
+          packCountFalse(id, t, h, chunk, acc)
 
-def packCountNeed(+id: Nat, +t: List<&2, ChangedFile>, +h: ChangedFile, +chunk: List<&2, ChangedFile>, nf: Nat, nl: Nat, +acc: List<&2, Group>, need: Bool) -> {countIdGroups(id, packNeed(t, h, chunk, nf, nl, acc, need)) == Nat.add(countId(id, h <> t), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}:
-  match need:
-    case True{}:
-      %Equal.sym(Nat, countIdGroups(id, pack(t, [h], 1n, fileLines(h), snocGroup(acc, chunk))), Nat.add(countId(id, t), Nat.add(countId(id, [h]), countIdGroups(id, snocGroup(acc, chunk)))), packCount(id, t, [h], 1n, fileLines(h), snocGroup(acc, chunk))) : {_ == Nat.add(countId(id, h <> t), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}
-      packCountTrue(id, t, h, chunk, acc)
-    case False{}:
-      %Equal.sym(Nat, countIdGroups(id, pack(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc)), Nat.add(countId(id, t), Nat.add(countId(id, snocFile(chunk, h)), countIdGroups(id, acc))), packCount(id, t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc)) : {_ == Nat.add(countId(id, h <> t), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}
-      packCountFalse(id, t, h, chunk, acc)
+def packCount(+id: Nat, +rest: List<&2, ChangedFile>, chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>) -> {countIdGroups(id, pack(rest, chunk, nf, nl, acc)) == Nat.add(countId(id, rest), Nat.add(countId(id, chunk), countIdGroups(id, acc))) : Nat}:
+  packCountGo(id, rest, chunk, nf, nl, acc, headNeed(nf, nl, rest))
 
 def splitOneBCountG(+id: Nat, +fs: List<&2, ChangedFile>, big: Bool) -> {countIdGroups(id, splitOneB(Group{fs}, big)) == countId(id, fs) : Nat}:
   match big:
@@ -1232,9 +1242,7 @@ def flushCapped(chunk: List<&2, ChangedFile>, acc: List<&2, Group>, cc: CappedFi
     case y <> ys:
       allCappedAppend(acc, [Group{y <> ys}], ca, (cc, Unit{}))
 
-# Mirrors pack/packNeed. pack is @unsafe (mutual recursion), so the proof of it
-# has to use the same two-def shape; Bend reports cluster_perm and cluster_caps as
-# relying on unsafe code either way.
+# Length and sum invariants for the structurally recursive packing proof.
 def snocLenInv(+chunk: List<&2, ChangedFile>, +h: ChangedFile, +nf: Nat, +el: {nf == List.length(&2, ChangedFile, chunk) : Nat}) -> {1n+nf == List.length(&2, ChangedFile, snocFile(chunk, h)) : Nat}:
   %Equal.sym(Nat, List.length(&2, ChangedFile, snocFile(chunk, h)), 1n+List.length(&2, ChangedFile, chunk), lengthSnoc(chunk, h)) : {1n+nf == _ : Nat}
   %el : {1n+nf == 1n+_ : Nat}
@@ -1245,19 +1253,19 @@ def snocSumInv(+chunk: List<&2, ChangedFile>, +h: ChangedFile, +nl: Nat, +es: {n
   %es : {Nat.add(nl, fileLines(h)) == Nat.add(_, fileLines(h)) : Nat}
   {==}
 
-@unsafe def packCapped(rest: List<&2, ChangedFile>, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>, cc: CappedFiles(chunk), ca: AllCapped(acc), +el: {nf == List.length(&2, ChangedFile, chunk) : Nat}, +es: {nl == sumLines(chunk) : Nat}) -> AllCapped(pack(rest, chunk, nf, nl, acc)):
+def packCappedGo(rest: List<&2, ChangedFile>, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, +acc: List<&2, Group>, cc: CappedFiles(chunk), ca: AllCapped(acc), +el: {nf == List.length(&2, ChangedFile, chunk) : Nat}, +es: {nl == sumLines(chunk) : Nat}, need: Bool, ne: {need == headNeed(nf, nl, rest) : Bool}) -> AllCapped(packGo(rest, chunk, nf, nl, acc, need)):
   match rest:
     case Nil{}:
       flushCapped(chunk, acc, cc, ca)
     case +h <> +t:
-      packCappedNeed(t, h, chunk, nf, nl, acc, cc, ca, el, es, needFlush(nf, nl, fileLines(h)), {==})
+      match need:
+        case True{}:
+          packCappedGo(t, [h], 1n, fileLines(h), snocGroup(acc, chunk), Unit{}, allCappedAppend(acc, [Group{chunk}], ca, (cc, Unit{})), {==}, Equal.sym(Nat, Nat.add(fileLines(h), 0n), fileLines(h), N.addZero(fileLines(h))), headNeed(1n, fileLines(h), t), {==})
+        case False{}:
+          packCappedGo(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc, snocCapped(chunk, h, nf, nl, cc, el, es, Equal.sym(Bool, need, needFlush(nf, nl, fileLines(h)), ne)), ca, snocLenInv(chunk, h, nf, el), snocSumInv(chunk, h, nl, es), headNeed(1n+nf, Nat.add(nl, fileLines(h)), t), {==})
 
-def packCappedNeed(+t: List<&2, ChangedFile>, +h: ChangedFile, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, +acc: List<&2, Group>, cc: CappedFiles(chunk), ca: AllCapped(acc), +el: {nf == List.length(&2, ChangedFile, chunk) : Nat}, +es: {nl == sumLines(chunk) : Nat}, need: Bool, ne: {need == needFlush(nf, nl, fileLines(h)) : Bool}) -> AllCapped(packNeed(t, h, chunk, nf, nl, acc, need)):
-  match need:
-    case True{}:
-      packCapped(t, [h], 1n, fileLines(h), snocGroup(acc, chunk), Unit{}, allCappedAppend(acc, [Group{chunk}], ca, (cc, Unit{})), {==}, Equal.sym(Nat, Nat.add(fileLines(h), 0n), fileLines(h), N.addZero(fileLines(h))))
-    case False{}:
-      packCapped(t, snocFile(chunk, h), 1n+nf, Nat.add(nl, fileLines(h)), acc, snocCapped(chunk, h, nf, nl, cc, el, es, Equal.sym(Bool, need, needFlush(nf, nl, fileLines(h)), ne)), ca, snocLenInv(chunk, h, nf, el), snocSumInv(chunk, h, nl, es))
+def packCapped(+rest: List<&2, ChangedFile>, +chunk: List<&2, ChangedFile>, +nf: Nat, +nl: Nat, acc: List<&2, Group>, cc: CappedFiles(chunk), ca: AllCapped(acc), +el: {nf == List.length(&2, ChangedFile, chunk) : Nat}, +es: {nl == sumLines(chunk) : Nat}) -> AllCapped(pack(rest, chunk, nf, nl, acc)):
+  packCappedGo(rest, chunk, nf, nl, acc, cc, ca, el, es, headNeed(nf, nl, rest), {==})
 
 def splitOneCappedG(+fs: List<&2, ChangedFile>, big: Bool, e: {big == oversized(Group{fs}) : Bool}) -> AllCapped(splitOneB(Group{fs}, big)):
   match big:

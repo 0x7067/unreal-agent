@@ -8,12 +8,12 @@ It is kept short on purpose - every line here is paid on every session.
 Two Go modules: the root (library, runner, `cmd/internal`) and `cmd/unreal-agent-tui` (own `go.mod`; use `go -C cmd/unreal-agent-tui ...`). `make test check build` is what CI runs.
 
 - `make build` -> `bin/unreal-agent-runner` (with the fork-only `review` command) and `bin/unreal-agent-tui`
-- `make test` (`-race`, both modules, including `cmd/internal/review`, `cmd/internal/reviewcli`, and `review/findings`); `make check` (vet + gofmt on `cmd harness internal review`)
+- `make test` (`-race`, both modules, including `cmd/internal/review`, `cmd/internal/reviewcli`, and `review/findings`); `make check` (vet + gofmt on `cmd harness internal review tools`)
 - Review (fork-only, not upstream): `make review-canary` (loopback stub, no paid calls), `make review-prove` (Bend, `docs/formal/review/prove.sh`), `make review-lint` (golangci-lint on the review packages). `make review-canary-live` calls OpenRouter and is not a CI gate.
 - Single test: `go test ./harness/coordinator -run TestName -count=1`; in the TUI module: `go -C cmd/unreal-agent-tui test -run TestName .`
 - Fuzz targets CI runs are listed in `.github/workflows/ci.yml` (e.g. `go test ./harness/coordinator -run '^$' -fuzz '^FuzzCoordinatorFaults$' -fuzztime=30s`)
 - Wire types in `internal/openaiapi` and `internal/anthropicapi` are generated from `third_party/*-openapi` via `go generate` (`uv run --script generate.py`); don't hand-edit them.
-- TLA+ checkpoint specs: `docs/formal/taskgraph/check.sh` (needs `TLA2TOOLS_JAR`).
+- Formal policy: Bend 2 is authoritative (`docs/formal/README.md`). Run `bend guide`, keep independent laws in root-indexed components, and run `make proof-test prove proof-regressions` before committing. `make prove` uses the stable-tree source-bound gate; direct `tools/formal/prove.py` is compiler-only. Never weaken laws or add unsafe/foreign trust bypasses. `make check` enforces Go AST/source/coverage freshness; review changes before explicit source/ledger refresh. `make proof-report` lists unresolved Go declarations. Protocol models and restricted source-linked contracts are NOT whole-Go refinement; full verification remains incomplete. Keep legacy evidence until validated replacement.
 - Harbor benchmark: `make -C benchmarks/harbor test check build smoke BUNDLE=../../bin/harbor/ci`.
 
 Project skills to use when relevant: `taskgraph-reducer-safety` (edits to `harness/taskgraph/graph.go`), `inbox-admission-safety` (edits to `harness/inbox`), `coordinator-dispatch-safety` (coordinator dispatch/recovery or session-store resume), `verify-unreal-agent-tui` (prove TUI changes in tmux against a fake model).

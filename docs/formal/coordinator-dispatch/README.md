@@ -1,5 +1,9 @@
 # Coordinator commit-before-dispatch / recovery safety
 
+> Bend 2 is now the authoritative proof language. See the [project policy](../README.md)
+> and [Bend proof slice and migration limits](bend/README.md). This legacy
+> evidence remains supplemental; full equivalence/replacement is not claimed.
+
 This small, bounded TLA+ model checks the coordinator's **manager `Add` boundary**,
 not execution of a tool's external effects. It models one already-journaled,
 successful model response containing one tool call that produces **two operations**,

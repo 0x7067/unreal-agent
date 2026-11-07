@@ -1,5 +1,9 @@
 # Operation checkpoint audit with TLA+/TLC
 
+> Bend 2 is now the authoritative proof language. See the [project policy](../README.md)
+> and [Bend proof slice and migration limits](bend/README.md). This legacy
+> evidence remains supplemental; full equivalence/replacement is not claimed.
+
 `OperationCheckpoint.tla` models the operation manager actor
 (`harness/operation/local_manager.go`), the coordinator that persists every
 update it receives (`handleOperationUpdate` -> `SaveOperation`), and

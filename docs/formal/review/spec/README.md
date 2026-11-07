@@ -1,12 +1,17 @@
 # spec/
 
+Bend 2 is the project-wide proof authority: see [policy and migration status](../../README.md).
+`make prove` checks every indexed component; `make review-prove` checks only this
+one. All former unsafe grouping dependencies have been removed; no trust
+exceptions are permitted.
+
 Hand-written Bend models of the Go review logic, not Go equivalence. Nat
 IDs/digests stand for interned strings; byte counts stand for serialized
 prompt lengths. The proofs in `PROOF.bend` hold about the models.
 
 ## What ties the models to the code
 
-Two checks, both runnable offline under `make check` with no Bend binary:
+Two checks, both runnable offline with `go test ./cmd/internal/review/spec ./cmd/internal/review/core ./cmd/internal/review/render ./review/findings` (and included in `make test`) with no Bend binary:
 
 1. **Conformance** — per-package tests pin the shared surface:
    - `cmd/internal/review/core/bend_consts_test.go`: `plan.bend`/`group.bend` numeric defs equal

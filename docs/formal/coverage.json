@@ -1,0 +1,516 @@
+{
+  "schema": 1,
+  "implementation_proven": false,
+  "models": {
+    "docs/formal/review/LAWS.bend": {
+      "scope": "Handwritten review findings, ranges, checkpoint, grouping, plans and posting models; per-law Go test witnesses in spec/witnesses.txt.",
+      "gaps": "No Go refinement proof; test witnesses are sampled evidence, not equivalence.",
+      "legacy": []
+    },
+    "docs/formal/handoff/bend/LAWS.bend": {
+      "scope": "Original lifecycle/journal/inbox slices plus composed store-prefix FIFO/dedup/reload model and independent artifact/probe/single-flight metadata slice; arbitrary traces and concrete mutants.",
+      "gaps": "No verified composition/refinement of shipped Go pipe/actor/drain protocol. Indexed FIFO/ascending admission positions and atomic receipt restrict abstraction; external filesystem/process/CAS behavior remains assumed.",
+      "legacy": [
+        "docs/formal/handoff/lean/Handoff/Model.lean",
+        "docs/formal/handoff/lean/Handoff/Invariants.lean",
+        "docs/formal/handoff/tla/Handoff.tla",
+        "docs/formal/handoff/tla/InboxFence.tla",
+        "docs/formal/handoff/lean/Handoff.lean"
+      ]
+    },
+    "docs/formal/taskgraph/bend/LAWS.bend": {
+      "scope": "Two-node checkpoint admission and child-routing slices; exact scope in bend/README.md.",
+      "gaps": "Not arbitrary DAG verification or full TLA model equivalence; no Go refinement.",
+      "legacy": [
+        "docs/formal/taskgraph/Checkpoint.tla",
+        "docs/formal/taskgraph/ChildRouting.tla"
+      ]
+    },
+    "docs/formal/coordinator-dispatch/bend/LAWS.bend": {
+      "scope": "Independent two-operation commit/replay/overlay core, checked 212-member inductive cover and 2332 transition equalities; arbitrary traces/crashes plus bounded-budget safety and full mutant executions.",
+      "gaps": "Source translation from TLA/Go not mechanically proved; journal atomicity, payload bytes and external effects remain environmental assumptions.",
+      "legacy": [
+        "docs/formal/coordinator-dispatch/CoordinatorDispatch.tla"
+      ]
+    },
+    "docs/formal/operations/bend/LAWS.bend": {
+      "scope": "Full shared-FIFO shell/remote checkpoint product with independent durable/volatile fields; checked 127-member inductive cover and 1143 transitions; both terminal-write uniqueness and spawn bounds over arbitrary crashes/traces.",
+      "gaps": "No verified TLA translation or Go refinement; filesystem exclusive create, process/network handlers, journal record atomicity remain explicit assumptions.",
+      "legacy": [
+        "docs/formal/operations/OperationCheckpoint.tla"
+      ]
+    },
+    "docs/formal/implementation/enums/LAWS.bend": {
+      "scope": "Eleven real Go safety predicates: every raw byte-string input satisfies independent fixed policy under restricted pure Go AST semantics.",
+      "gaps": "Source-linked restricted-semantics verification only. Go parser/extractor and restricted interpreter correspondence are trusted; this does not verify other functions, Go compiler/runtime or the whole package.",
+      "legacy": [],
+      "source_contract_manifest": "docs/formal/implementation/enums/source_ast.json",
+      "trust_classification": "source-linked-restricted-semantics"
+    },
+    "docs/formal/implementation/api-enums/LAWS.bend": {
+      "scope": "476 generated API enum Valid methods: every raw byte-string input agrees with independently frozen declared enum values under restricted pure Go AST semantics.",
+      "gaps": "Source-linked restricted-semantics verification only. Go parser/extractor and restricted interpreter correspondence are trusted; this does not verify other functions, Go compiler/runtime or the whole package.",
+      "legacy": [],
+      "source_contract_manifest": "docs/formal/implementation/api-enums/source_ast.json",
+      "trust_classification": "source-linked-restricted-semantics"
+    }
+  },
+  "packages": {
+    "cmd/internal/activitysummary": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "107cb90413ef0ac91ef5e95582523c25f1e446b65a7462b9b72027149e83fd23",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/agentrunner": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "28d569af8e2c80646d1fc8d8c5d6d41a6dde74765c0e80c24e4cb5699436e4b6",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/attachclient": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "998abe31a2b40776b525db5c51f03bc014615bb308323d50cef138e7921836db",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/attachproto": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "1973e0107e2fd01221a9e38a3a5c9a4daf42cc7dfe32f4eeb0e97dcae1a253a7",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/durablechild": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "f099b10c05812beff26393ae4095277a7555883beb90b27188ddf0aed3492a11",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/durablejob": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "afd4f7b5c50142942d713b901b6be35dd12df118c6c8e774107f0c2ff0918e4f",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/jobexecutor": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "f6cc3369b8fdc2548065c7745c671556241c8777df2ac6884b7fe867813a0d9d",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/lifecycleguard": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "48d77bf81fb16fc0e964e939dd0ed189721c0cc4b3451e00ae4630c44d89c51c",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/lifecycleproof": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "48cd1fb083475c9070665c5443f98602653e7d17bc945b1a4d3b733ff9ba035b",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/providers": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "ea6980cc3ebaf6421e71add466b11ce9c56cd28645cec0cbb4318c65e10280c5",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/recoverygate": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "88e239f3295e7a834dfda2f97c9357685ad25ff12687dfb09ded0f872d5ec05f",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/resident": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "f1b1db7f6b8407a978cc41935ec09bdfbacac8f9fb6cab207a4d7ee5b57f41dd",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/residentcli": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "bbf2d09923e85858245a865f4893ebb682928018fbef548f16b903f2f52ece74",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/review/agent": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "94c4e20067ed87ee3d34ee04b55307d0d3a49e468b9ea19f8e756f29fa3cfda9",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/review/core": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "5eb93416a6f1a0db1d7be28c70d714daa94e1838033b90ae619d5782ed5808ec",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/review/diffmap": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "57676c706fa65f47304736c61f27cc2cc7cacd00482108be0e35ac591e330646",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/review/github": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "5cf44431fafa98c8d12d2f0b13eb468c19e4709d592bcdd8c80f337e20b71fd8",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/review/render": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "176b594682e31ea51966c55223999dc143e13567556f921541148e559d127014",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/review/spec": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "796dd7a4a998ac67c14bb6b1638d2120ec05d44deba78c9f30b8077a4426f2cd",
+      "gap": "This package locates specification paths and checks witness manifests; no Bend implementation-refinement proof of these tooling functions."
+    },
+    "cmd/internal/reviewcli": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "e5f8971f972060f76d24504dde9b4eb2ca2aa1a856bd185d6daf3d883c1c8a67",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/subagent": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "05160c5e0472bf6841d198891ee4ae75ae7e2709bbef992eaebe33d49a964f9c",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "cmd/internal/workerhost": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/handoff/bend/LAWS.bend"
+      ],
+      "source_sha256": "1c67c96ee2047d005b0e5c759cbcfdd1c8272fc3a6d43f21183d118e435d3a7f",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "cmd/internal/workerproto": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "d92991f63864fd877716e96cc9e06e09425b93adce306ee5a0be2fb86d197aa9",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/internal/workerruntime": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/handoff/bend/LAWS.bend",
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "e1062a932dd8b5c4b1768f3dcf8f7ff48aa61002471b3d7d7c3ba5a52f5cb654",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "cmd/internal/xdgpath": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "afaeeb9d284a3c68d5290b4320b3a8cfc2bd7e759e09359cd754a7166dbbc42a",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-runner": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "f905bf523218a2cf7048a8fea0dd720d58e8fa04ba8e3c0e80660431357cf034",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-tui": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "005644487e8e56051d67a4098e90328e6049b4e5d395019ddf40e4323955f24c",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-tui/internal/filesearch": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "162420f55b5197c43b888abb94f4a4340a6679553fa07fc1f76fe340b34d290d",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-tui/internal/reasoning": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "fa4aa8c6a61245e214b7acb46f62b22877f761cf5169002f1481fa0d8db44fe6",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-tui/internal/runcontrol": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "e6d630fddcd8d76cd265647650eecbc99e58164f79c521a9069ffe5c62980458",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "cmd/unreal-agent-tui/internal/terminaltext": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "821d82a78dc285d5f83680d61435718219df0fd198d5a325f48c7efe2587dc38",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/contextbuilder": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "a199f302bbcb7f9a411090836edff408c2042399830d125e6fcb1ec451cc303a",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/coordinator": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/coordinator-dispatch/bend/LAWS.bend",
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "942ad6edb0ee952ce77045463f1683e68ab7cd04a540b15bbcd83b471b3b1daa",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "harness/executionbudget": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "11fbc145e2e60a4d542927fc965f3e20a637977630ed846a9f34c2a6eb614409",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/extension": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "910884bf012edcb60f46475fbe87f6876ad7b1ed96721f020e911780cdb5829b",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/inbox": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/handoff/bend/LAWS.bend"
+      ],
+      "source_sha256": "1b27d6c068d6619690af52fe24d5d16d6d47ee939db0a37d535dfcd8d3c25332",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "harness/ingress": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/handoff/bend/LAWS.bend"
+      ],
+      "source_sha256": "3b71fea279753588e3090a44abbf0969aab30f5f465181dc9986dd8bc13a4432",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "harness/llm": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "7d7c6362f56e67dcf6da07620a58eaf6ce54df1d930c26d1d9b782001f039c37",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "harness/llm/clients/anthropic": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "f3ff561f7200a8f6a454b21086c02b53da7cca3a054db11eef79f8d2cfcee6f6",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/clients/fireworks": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "7098a2728dfda2919b62d1ce2dfffa974d6da4f59b178b29f2aedf11d181d109",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/clients/ollama": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "54cf6689eb6027e9f1cabbd4c8cae1ab3fc7d49f2f1d6ba5c9c8e1c60bdeaa36",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/clients/openai": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "d1f36f87a0cafe6c9d2043a611e3e306099fdd61ed59b4d05c3cfab6f8cd5d03",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/clients/openaicodex": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "a858e4790cc6bb44c7355cad35f86cd2c2a27c0ed289e463e9598f9f103db7cf",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/clients/openrouter": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "5245d7cbd1b262f9aeb2c7d09f446e5bfec47390ef5deb559996440e0c099ceb",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/messagesapi": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "d9810b714c2787e971666dab9da3e25755c0a6de3f5fce98edd2e10d2aa81502",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/llm/responsesapi": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "78eff5e34f92a95f474c0599d6eb5033e46bf8e7c6ef62460a03a718cac6e4aa",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/operation": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/operations/bend/LAWS.bend",
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "a0c76a8d10b4fbb7e2ee7895bf5217ac204d093a440846d50080e61270622b64",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "harness/primitives": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "9edd755d73940ae2c0eac5dc3755caf1edd76dcff034e18f808861f6aa62fce9",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/reminder": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "555bb6be3f3c4e67d4517fc3a131be61a5eeec07582215464b26b23a0e0a79cf",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/session": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "83ae9f955ed41cee667198104f2df0a77d9fdb6d972c61cd2386c050b56d82b3",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/sessionstore": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "edfb740b80fbece7a6bc01ebcb382d7fbfe37e1fb8456f80e70399f0b098815d",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/sessionstore/localfile": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "34f388752136f129835c43d1cd509c651a3802e1412c602ebcc04b23f1756ca7",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "harness/settings": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "18cfbd984ad6ae9888b4edb866417c17819f10a1468d92cc982c123c11a7ecaf",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/taskgraph": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/taskgraph/bend/LAWS.bend",
+        "docs/formal/implementation/enums/LAWS.bend"
+      ],
+      "source_sha256": "ea0c917a64e5e78267567ce9c47b4a15cbf7b48c90bf34782e5382282c333560",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "harness/tool": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "33fc05d67c312d80c7eaf79634d0f8080589107662a999cf297ee630ee6fcf1b",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/tool/bash": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "737e6f941eac8129187040fe3e4138aa57655e1066f6ed6ee91b1bcc8eb36954",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/tool/subagent": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "0a43c8220031f5babf280e4c2e72548dcf700036dba9f93ef5f9df72c610338a",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/tool/taskgraph": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "cb329fbbd7434b9e4e6dc298ec019e6d696ab116550e5d4c692d06b52b7d624c",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/tool/trustedextension": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "34a3ea35ce8661865680b77c6e8ff6930ae3085ec091a24e88e4f70658de3dd6",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "harness/tool/viewimage": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "7d01e249ac5c3c6beb72c15ec37b7a144b975c8408a3f0171286d5b79abcd73a",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "internal/anthropicapi": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/implementation/api-enums/LAWS.bend"
+      ],
+      "source_sha256": "66fb844bc4ec642da8adaece529e6c0f4a0abd743c75de5d21c1cba41fa0dfdc",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "internal/apijson": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "ddd2fc08b6fbb640803f408dedca31eae8ec6a3866dc6b924fbee9544b677c05",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "internal/jsonoptions": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "4d676c166de00d620981d02bbefc48fd70a67fabff028d5b5dea21cbaf620b74",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "internal/openaiapi": {
+      "status": "model-only",
+      "models": [
+        "docs/formal/implementation/api-enums/LAWS.bend"
+      ],
+      "source_sha256": "9a0b739c07d77478db44cd633edf2abc0364a25fc5c74122d8c670303d9e1347",
+      "gap": "Selected predicate bodies have source-linked contracts under a trusted restricted Go frontend. Remaining bodies, initialization, Go/compiler/runtime and environment refinement are unproved; no whole-package proof."
+    },
+    "internal/testtmp": {
+      "status": "unproved",
+      "models": [],
+      "source_sha256": "a3ffd87fc0d65e7452f027125654e66989424f8c20e583af59f500f849bdc62c",
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed."
+    },
+    "review/findings": {
+      "status": "model-with-tests",
+      "models": [
+        "docs/formal/review/LAWS.bend"
+      ],
+      "source_sha256": "7efdde0f83f44c4cbd799cce58fa296d865c767faee7bc972960ebf35d88cb8d",
+      "gap": "No Bend proof that this Go implementation refines the model; scope is partial. Tests, where present, are not equivalence proofs."
+    },
+    "tools/formal/apienums": {
+      "status": "unproved",
+      "models": [],
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed.",
+      "source_sha256": "1c203db89f73bd729cd01d2dc1c93b312559b7705726ac4c22f0f8549e5ccf42"
+    },
+    "tools/formal/gosource": {
+      "status": "unproved",
+      "models": [],
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed.",
+      "source_sha256": "76ae68720a40ff443b943bd23ca1e88dc8bb6e498fb475b85c60475b8996195e"
+    },
+    "tools/formal/inventory": {
+      "status": "unproved",
+      "models": [],
+      "gap": "No Bend implementation-refinement proof; laws and correspondence remain to be developed.",
+      "source_sha256": "e46ea0d94fd279e9d68a1b15ff1ec0838de1eb0c0209f5be567f88b629bfda21"
+    }
+  }
+}

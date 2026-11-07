@@ -1,5 +1,9 @@
 # Worker reload / handoff models
 
+> Bend 2 is now the authoritative proof language. See the [project policy](../README.md)
+> and [Bend proof slice and migration limits](bend/README.md). This legacy
+> evidence remains supplemental; full equivalence/replacement is not claimed.
+
 Two complementary, **abstract** developments of the resident-worker protocol:
 
 - [`lean/`](lean/) proves I1/I2 for every state reachable in its transition
